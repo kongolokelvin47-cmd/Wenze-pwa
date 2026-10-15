@@ -1,0 +1,16 @@
+{
+  "name": "WENZE WENZE",
+  "short_name": "WENZE",
+  "description": "Marché en ligne RDC",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#16a34a",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3081/3081840.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
