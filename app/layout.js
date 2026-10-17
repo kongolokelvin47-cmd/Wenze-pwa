@@ -1,8 +1,7 @@
-import "./globals.css";
-
 export const metadata = {
-  title: "WENZE-WENZE - Éveil de la Conscience",
-  description: "Plateforme d'éducation et transformation Kinshasa",
+  title: "WENZE-WENZE - Votre plateforme, vos solutions",
+  description: "Boutique, Livraison, Paiement sécurisé à Kinshasa",
+  viewport: "width=device-width, initial-scale=1, maximum-scale=1"
 };
 
 export default function RootLayout({ children }) {
