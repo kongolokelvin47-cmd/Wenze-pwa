@@ -2,7 +2,10 @@
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+// FIX 1: Supabase sécurisé - ne plante plus si pas de clés
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabase = supabaseUrl && supabaseKey ? createClient(supabaseUrl, supabaseKey) : null;
 
 const C10 = [
   {id:1, n:'Commerce', ic:'🛍️', full:"Commerce, boutiques et distribution", sous:["Commerce","Gros B2B","Mode","Vente divers"], grad:'from-orange-400 to-red-400', bg:'#FFF0E0'},
@@ -30,9 +33,16 @@ export default function WenzeFusion(){
   const [saving,setSaving]=useState(false);
 
   useEffect(()=>{ checkUser(); fetchData(); },[activeCat]);
-  const checkUser = async()=>{ const {data}=await supabase.auth.getUser(); if(data.user) setUser(data.user); }
+  
+  const checkUser = async()=>{ 
+    if(!supabase) return;
+    const {data}=await supabase.auth.getUser(); 
+    if(data.user) setUser(data.user); 
+  }
   const fetchData = async()=>{
-    let qB=supabase.from('boutiques').select('*'); let qA=supabase.from('annonces').select('*').order('created_at',{ascending:false}).limit(20);
+    if(!supabase){ return; }
+    let qB=supabase.from('boutiques').select('*'); 
+    let qA=supabase.from('annonces').select('*').order('created_at',{ascending:false}).limit(20);
     let qAll=supabase.from('boutiques').select('*');
     if(activeCat){ qB=qB.contains('categories_ids',[activeCat]); qA=qA.contains('categories_ids',[activeCat]); }
     const [b,a,all]=await Promise.all([qB,qA,qAll]);
@@ -43,6 +53,7 @@ export default function WenzeFusion(){
     return {...p,[field]:next.length?next:[1]};
   });
   const createBoutique = async()=>{
+    if(!supabase) return alert('Configure Supabase dans Vercel Env d\'abord');
     if(!bForm.nom) return alert('Nom boutique obligatoire');
     setSaving(true);
     let uid=user?.id;
@@ -52,6 +63,7 @@ export default function WenzeFusion(){
     if(error) alert(error.message); else { alert(`✅ Boutique créée dans ${bForm.categories_ids.length} secteurs!`); setStep('home'); fetchData(); }
   };
   const createAnnonce = async()=>{
+    if(!supabase) return alert('Configure Supabase dans Vercel Env d\'abord');
     if(!aForm.titre||!aForm.prix) return alert('Titre + prix obligatoires');
     if(!allBoutiques.length) return alert('Crée d’abord ta boutique');
     setSaving(true);
@@ -80,7 +92,10 @@ export default function WenzeFusion(){
       <div className="p-6 mt-10 bg-white mx-4 rounded-[20px]">
         <h1 className="font-black text-[20px]">Bienvenue sur Wenze</h1>
         <p className="text-[12px] text-gray-500 mt-1">Connectez-vous pour vendre et acheter</p>
-        <button onClick={async()=>{const {data}=await supabase.auth.signInAnonymously(); setUser(data.user); setStep('home');}} className="w-full mt-6 bg-[#5F2EEA] text-white py-3.5 rounded-full font-bold text-[13px]">Continuer avec compte invité →</button>
+        <button onClick={async()=>{
+          if(!supabase) return alert('Supabase non configuré');
+          const {data}=await supabase.auth.signInAnonymously(); setUser(data.user); setStep('home');
+        }} className="w-full mt-6 bg-[#5F2EEA] text-white py-3.5 rounded-full font-bold text-[13px]">Continuer avec compte invité →</button>
         <button onClick={()=>setStep('home')} className="w-full mt-3 bg-gray-100 py-3 rounded-full text-[12px]">Retour</button>
       </div>
     </div>
@@ -103,7 +118,7 @@ export default function WenzeFusion(){
 
       <div className="bg-white mx-4 mt-3 rounded-[20px] p-4">
         <div className="flex justify-between"><b className="text-[13px]">⚡ Ventes Flash {activeCat?`• ${C10.find(x=>x.id===activeCat).n}`:''} • {annonces.length}</b><span className="text-[10px] text-gray-400">Termine 05:32:14</span></div>
-        <div className="grid grid-cols-2 gap-2.5 mt-3">{annonces.length===0?<div className="col-span-2 grid grid-cols-4 gap-2">{[1,2,3,4].map(i=><div key={i} className="border rounded-xl p-1"><div className="aspect-square bg-gray-100 rounded-lg"></div><p className="text-[9px] font-bold mt-1">Exemple produit</p><p className="text-[10px] font-black">35 000 CDF</p></div>)}</div>:annonces.map(a=><div key={a.id} className="border rounded-[14px] overflow-hidden bg-white"><img src={a.images?.[0]} className="aspect-square object-cover w-full"/><div className="p-2"><p className="text-[11px] font-bold truncate">{a.titre}</p><p className="text-[12px] font-black">{a.prix_cdf} CDF</p></div></div>)}</div>
+        <div className="grid grid-cols-2 gap-2.5 mt-3">{annonces.length===0?<div className="col-span-2 grid grid-cols-4 gap-2">{[1,2,3,4].map(i=><div key={i} className="border rounded-xl p-1"><div className="aspect-square bg-gray-100 rounded-lg"></div><p className="text-[9px] font-bold mt-1">Exemple produit</p><p className="text-[10px] font-black">35 000 CDF</p></div>)}</div>:annonces.map(a=><div key={a.id} className="border rounded-[14px] overflow-hidden bg-white"><img src={a.images?.[0]} className="aspect-square object-cover w-full" alt=""/><div className="p-2"><p className="text-[11px] font-bold truncate">{a.titre}</p><p className="text-[12px] font-black">{a.prix_cdf} CDF</p></div></div>)}</div>
       </div>
 
       <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white border-t flex justify-around py-2.5 px-2 z-40 rounded-t-[18px]">
@@ -116,7 +131,6 @@ export default function WenzeFusion(){
     </div>
   );
 
-  // FORMULAIRES VIOLETS
   return(
     <div className="min-h-screen bg-white max-w-[430px] mx-auto">
       <div className="bg-[#5F2EEA] text-white px-4 py-3 flex items-center gap-3 sticky top-0 z-20"><button onClick={()=>setStep('home')} className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">←</button><b className="text-[14px]">{step==='createBoutique'?'Créer Boutique Multi-Secteurs':'Publier Produit'}</b><div className="ml-auto">{user?<span className="text-[10px] bg-[#FFD233] text-black px-2 py-1 rounded-full">Connecté</span>:<button onClick={()=>setStep('login')} className="bg-white text-[#5F2EEA] px-3 py-1 rounded-full text-[10px] font-bold">Se connecter</button>}</div></div>
@@ -135,4 +149,4 @@ export default function WenzeFusion(){
       </div>
     </div>
   );
-   }
+    }
