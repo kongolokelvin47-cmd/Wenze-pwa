@@ -1,133 +1,132 @@
 'use client';
 import { useState } from 'react';
 
-export default function Etape1(){
+export default function Etape1Pro(){
   const [search,setSearch]=useState('');
-  const [selectedCats,setSelectedCats]=useState([]); // Multi-sélection
+  const [selectedCats,setSelectedCats]=useState([]);
   const [showDetail,setShowDetail]=useState(null);
   
-  const GRANDES_10 = [
-    { id:1, name:'Commerce', full:"Commerce, boutiques et distribution", icon:'🛍️', color:'bg-orange-100', sous:["Commerce et distribution","Commerce de gros B2B","Mode, textile et accessoires","Vente de produits divers"] },
-    { id:2, name:'Agriculture', full:"Agriculture, élevage et agroalimentaire", icon:'🌾', color:'bg-green-100', sous:["Agriculture et cultures","Élevage et pisciculture","Pêche","Transformation agroalimentaire","Vente produits agricoles"] },
-    { id:3, name:'Construction', full:"Construction, immobilier et habitat", icon:'🏗️', color:'bg-yellow-100', sous:["Construction et bâtiment","Immobilier","Architecture","Matériaux","Aménagement"] },
-    { id:4, name:'Technique', full:"Services techniques, réparation et industrie", icon:'🔧', color:'bg-slate-100', sous:["Réparation et maintenance","Automobile","Artisanat","Industrie","Énergie"] },
-    { id:5, name:'Transport', full:"Transport, logistique et mobilité", icon:'🚚', color:'bg-blue-100', sous:["Transport personnes/marchandises","Livraison","Logistique","Déménagement","Mobilité"] },
-    { id:6, name:'Numérique', full:"Numérique, technologie et télécoms", icon:'💻', color:'bg-indigo-100', sous:["Informatique","Dev apps","Télécoms","IA","Maintenance"] },
-    { id:7, name:'Santé', full:"Santé, beauté et bien-être", icon:'💄', color:'bg-pink-100', sous:["Santé/paramédical","Beauté/coiffure","Soins esthétiques","Bien-être","Vétérinaire"] },
-    { id:8, name:'Éducation', full:"Éducation, formation et pro", icon:'🎓', color:'bg-violet-100', sous:["Éducation","Juridique","Comptabilité","Finance/assurance","Services entreprises"] },
-    { id:9, name:'Restauration', full:"Restauration, tourisme et hébergement", icon:'🍽️', color:'bg-red-100', sous:["Restauration","Hôtellerie","Tourisme","Traiteur","Livraison repas"] },
-    { id:10, name:'Services', full:"Services aux particuliers, événementiel et loisirs", icon:'🎉', color:'bg-emerald-100', sous:["Services à domicile","Services particuliers","Événementiel","Culture","Sport/loisirs","Nettoyage"] },
+  const C10 = [
+    { id:1, name:'Commerce', full:"Commerce, boutiques et distribution", icon:'🛍️', color:'from-orange-100 to-orange-200', ring:'ring-orange-300', sous:["Commerce et distribution","Commerce de gros B2B","Mode, textile","Vente divers"] },
+    { id:2, name:'Agriculture', full:"Agriculture, élevage et agroalimentaire", icon:'🌾', color:'from-green-100 to-emerald-200', ring:'ring-green-300', sous:["Agriculture","Élevage/pisciculture","Pêche","Agroalimentaire"] },
+    { id:3, name:'Construction', full:"Construction, immobilier et habitat", icon:'🏗️', color:'from-amber-100 to-yellow-200', ring:'ring-amber-300', sous:["Construction","Immobilier","Architecture","Matériaux"] },
+    { id:4, name:'Technique', full:"Services techniques, réparation et industrie", icon:'🔧', color:'from-slate-100 to-gray-200', ring:'ring-slate-300', sous:["Réparation","Automobile","Artisanat","Industrie"] },
+    { id:5, name:'Transport', full:"Transport, logistique et mobilité", icon:'🚚', color:'from-blue-100 to-sky-200', ring:'ring-blue-300', sous:["Transport","Livraison","Logistique","Déménagement"] },
+    { id:6, name:'Numérique', full:"Numérique, technologie et télécoms", icon:'💻', color:'from-indigo-100 to-violet-200', ring:'ring-indigo-300', sous:["Informatique","Dev apps","Télécoms","IA"] },
+    { id:7, name:'Santé', full:"Santé, beauté et bien-être", icon:'💄', color:'from-pink-100 to-rose-200', ring:'ring-pink-300', sous:["Santé","Beauté/coiffure","Esthétique","Vétérinaire"] },
+    { id:8, name:'Éducation', full:"Éducation, formation et services pro", icon:'🎓', color:'from-violet-100 to-purple-200', ring:'ring-violet-300', sous:["Éducation","Juridique","Comptabilité","Finance"] },
+    { id:9, name:'Restauration', full:"Restauration, tourisme et hébergement", icon:'🍽️', color:'from-red-100 to-orange-200', ring:'ring-red-300', sous:["Restauration","Hôtellerie","Tourisme","Traiteur"] },
+    { id:10, name:'Services', full:"Services aux particuliers et loisirs", icon:'🎉', color:'from-emerald-100 to-teal-200', ring:'ring-emerald-300', sous:["Domicile","Particuliers","Événementiel","Loisirs"] },
   ];
 
-  const toggleCat = (id) => {
-    setSelectedCats(prev => prev.includes(id) ? prev.filter(c=>c!==id) : [...prev, id]);
-  };
+  const toggle = (id) => setSelectedCats(p=>p.includes(id)?p.filter(c=>c!==id):[...p,id]);
 
   return(
-    <div className="min-h-screen bg-[#f5f5f5] max-w-[420px] mx-auto">
+    <div className="min-h-screen bg-[#f6f6f7] max-w-[420px] mx-auto text-black antialiased">
       
-      {/* HEADER */}
-      <div className="bg-white px-3 py-2.5 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+      {/* HEADER PREMIUM */}
+      <div className="bg-white/90 backdrop-blur-xl px-4 py-3 flex items-center justify-between sticky top-0 z-20 border-b border-black/[0.04]">
+        <div className="flex items-center gap-2.5">
+          <div className="bg-black text-white font-black px-3 py-1.5 rounded-xl text-[12px] leading-[12px] tracking-tighter">WENZE<br/>WENZE</div>
+          <div><p className="text-[11px] font-black tracking-widest">BUSINESS</p><p className="text-[9px] text-gray-400 -mt-1">10 SECTEURS</p></div>
+        </div>
         <div className="flex items-center gap-2">
-          <div className="bg-[#FF6A00] text-white font-black px-2.5 py-1 rounded-lg text-[11px] leading-[11px]">WENZE<br/>WENZE</div>
-          <span className="text-[10px] text-gray-400">BUSINESS</span>
-        </div>
-        <div className="flex items-center gap-3 text-[16px]"><span>🔔</span><span>🛒</span><span>💬</span></div>
-      </div>
-
-      {/* SEARCH */}
-      <div className="bg-white px-3 pb-3">
-        <div className="bg-[#f1f1f1] rounded-full flex items-center px-4 py-2.5 gap-2">
-          <span className="text-gray-400">🔍</span>
-          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Que recherchez-vous ?" className="bg-transparent flex-1 outline-none text-[13px] placeholder:text-gray-400" />
-          <div className="bg-[#7B61FF] w-7 h-7 rounded-full flex items-center justify-center text-white text-[12px]">🔍</div>
+          <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-[14px]">🔔</div>
+          <div className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center text-[14px]">🛒</div>
         </div>
       </div>
 
-      {/* HERO */}
-      <div className="px-3">
-        <div className="bg-gradient-to-r from-[#FFF7E6] to-[#FFEFD0] rounded-2xl p-4 flex justify-between items-center relative overflow-hidden">
-          <div className="z-10">
-            <h1 className="font-black text-[17px] leading-5 text-black">Wenze Wenze<br/>Achetez, Vendez,<br/>Grandissez!</h1>
-            <p className="text-[11px] text-gray-600 mt-1.5 leading-3">Tout ce dont vous avez<br/>besoin, livré chez vous.</p>
-            <button className="bg-[#FFB800] text-black font-bold text-[11px] px-4 py-2 rounded-full mt-3">Découvrir maintenant →</button>
+      {/* SEARCH NEOMORPHIC */}
+      <div className="bg-white px-4 py-3">
+        <div className="bg-[#f2f2f3] rounded-[14px] flex items-center px-4 py-3 gap-3 shadow-inner">
+          <span className="text-gray-400 text-[16px]">⌕</span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Que recherchez-vous à Kinshasa ?" className="bg-transparent flex-1 outline-none text-[13px] font-medium placeholder:text-gray-400" />
+          <div className="bg-black text-white w-8 h-8 rounded-full flex items-center justify-center text-[13px]">→</div>
+        </div>
+      </div>
+
+      {/* HERO PREMIUM - BLACK & GOLD */}
+      <div className="px-4 mt-1">
+        <div className="bg-black rounded-[22px] p-[1px]">
+          <div className="bg-gradient-to-br from-[#1a1a1a] to-black rounded-[21px] p-5 flex justify-between items-center overflow-hidden relative">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-[#D4A017]/20 blur-[30px] rounded-full"></div>
+            <div className="z-10">
+              <div className="inline-flex bg-[#D4A017]/20 border border-[#D4A017]/30 px-2 py-0.5 rounded-full text-[8px] text-[#D4A017] font-bold tracking-widest mb-2">NOUVEAU • WENZE WENZE</div>
+              <h1 className="font-black text-[20px] leading-[19px] text-white tracking-tight">Achetez.<br/>Vendez.<br/><span className="text-[#D4A017]">Grandissez.</span></h1>
+              <p className="text-[10px] text-white/50 mt-2 leading-3">Tout Kinshasa dans votre<br/>poche. Livré en 24h.</p>
+              <button className="bg-white text-black font-bold text-[11px] px-4 py-2 rounded-full mt-3 tracking-wide">Explorer →</button>
+            </div>
+            <div className="w-[110px] h-[110px] bg-gradient-to-br from-white to-gray-200 rounded-[20px] flex items-center justify-center text-[55px] z-10 rotate-3 shadow-2xl">🛒</div>
           </div>
-          <div className="w-[90px] h-[90px] bg-white rounded-full flex items-center justify-center text-[45px] z-10 shadow-sm">👩🏾‍💼</div>
         </div>
       </div>
 
-      {/* 10 CATEGORIES GRID - AVEC MULTI-SELECTION */}
-      <div className="bg-white mt-3 mx-3 rounded-2xl p-4">
-        <div className="flex justify-between items-center mb-3">
-          <b className="text-[12px]">Les 10 secteurs WENZE</b>
-          {selectedCats.length>0 && <span className="bg-[#FF6A00] text-white px-2 py-0.5 rounded-full text-[9px] font-bold">{selectedCats.length} sélectionnés</span>}
+      {/* 10 CATEGORIES - DESIGN AMELIORE */}
+      <div className="bg-white mt-4 mx-4 rounded-[20px] p-5 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
+        <div className="flex justify-between items-center">
+          <div><b className="text-[14px] tracking-tight">Les 10 secteurs</b><p className="text-[10px] text-gray-400 -mt-1">Cliquez plusieurs fois si polyvalent</p></div>
+          {selectedCats.length>0 && <div className="bg-black text-white px-3 py-1 rounded-full text-[10px] font-bold">{selectedCats.length} • actifs</div>}
         </div>
         
-        <div className="grid grid-cols-5 gap-y-4 gap-x-1">
-          {GRANDES_10.map((cat) => (
-            <button 
-              key={cat.id} 
-              onClick={()=>toggleCat(cat.id)}
-              onDoubleClick={()=>setShowDetail(showDetail===cat.id?null:cat.id)}
-              className="flex flex-col items-center gap-1.5 relative"
-            >
-              <div className={`w-[52px] h-[52px] ${cat.color} rounded-full flex items-center justify-center text-[22px] border-2 ${selectedCats.includes(cat.id) ? 'border-[#FF6A00] scale-105' : 'border-transparent'} transition-all`}>
+        <div className="grid grid-cols-5 gap-y-5 gap-x-2 mt-5">
+          {C10.map(cat=>(
+            <button key={cat.id} onClick={()=>toggle(cat.id)} onDoubleClick={()=>setShowDetail(showDetail===cat.id?null:cat.id)} className="group flex flex-col items-center gap-2">
+              <div className={`w-[58px] h-[58px] rounded-[18px] bg-gradient-to-br ${cat.color} flex items-center justify-center text-[26px] relative transition-all duration-300 ${selectedCats.includes(cat.id) ? `ring-2 ${cat.ring} scale-105 shadow-lg` : 'group-active:scale-95'}`}>
                 {cat.icon}
-                {selectedCats.includes(cat.id) && <span className="absolute top-0 right-1 bg-[#FF6A00] text-white w-4 h-4 rounded-full text-[8px] flex items-center justify-center">✓</span>}
+                {selectedCats.includes(cat.id) && <div className="absolute -top-1 -right-1 w-5 h-5 bg-black text-white rounded-full text-[10px] flex items-center justify-center font-bold shadow-md">✓</div>}
               </div>
-              <span className={`text-[8px] font-medium text-center leading-[9px] ${selectedCats.includes(cat.id) ? 'text-[#FF6A00] font-black' : 'text-gray-700'}`}>
-                {cat.name}
-              </span>
+              <span className={`text-[9px] font-bold text-center leading-[10px] tracking-tight ${selectedCats.includes(cat.id)?'text-black':'text-gray-500'}`}>{cat.name}</span>
             </button>
           ))}
         </div>
 
-        {/* Détail sous-catégories si on clique */}
+        {/* DETAIL GLASS */}
         {showDetail && (
-          <div className="mt-4 p-3 bg-gray-50 rounded-xl">
-            <b className="text-[11px]">{GRANDES_10.find(c=>c.id===showDetail).full}</b>
-            <div className="flex flex-wrap gap-1 mt-2">
-              {GRANDES_10.find(c=>c.id===showDetail).sous.map(s=>(
-                <span key={s} className="bg-white border text-[8px] px-2 py-1 rounded-full">{s}</span>
+          <div className="mt-5 p-4 bg-[#f8f8f8] rounded-[16px] border border-black/[0.04] animate-in">
+            <b className="text-[11px]">{C10.find(c=>c.id===showDetail).full}</b>
+            <div className="flex flex-wrap gap-1.5 mt-2.5">
+              {C10.find(c=>c.id===showDetail).sous.map(s=>(
+                <span key={s} className="bg-white border border-black/5 text-[9px] font-medium px-2.5 py-1 rounded-full shadow-sm">{s}</span>
               ))}
             </div>
+            <button onClick={()=>setShowDetail(null)} className="mt-3 text-[9px] text-gray-400">Fermer ✕</button>
           </div>
         )}
 
-        {/* Bande multi-sélection pour pro */}
+        {/* BANDEAU MULTI-SELECT PREMIUM */}
         {selectedCats.length>0 && (
-          <div className="mt-4 p-3 bg-[#0F3D2E] rounded-xl">
-            <p className="text-[10px] text-white font-bold">✅ Votre boutique sera visible dans {selectedCats.length} secteur(s):</p>
-            <div className="flex flex-wrap gap-1 mt-2">
+          <div className="mt-5 rounded-[16px] bg-black p-4 text-white relative overflow-hidden">
+            <div className="absolute right-0 top-0 w-20 h-20 bg-[#D4A017]/30 blur-2xl"></div>
+            <p className="text-[11px] font-bold tracking-wide z-10 relative">✓ Visible dans {selectedCats.length} secteur(s)</p>
+            <div className="flex flex-wrap gap-1.5 mt-3 z-10 relative">
               {selectedCats.map(id=>{
-                const c=GRANDES_10.find(x=>x.id===id);
-                return <span key={id} className="bg-[#D4A017] text-black text-[8px] px-2 py-1 rounded-full font-bold">{c.icon} {c.name}</span>
+                const c=C10.find(x=>x.id===id);
+                return <span key={id} className="bg-white text-black text-[9px] px-3 py-1.5 rounded-full font-bold flex items-center gap-1">{c.icon} {c.name}</span>
               })}
             </div>
-            <p className="text-[8px] text-gray-300 mt-2">Astuce: Double-cliquez une icône pour voir les sous-activités</p>
+            <button className="w-full mt-4 bg-[#D4A017] text-black py-3 rounded-full font-black text-[12px] tracking-wide">CONTINUER AVEC {selectedCats.length} SECTEUR(S) →</button>
+            <p className="text-[8px] text-white/40 text-center mt-2">Double-clic = voir sous-catégories</p>
           </div>
         )}
       </div>
 
-      {/* WENZE VIDEO PREVIEW */}
-      <div className="bg-white mt-3 mx-3 rounded-2xl p-3">
-        <div className="flex justify-between items-center">
-          <b className="text-[13px]">Wenze Vidéo</b>
-          <span className="text-[11px] text-[#FF6A00]">Bientôt →</span>
+      {/* FOOTER HINT */}
+      <div className="px-4 mt-4 mb-2">
+        <div className="bg-[#D4A017]/10 border border-[#D4A017]/20 rounded-full px-4 py-2.5 flex items-center gap-2">
+          <span className="text-[12px]">💡</span><p className="text-[10px] font-medium">Un pro polyvalent? Cochez Commerce + Transport + Restauration, vous serez trouvé partout.</p>
         </div>
-        <p className="text-[10px] text-gray-400 mt-1">Cliquez plusieurs catégories si vous faites plusieurs activités</p>
       </div>
 
-      {/* BOTTOM NAV */}
-      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[420px] bg-white border-t flex justify-around py-2">
-        <div className="flex flex-col items-center text-[#FF6A00]"><span>🏠</span><span className="text-[9px] mt-1 font-bold">Accueil</span></div>
-        <div className="flex flex-col items-center text-gray-400"><span>🏷️</span><span className="text-[9px] mt-1">Catégories</span></div>
-        <div className="flex flex-col items-center"><div className="bg-[#FF6A00] w-9 h-9 rounded-full flex items-center justify-center text-white text-[20px] -mt-1">+</div><span className="text-[9px] mt-1 text-gray-400">Vendre</span></div>
-        <div className="flex flex-col items-center text-gray-400"><span>🛒</span><span className="text-[9px] mt-1">Panier</span></div>
-        <div className="flex flex-col items-center text-gray-400"><span>👤</span><span className="text-[9px] mt-1">Compte</span></div>
+      {/* BOTTOM NAV FLOATING */}
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 w-[90%] max-w-[380px] bg-black rounded-full flex justify-around items-center py-2.5 px-2 shadow-2xl z-30">
+        <div className="w-9 h-9 bg-white rounded-full flex items-center justify-center text-[16px]">🏠</div>
+        <div className="text-white/40 text-[18px]">⌕</div>
+        <div className="bg-[#D4A017] w-11 h-11 rounded-full flex items-center justify-center text-black text-[22px] font-bold shadow-lg">+</div>
+        <div className="text-white/40 text-[18px]">▶</div>
+        <div className="text-white/40 text-[18px]">👤</div>
       </div>
 
-      <div className="h-[80px]"></div>
+      <div className="h-[90px]"></div>
     </div>
   );
-    }
+        }
