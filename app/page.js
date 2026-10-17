@@ -1,102 +1,84 @@
 'use client';
 import { useState } from 'react';
 
-// FONCTION DE COMPRESSION AVANT ENVOI DB
-async function compressImage(file, maxWidth = 800, quality = 0.7) {
-  return new Promise((resolve) => {
-    const img = new Image();
-    const canvas = document.createElement('canvas');
-    const reader = new FileReader();
-    reader.onload = (e) => { img.src = e.target.result; };
-    img.onload = () => {
-      let width = img.width;
-      let height = img.height;
-      if (width > maxWidth) {
-        height = (height * maxWidth) / width;
-        width = maxWidth;
-      }
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
-      canvas.toBlob((blob) => {
-        resolve(new File([blob], file.name, { type: 'image/jpeg' }));
-      }, 'image/jpeg', quality);
-    };
-    reader.readAsDataURL(file);
-  });
-}
+const compress = (file) => new Promise(res=>{
+  const img=new Image(), c=document.createElement('canvas'), r=new FileReader();
+  r.onload=e=>img.src=e.target.result; img.onload=()=>{
+    let w=img.width,h=img.height; if(w>800){h=h*800/w;w=800}
+    c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);
+    c.toBlob(b=>res(new File([b],file.name,{type:'image/jpeg'})),'image/jpeg',0.7);
+  }; r.readAsDataURL(file);
+});
 
-export default function WenzeWenze() {
-  const [preview, setPreview] = useState(null);
-
-  const handleUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    // COMPRESSION AVANT DB
-    const compressed = await compressImage(file);
-    console.log(`Original: ${(file.size/1024).toFixed(0)}KB -> Compressé: ${(compressed.size/1024).toFixed(0)}KB`);
-    const url = URL.createObjectURL(compressed);
-    setPreview(url);
-    // ICI: envoie `compressed` à ta DB (Supabase/Firebase)
-  };
-
-  return (
-    <div style={{minHeight:'100vh', background:'#FFFBF0'}}>
-      {/* HEADER AVEC LOGO RESPONSIVE */}
-      <header style={{background:'#0F3D2E', padding:'12px 16px', display:'flex', alignItems:'center', justifyContent:'space-between', position:'sticky', top:0, zIndex:10}}>
-        <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
-          <div style={{width:'36px', height:'36px', background:'#fff', borderRadius:'8px', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:'900', color:'#0F3D2E'}}>W</div>
-          <span style={{color:'#D4A017', fontWeight:'800'}}>WENZE-WENZE</span>
-        </div>
-        <div style={{background:'#fff', borderRadius:'20px', padding:'6px 12px', display:'flex', gap:'8px', flex:1, maxWidth:'60%', marginLeft:'12px'}}>
-          <span>🔍</span><input placeholder="Rechercher produits..." style={{border:'none', outline:'none', width:'100%', fontSize:'13px'}} />
-        </div>
-      </header>
-
-      {/* LOGO HERO - BIEN ENCADRÉ, JAMAIS COUPÉ */}
-      <div className="logo-container" style={{background:'white', padding:'16px', display:'flex', justifyContent:'center'}}>
-        <img 
-          src="/logo.png" 
-          alt="WENZE-WENZE"
-          style={{maxWidth:'360px', width:'90%', height:'auto', objectFit:'contain'}}
-          onError={(e)=>e.target.style.display='none'}
-        />
-      </div>
-
-      {/* TEST UPLOAD AVEC COMPRESSION */}
-      <div style={{padding:'16px'}}>
-        <h3 style={{fontSize:'14px', fontWeight:'700', marginBottom:'8px'}}>Test Upload Produit (avec compression)</h3>
-        <input type="file" accept="image/*" onChange={handleUpload} style={{width:'100%'}} />
-        {preview && (
-          <div style={{marginTop:'12px', background:'white', borderRadius:'12px', padding:'8px'}}>
-            <img src={preview} className="product-image" alt="preview" />
-            <p style={{fontSize:'12px', color:'green', marginTop:'6px'}}>✅ Image compressée et encadrée, prête pour DB</p>
-          </div>
-        )}
-      </div>
-
-      {/* CATÉGORIES - RESPONSIVE GRID */}
-      <div style={{padding:'16px'}}>
-        <div style={{background:'linear-gradient(90deg,#D4A017,#FFD700)', borderRadius:'12px', padding:'14px', textAlign:'center'}}>
-          <b>FLASH SALES • JUSQU'À -50%</b><p style={{fontSize:'12px'}}>Offres limitées aujourd'hui</p>
-        </div>
-        
-        <h4 style={{marginTop:'16px', fontWeight:'700'}}>Produits populaires • Près de Kinshasa</h4>
-        <div style={{display:'grid', gridTemplateColumns:'repeat(2, 1fr)', gap:'12px', marginTop:'12px'}}>
-          {[1,2].map(i=>(
-            <div key={i} style={{background:'white', borderRadius:'12px', padding:'8px'}}>
-              <img src="/logo.png" className="product-image" alt="produit" />
-              <p style={{fontSize:'12px', fontWeight:'600', marginTop:'6px'}}>Produit WENZE-WENZE</p>
-              <p style={{fontSize:'13px', color:'#0F3D2E', fontWeight:'800'}}>45 000 CDF</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <footer style={{textAlign:'center', padding:'20px', fontSize:'11px', opacity:0.6}}>
-        WENZE-WENZE • Paiement sécurisé • Livraison Kinshasa, Lubumbashi, Bukavu
-      </footer>
+const Logo = () => (
+  <div style={{width:'100%',maxWidth:'340px',background:'#0F3D2E',borderRadius:'14px',padding:'14px',display:'flex',alignItems:'center',gap:'10px'}}>
+    <div style={{width:'44px',height:'44px',background:'#fff',borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:'900',color:'#0F3D2E',fontSize:'22px'}}>W</div>
+    <div>
+      <div style={{color:'#D4A017',fontWeight:'900',fontSize:'15px',lineHeight:'1'}}>WENZE-WENZE-BUSINESS</div>
+      <div style={{color:'#fff',fontSize:'9px',opacity:0.9}}>Votre plateforme, vos solutions</div>
     </div>
-  );
-    }
+  </div>
+);
+
+export default function Business(){
+  const [tab,setTab]=useState('Accueil');
+  const [panier,setPanier]=useState([]);
+  const produits=[
+    {id:1,nom:'Écouteurs Bluetooth Pro',prix:'45 000 CDF'},
+    {id:2,nom:'Montre Connectée',prix:'62 500 CDF'},
+  ];
+
+  return(
+    <div style={{minHeight:'100vh',background:'#FFFBF0',paddingBottom:'70px'}}>
+      <div style={{background:'#0F3D2E',padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',position:'sticky',top:0,zIndex:20}}>
+        <b style={{color:'#D4A017',fontSize:'14px'}}>WENZE-WENZE-BUSINESS</b>
+        <span style={{background:'#D4A017',padding:'4px 10px',borderRadius:'20px',fontSize:'12px',fontWeight:'700'}}>🛒 {panier.length}</span>
+      </div>
+
+      {tab==='Accueil' && (
+        <div style={{padding:'12px'}}>
+          <div style={{display:'flex',justifyContent:'center',padding:'8px'}}>
+            <Logo />
+          </div>
+          {/* VRAI LOGO IMAGE - SI IL EXISTE IL S'AFFICHE, SINON LE LOGO CI-DESSUS RESTE */}
+          <div style={{display:'flex',justifyContent:'center',marginTop:'8px'}}>
+            <img src="/logo.png" alt="" style={{width:'90%',maxWidth:'340px',height:'auto',objectFit:'contain',display:'block'}} onError={e=>e.target.style.display='none'} />
+          </div>
+
+          <div style={{marginTop:'12px',background:'linear-gradient(90deg,#D4A017,#FFD700)',borderRadius:'10px',padding:'12px',textAlign:'center',fontWeight:'800',fontSize:'14px'}}>FLASH SALES • JUSQU'À -50%<div style={{fontWeight:'400',fontSize:'12px'}}>Offres limitées aujourd'hui</div></div>
+
+          <h4 style={{marginTop:'14px',fontWeight:'800',fontSize:'14px'}}>Produits populaires • Près de Kinshasa</h4>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginTop:'10px'}}>
+            {produits.map(p=>(
+              <div key={p.id} style={{background:'#fff',borderRadius:'12px',padding:'8px',border:'1px solid #eee'}}>
+                <div style={{width:'100%',aspectRatio:'1/1',background:'#f7f7f7',borderRadius:'8px',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'32px'}}>🎧</div>
+                <p style={{fontSize:'12px',fontWeight:'600',marginTop:'6px'}}>{p.nom}</p>
+                <p style={{fontSize:'13px',fontWeight:'800',color:'#0F3D2E'}}>{p.prix}</p>
+                <button onClick={()=>setPanier([...panier,p])} style={{width:'100%',marginTop:'6px',background:'#0F3D2E',color:'#D4A017',border:'none',padding:'8px',borderRadius:'8px',fontWeight:'700'}}>Ajouter</button>
+              </div>
+            ))}
+          </div>
+
+          <div style={{marginTop:'14px',background:'#fff',borderRadius:'12px',padding:'12px'}}>
+            <b style={{fontSize:'13px'}}>Test Upload (compression auto avant DB)</b>
+            <input type="file" accept="image/*" onChange={async e=>{
+              const f=e.target.files[0]; if(!f) return;
+              const c=await compress(f);
+              alert(`✅ Compressé: ${(f.size/1024).toFixed(0)}KB → ${(c.size/1024).toFixed(0)}KB\nPrêt pour envoi DB!`);
+            }} style={{width:'100%',marginTop:'8px',fontSize:'13px'}} />
+          </div>
+        </div>
+      )}
+
+      {tab==='Boutiques' && <div style={{padding:'16px'}}><h3>Boutiques vérifiées</h3><div style={{background:'#fff',padding:'12px',borderRadius:'10px',marginTop:'10px'}}>TechHub Kinshasa - Livraison 24h</div></div>}
+      {tab==='Video' && <div style={{padding:'16px'}}><div style={{background:'#000',color:'#fff',borderRadius:'12px',padding:'60px 20px',textAlign:'center'}}>Wenze Video • Démo produit<br/>Ajout panier direct</div></div>}
+      {tab==='Panier' && <div style={{padding:'16px'}}><h3>Panier ({panier.length})</h3>{panier.map((p,i)=><div key={i} style={{background:'#fff',padding:'10px',borderRadius:'8px',marginTop:'8px'}}>{p.nom} - {p.prix}</div>)} {panier.length>0 && <button style={{width:'100%',marginTop:'12px',background:'#D4A017',padding:'14px',border:'none',borderRadius:'10px',fontWeight:'800'}}>Commander • Paiement sécurisé</button>}</div>}
+
+      <div style={{position:'fixed',bottom:0,left:0,right:0,background:'#0F3D2E',display:'flex',justifyContent:'space-around',padding:'8px 0',borderTop:'1px solid #1a5a44'}}>
+        {['Accueil','Boutiques','Video','Panier'].map(t=>(
+          <button key={t} onClick={()=>setTab(t)} style={{background:tab===t?'#D4A017':'transparent',color:tab===t?'#0F3D2E':'#fff',border:'none',padding:'6px 14px',borderRadius:'8px',fontSize:'12px',fontWeight:'800'}}>{t}</button>
+        ))}
+      </div>
+    </div>
+  )
+}
