@@ -1,15 +1,17 @@
-import './globals.css'
+import type { Metadata } from "next";
+import "./globals.css";
 
-export const metadata = {
-  title: "WENZE WENZE BUSINESS - Votre plateforme, vos solutions, vos opportunités",
-  description: "BOUTIQUE - LIVRAISON - PAIEMENT SÉCURISÉ - SERVICE CLIENT - SOLUTIONS PRO à Kinshasa, Lubumbashi, Bukavu",
-  viewport: "width=device-width, initial-scale=1, maximum-scale=1"
+export const metadata: Metadata = {
+  title: "WENZE WENZE BUSINESS - Achetez, Vendez, Gagnez à Kinshasa",
+  description: "Le marketplace qui booste votre business à Kinshasa. Mode, téléphones, beauté, maison. Wenze Video.",
+  manifest: "/manifest.json",
+  themeColor: "#6C3CE0",
 };
 
-export default function RootLayout({ children }) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="fr">
-      <body style={{margin:0}} className="bg-[#FFFBF0]">{children}</body>
+      <body className="bg-gray-50 antialiased">{children}</body>
     </html>
   );
-}
+    }
