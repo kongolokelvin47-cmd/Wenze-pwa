@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { CATEGORIES_WENZE } from "@/lib/categorieswenza"; // <--- SOURCE UNIQUE
+// FIX: import en minuscule qui correspond au vrai fichier sur Vercel
+import { CATEGORIES_WENZE } from "@/lib/categories";
 
 const FLASH = [
   { name: "Casque Bluetooth", price: "32 000 CDF", discount: "-20%", img: "🎧", tel: "243810000000" },
@@ -12,7 +13,7 @@ export default function WenzeBusiness() {
   const [search, setSearch] = useState("");
   
   const getWaLink = (titre: string, prix: string, tel: string) => {
-    const msg = `Bonjour 👋 Je vous contacte depuis WENZE WENZE BUSINESS. Je suis intéressé par: ${titre} à ${prix}. Est-il dispo?`;
+    const msg = `Bonjour 👋 Je vous contacte depuis WENZE WENZE BUSINESS. Je suis intéressé par: ${titre} à ${prix}. Est-il dispo à Kinshasa?`;
     return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
   };
 
@@ -42,7 +43,7 @@ export default function WenzeBusiness() {
         </div>
       </div>
 
-      {/* 10 NOUVELLES CATEGORIES PRO - BRANCHÉ SUR lib/ */}
+      {/* 10 CATEGORIES OFFICIELLES */}
       <section className="px-4">
         <div className="flex justify-between items-center mb-3">
           <h3 className="font-bold">10 Métiers de Kinshasa</h3>
@@ -54,7 +55,7 @@ export default function WenzeBusiness() {
               <div className="w-14 h-14 rounded-xl bg-gray-50 border flex items-center justify-center text-2xl group-hover:bg-[#6C3CE0] group-hover:text-white transition">
                 {c.icon}
               </div>
-              <span className="text-[9px] font-bold text-center leading-tight uppercase">{c.titre.split(',')[0]}</span>
+              <span className="text-[9px] font-bold text-center leading-tight uppercase">{c.titreCourt || c.titre.split(',')[0]}</span>
             </Link>
           ))}
         </div>
@@ -72,17 +73,16 @@ export default function WenzeBusiness() {
               <div className="text-5xl text-center py-4">{p.img}</div>
               <p className="font-bold text-[#6C3CE0] text-sm">{p.price}</p>
               <p className="text-xs text-gray-500 truncate">{p.name}</p>
-              {/* INNOVATION WHATSAPP */}
               <a href={getWaLink(p.name, p.price, p.tel)} target="_blank" className="mt-2 w-full bg-[#25D366] text-white text-[11px] font-bold py-2 rounded-full flex justify-center">💬 WhatsApp</a>
             </div>
           ))}
         </div>
       </section>
 
-      <Link href="/abonnement" className="m-4 bg-[#6C3CE0] rounded-xl p-4 text-white flex justify-between items-center block">
+      <Link href="/abonnement" className="m-4 bg-[#6C3CE0] rounded-xl p-4 text-white flex justify-between items-center">
         <div>
           <h4 className="font-bold">Devenez Boutique Pro 👑 + IA</h4>
-          <p className="text-xs opacity-90">15 000 CDF/mois, 0% commission, IA gratuite, bouton WhatsApp</p>
+          <p className="text-xs opacity-90">15 000 CDF/mois, 0% commission, IA gratuite</p>
         </div>
         <span className="bg-[#FF8C00] text-white text-xs font-bold px-4 py-2 rounded-full">Pro 5$</span>
       </Link>
@@ -96,4 +96,4 @@ export default function WenzeBusiness() {
       </nav>
     </div>
   );
-      }
+}
