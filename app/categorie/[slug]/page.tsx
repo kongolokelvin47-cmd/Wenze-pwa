@@ -1,26 +1,47 @@
+// app/categorie/[slug]/page.tsx - VERSION FINALE BRANCHÉE SUR lib/
+import { CATEGORIES_WENZE } from "@/lib/categorieswenza";
+import WhatsappButton from "@/components/WhatsappButton";
 import Link from "next/link";
-const data:any = {
-  commerce: ["Boutiques et magasins","Vendeurs vêtements/chaussures","Vendeurs téléphones","Produits alimentaires","Cosmétiques/parfums","Meubles/électroménagers","Matériaux construction","Pièces détachées","Supermarchés","Grossistes"],
-  beaute: ["Salon coiffure femme","Salon coiffure homme","Barbiers","Coiffeur à domicile","Salon beauté","Pédicure/Manicure","Maquilleurs","Prothésiste ongulaire","Esthéticiens","Masseurs"],
-  construction: ["Maçons","Plombiers","Électriciens","Menuisiers","Soudeurs","Peintres bâtiment","Carreleurs","Mécaniciens","Réparateurs téléphones/ordi","Climatisation/Panneaux solaires"],
-  immobilier: ["Agences immobilières","Agents","Locations","Vente maisons/parcelles","Appartements/Chambres","Gestionnaires","Promoteurs","Rénovation"],
-  agriculture: ["Agriculteurs","Maraîchers","Éleveurs poulets/porcs/chèvres","Pisciculteurs/Pêcheurs","Vendeurs produits agricoles","Semences/engrais","Matériel agricole"],
-  transport: ["Chauffeurs taxi/moto-taxi","Transport marchandises","Livreurs/Coursiers","Déménagement","Location voitures/motos","Vente voitures/motos","Garages/Laveurs auto"],
-  restauration: ["Restaurants/Fast-foods","Cuisiniers à domicile/Traiteurs","Nourriture de rue","Pâtisseries/Boulangeries","Cafés/Jus","Livraison repas","Hôtels/Auberges"],
-  informatique: ["Informaticiens/Développeurs","Créateurs sites/Graphistes","Photographes/Vidéastes","Community managers/Marketing digital","Avocats/Comptables","Traducteurs/Recrutement"],
-  "sante-education": ["Cliniques/Cabinets médicaux/dentaires","Infirmiers/Laboratoires","Pharmacies","Écoles/Centres formation","Enseignants/Répétiteurs","Formation couture/coiffure/informatique"],
-  "services-domicile": ["Agents nettoyage/Pressings","Jardiniers/Ménage/Gardiens enfants","Décorateurs/Organisateurs mariages","DJ/Musiciens/Photographes","Location chaises/salles/sono","Coachs sportifs/Salles sport","Couturiers/Artisans/Sécurité"]
-};
-export default function Cat({ params }: { params: { slug: string } }) {
-  const list = data[params.slug] || [];
+import { notFound } from "next/navigation";
+
+export default function PageCategorie({ params }: { params: { slug: string } }) {
+  const categorie = CATEGORIES_WENZE.find(c => c.id === params.slug);
+  
+  if (!categorie) return notFound();
+
   return (
-    <div className="max-w-[430px] mx-auto min-h-screen p-4">
-      <Link href="/" className="text-[#6C3CE0]">← Accueil</Link>
-      <h1 className="text-2xl font-black mt-3 capitalize">{params.slug.replace("-", " ")}</h1>
-      <p className="text-sm text-gray-500">{list.length} activités disponibles</p>
-      <div className="grid gap-2 mt-4">
-        {list.map((it:string)=><Link key={it} href="/boutiques" className="border p-4 rounded-xl bg-white flex justify-between"><span>{it}</span><span>›</span></Link>)}
+    <div className="min-h-screen bg-gray-50 p-4">
+      {/* Header catégorie */}
+      <div className="bg-white rounded-2xl p-6 mb-6 shadow-sm">
+        <h1 className="text-3xl font-black">{categorie.icon} {categorie.titre}</h1>
+        <p className="text-gray-500 mt-2">{categorie.description}</p>
+        <p className="text-sm text-gray-400 mt-1">{categorie.activites.length} activités</p>
       </div>
+
+      {/* Liste des activités de cette catégorie */}
+      <h2 className="font-bold text-lg mb-3">Choisissez une activité:</h2>
+      <div className="grid grid-cols-1 gap-3 mb-24">
+        {categorie.activites.map(act => (
+          <Link
+            key={act.id}
+            href={`/categorie/${categorie.id}/${act.id}`}
+            className="bg-white p-4 rounded-xl flex justify-between items-center shadow-sm hover:shadow-md transition"
+          >
+            <span className="font-medium">{act.label}</span>
+            <span className="text-gray-400">›</span>
+          </Link>
+        ))}
+      </div>
+
+      {/* Retour */}
+      <Link href="/" className="fixed bottom-20 left-4 bg-black text-white px-4 py-2 rounded-full text-sm">
+        ← Accueil
+      </Link>
     </div>
-  )
+  );
 }
+
+// Pour générer les 10 pages statiques automatiquement
+export function generateStaticParams() {
+  return CATEGORIES_WENZE.map(c => ({ slug: c.id }));
+            }
