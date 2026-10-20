@@ -2,46 +2,83 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --wenze-primary: #6C3CE0;
+  --wenze-primary-dark: #5A2FC0;
+  --wenze-bg: #FFFBF0;
+  --wenze-card: #FFFFFF;
+  --wenze-text: #1A1A1A;
+  --wenze-green: #00C950;
+}
+
 * { 
   box-sizing: border-box; 
   margin: 0; 
   padding: 0; 
 }
 
-body { 
-  font-family: system-ui, -apple-system, sans-serif; 
-  background: #FFFBF0; 
+html {
+  scroll-behavior: smooth;
 }
 
+body { 
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+  background: var(--wenze-bg);
+  color: var(--wenze-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Images par défaut - sans !important */
 img {
   max-width: 100%;
   height: auto;
   display: block;
-  object-fit: contain !important;
-  object-position: center;
 }
 
+/* Logo WENZE - contain uniquement ici */
 .logo-container img {
   width: 100%;
   height: auto;
-  object-fit: contain !important;
+  object-fit: contain;
+  object-position: center;
 }
 
+/* Produits - CARRÉ PROPRE comme Jumia */
 .product-image {
   width: 100%;
   aspect-ratio: 1 / 1;
-  object-fit: contain !important;
+  object-fit: cover;
   background: #fff;
   border-radius: 12px;
+}
+
+.product-image.contain {
+  object-fit: contain;
   padding: 8px;
 }
 
+/* Carrousel Wenze Video */
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
 .scrollbar-hide {
   -ms-overflow-style: none;
   scrollbar-width: none;
+}
+
+/* Boutons WENZE - pour tes formules */
+.btn-wenze {
+  background: var(--wenze-primary);
+  color: white;
+  border-radius: 12px;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+.btn-wenze:hover {
+  background: var(--wenze-primary-dark);
+}
+.btn-wenze:active {
+  transform: scale(0.98);
 }
 
 @media (max-width: 768px) {
