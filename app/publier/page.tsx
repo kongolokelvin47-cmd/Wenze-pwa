@@ -3,15 +3,21 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CATEGORIES_WENZE } from "@/lib/categories";
-import { FORMULES, TAUX_CDF, checkFreemiumLimit, verifierAbonnement } from "@/lib/paiement";
+import { FORMULES, TAUX_CDF, checkFreemiumLimit } from "@/lib/paiement";
 
 const comprendreImageLocal = async (base64: string) => {
   await new Promise(r => setTimeout(r, 700));
   return "Photo détectée: bon éclairage, fond clair. Prête pour vente Kinshasa.";
 };
 const genererDescriptionVenteLocal = async (titre: string, caption: string) => {
-  return `🔥 ${titre} - Qualité garantie à Kinshasa! ${caption} Livraison rapide, Mobile Money / ${TAUX_CDF} CDF / $. 0% commission Wenze. Contact WhatsApp direct.`;
+  return `🔥 ${titre} - Qualité garantie! ${caption} Livraison rapide Kinshasa.`;
 };
+
+// ✅ SÉCURITÉ INTÉGRÉE
+const cleanWhatsapp = (num: string) => (num || "").toString().replace(/[^0-9]/g, "");
+const getCurrentUser = () => {
+  try { const raw = localStorage.getItem("wenze_user"); return raw ? JSON.parse(raw) : null; } catch { return null; }
+}
 
 export default function PublierPage() {
   const router = useRouter();
@@ -24,20 +30,12 @@ export default function PublierPage() {
   const [freemiumInfo, setFreemiumInfo] = useState<any>({ peutPublier: true, annoncesRestantes: 3, type: "freemium" });
 
   useEffect(() => {
-    const uRaw = localStorage.getItem("wenze_user");
-    const u = uRaw ? JSON.parse(uRaw) : null;
+    const u = getCurrentUser();
     setUser(u);
     setCount(parseInt(localStorage.getItem("wenze_annonces") || "0"));
     setFreemiumInfo(checkFreemiumLimit());
     if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        p => setForm(f => ({ ...f, lat: p.coords.latitude, lng: p.coords.longitude })),
-        () => {}
-      );
-    }
-    if (u) {
-      const info = checkFreemiumLimit();
-      setFreemiumInfo(info);
+      navigator.geolocation.getCurrentPosition(p => setForm(f => ({ ...f, lat: p.coords.latitude, lng: p.coords.longitude })), () => {});
     }
   }, []);
 
@@ -49,8 +47,7 @@ export default function PublierPage() {
         const img = new window.Image();
         img.onload = () => {
           const c = document.createElement("canvas");
-          const MAX = 800;
-          let w = img.width, h = img.height;
+          const MAX = 800; let w = img.width, h = img.height;
           if (w > h) { if (w > MAX) { h = Math.round(h * MAX / w); w = MAX; } } 
           else { if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; } }
           c.width = w; c.height = h;
@@ -66,9 +63,7 @@ export default function PublierPage() {
   const handleAideIA = async () => {
     if (!photo) { alert("Ajoutez photo d'abord"); return; }
     if (!user || user.type === "client" || user.type === "freemium" || user.estBoutique === false) {
-      alert(`🔒 IA réservée ${FORMULES.pro.nom} ${FORMULES.pro.prix}$`);
-      router.push("/abonnement");
-      return;
+      alert(`🔒 IA réservée Pro ${FORMULES.pro.prix}$`); router.push("/abonnement"); return;
     }
     setLoadingIA(true);
     try {
@@ -76,58 +71,67 @@ export default function PublierPage() {
       setCaptionIA(cap);
       const desc = await genererDescriptionVenteLocal(form.titre || "Produit", cap);
       setForm(f => ({ ...f, description: desc }));
-    } catch (e: any) { alert("Erreur IA: " + e.message); }
+    } catch (e: any) { alert("Erreur IA"); }
     setLoadingIA(false);
   };
 
   const handlePublish = () => {
-    if (!user?.nom) { alert("Créez compte d'abord"); router.push("/inscription"); return; }
-    const info = checkFreemiumLimit();
-    if (!info.peutPublier) {
-      if (info.type === "client") { router.push("/abonnement?type=occasionnel"); return; }
-      if (info.type === "freemium") { router.push("/abonnement"); return; }
+    // 🔒 SÉCURITÉ RENFORCÉE - Un compte ne publie jamais pour autrui
+    const current = getCurrentUser();
+    if (!current || !current.whatsapp) {
+      alert("⛔ Connecte-toi d'abord"); router.push("/inscription"); return;
     }
-    if (!form.titre || !form.prix || !photo) { alert("Titre, prix et photo obligatoires"); return; }
-    if (user.estBoutique === true && !form.categorie) { alert("Choisissez catégorie boutique"); return; }
+    // On force le whatsapp du connecté, jamais un autre
+    const whatsappClean = cleanWhatsapp(current.whatsapp);
+    const telephoneClean = whatsappClean;
+    
+    if (!whatsappClean || whatsappClean.length < 9) {
+      alert("⛔ Numéro WhatsApp invalide dans ton profil"); return;
+    }
 
-    // ✅ INTÉGRATION RECO: WhatsApp = numéro vendeur nettoyé + 1 numéro = 1 compte
-    const whatsappClean = (user.whatsapp || user.telephone || "").toString().replace(/[^0-9]/g, "");
-    const telephoneClean = whatsappClean; // même référence
+    if (!current?.nom) { alert("Créez compte d'abord"); router.push("/inscription"); return; }
+    const info = checkFreemiumLimit();
+    if (!info.peutPublier) { router.push("/abonnement"); return; }
+    if (!form.titre || !form.prix || !photo) { alert("Titre, prix et photo obligatoires"); return; }
+    if (current.estBoutique === true && !form.categorie) { alert("Choisissez catégorie"); return; }
 
     const annonces = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
     const nouvelleAnnonce = {
       id: Date.now(),
       ...form,
       photo,
-      user: user.nom,
-      whatsapp: whatsappClean, // ✅ Numéro vendeur enregistré, sans espaces
+      user: current.nom, // 🔒 Toujours le nom du connecté
+      whatsapp: whatsappClean, // 🔒 Toujours le whatsapp du connecté
       telephone: telephoneClean,
-      type: user.type,
-      profession: user.profession,
+      type: current.type,
+      profession: current.profession,
       categorie: form.categorie,
-      estBoutique: user.estBoutique,
+      estBoutique: current.estBoutique,
       captionIA,
       date: new Date().toISOString(),
       prixCDF: `${form.prix} (Taux ${TAUX_CDF})`,
-      userId: user.id, // ✅ Pour sécurité: un compte ne manipule pas un autre
-      ownerWhatsapp: whatsappClean // ✅ Double sécurité
+      userId: current.id, // 🔒 ID pour bloquer manipulation autre compte
+      ownerWhatsapp: whatsappClean, // 🔒 Double sécurité
+      createdBy: current.id
     };
     
     annonces.push(nouvelleAnnonce);
     localStorage.setItem("wenze_annonces_list", JSON.stringify(annonces));
-    localStorage.setItem("wenze_annonces", String(count + 1));
+    
+    // Compte seulement ses annonces
+    const miennes = annonces.filter((a:any) => cleanWhatsapp(a.ownerWhatsapp||a.whatsapp) === whatsappClean);
+    localStorage.setItem("wenze_annonces", String(miennes.length));
 
-    // ✅ INTÉGRATION RECO: Assure que wenze_user a bien whatsapp clean
-    const updatedUser = { ...user, whatsapp: whatsappClean, telephone: telephoneClean };
+    // Assure user clean
+    const updatedUser = { ...current, whatsapp: whatsappClean, telephone: telephoneClean };
     localStorage.setItem("wenze_user", JSON.stringify(updatedUser));
 
-    // ✅ INTÉGRATION RECO: Met à jour aussi dans wenze_all_users pour 1 numéro = 1 compte
     try {
       const allRaw = localStorage.getItem("wenze_all_users");
       if (allRaw) {
         let all = JSON.parse(allRaw);
         all = all.map((u: any) => {
-          if (u.id === user.id || u.whatsapp?.replace(/[^0-9]/g,"") === whatsappClean) {
+          if (u.id === current.id || cleanWhatsapp(u.whatsapp) === whatsappClean) {
             return { ...u, whatsapp: whatsappClean, telephone: telephoneClean };
           }
           return u;
@@ -136,7 +140,7 @@ export default function PublierPage() {
       }
     } catch {}
 
-    alert(`✅ Publiée! WhatsApp vendeur: ${whatsappClean}`);
+    alert(`✅ Publiée! Vendeur: ${current.nom} (${whatsappClean})`);
     router.push("/profil");
   };
 
@@ -153,40 +157,28 @@ export default function PublierPage() {
       <Link href="/profil" className="text-xs text-[#6C3CE0] font-bold">← Profil</Link>
       <h1 className="text-xl font-black mt-2">Publier Annonce</h1>
       <div className={`p-2 rounded-xl mt-3 text-[10px] flex justify-between ${isClientPerso ? "bg-black text-white" : isFreemium ? "bg-gray-800 text-white" : "bg-[#6C3CE0] text-white"}`}>
-        <span>{isClientPerso ? "CLIENT PERSO" : user.type.toUpperCase()} • {user.whatsapp}</span>
-        <span>{blocked ? "BLOQUÉ" : isFreemium ? `${count}/3 à vie` : "ILLIMITÉ"}</span>
+        <span>🔒 {user.nom} • {user.whatsapp} • ID {user.id?.slice(-4)}</span>
+        <span>{blocked ? "BLOQUÉ" : isFreemium ? `${count}/3` : "ILLIMITÉ"}</span>
       </div>
       {blocked ? (
-        <div className="bg-white border-2 border-red-200 p-4 rounded-2xl mt-4 text-center">
-          <p className="font-black">Limite atteinte</p>
-          <Link href="/abonnement" className="block bg-[#6C3CE0] text-white p-4 rounded-full mt-4 font-bold">Passer Pro</Link>
-        </div>
+        <div className="bg-white border-2 border-red-200 p-4 rounded-2xl mt-4 text-center"><p className="font-black">Limite atteinte</p><Link href="/abonnement" className="block bg-[#6C3CE0] text-white p-4 rounded-full mt-4 font-bold">Passer Pro</Link></div>
       ) : (
         <div className="mt-4 space-y-3">
           <input placeholder="Titre" value={form.titre} onChange={e => setForm({ ...form, titre: e.target.value })} className="w-full border p-3 rounded-xl text-sm bg-white" />
-          <input placeholder={`Prix`} value={form.prix} onChange={e => setForm({ ...form, prix: e.target.value })} className="w-full border p-3 rounded-xl text-sm bg-white" />
+          <input placeholder="Prix" value={form.prix} onChange={e => setForm({ ...form, prix: e.target.value })} className="w-full border p-3 rounded-xl text-sm bg-white" />
           <select value={form.categorie} onChange={e => setForm({ ...form, categorie: e.target.value, activite: "" })} className="w-full border p-3 rounded-xl text-sm bg-white">
-            <option value="">Catégorie</option>
-            {CATEGORIES_WENZE.map((c: any) => <option key={c.id} value={c.id}>{c.icon} {c.titreCourt}</option>)}
+            <option value="">Catégorie</option>{CATEGORIES_WENZE.map((c: any) => <option key={c.id} value={c.id}>{c.icon} {c.titreCourt}</option>)}
           </select>
           <select value={form.activite} onChange={e => setForm({ ...form, activite: e.target.value })} className="w-full border p-3 rounded-xl text-sm bg-white">
-            <option value="">Métier précis...</option>
-            {(catActive?.activites || []).map((a: any) => <option key={a.id} value={a.id}>{a.label}</option>)}
+            <option value="">Métier précis...</option>{(catActive?.activites || []).map((a: any) => <option key={a.id} value={a.id}>{a.label}</option>)}
           </select>
-          <div>
-            <label className="text-[11px] font-bold">Photo adaptée auto</label>
-            <input type="file" accept="image/*" onChange={async e => { const f = e.target.files?.[0]; if (f) setPhoto(await compress(f)); }} className="w-full border p-2 rounded-xl text-xs mt-1 bg-white" />
-            {photo && (
-              <div className="w-full aspect-[4/3] bg-white rounded-xl mt-2 border flex items-center justify-center overflow-hidden p-2">
-                <img src={photo} alt="preview" className="max-w-full max-h-full object-contain" />
-              </div>
-            )}
-          </div>
-          {isPayant ? <button onClick={handleAideIA} className="w-full bg-gradient-to-r from-[#6C3CE0] to-[#FF6B35] text-white p-3 rounded-xl text-sm font-bold">🤖 IA Gratuite</button> : <div className="bg-gray-100 p-3 rounded-xl text-[11px] border">🔒 IA réservée Pro</div>}
+          <div><label className="text-[11px] font-bold">Photo adaptée auto</label><input type="file" accept="image/*" onChange={async e => { const f = e.target.files?.[0]; if (f) setPhoto(await compress(f)); }} className="w-full border p-2 rounded-xl text-xs mt-1 bg-white" />{photo && <div className="w-full aspect-[4/3] bg-white rounded-xl mt-2 border flex items-center justify-center overflow-hidden p-2"><img src={photo} className="max-w-full max-h-full object-contain" /></div>}</div>
+          {isPayant ? <button onClick={handleAideIA} className="w-full bg-gradient-to-r from-[#6C3CE0] to-[#FF6B35] text-white p-3 rounded-xl text-sm font-bold">🤖 IA Gratuite</button> : <div className="bg-gray-100 p-3 rounded-xl text-[11px] border">🔒 IA Pro</div>}
           <textarea placeholder="Description" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="w-full border p-3 rounded-xl text-sm h-24 bg-white" />
-          <button onClick={handlePublish} className="w-full bg-[#6C3CE0] text-white p-4 rounded-full font-bold">Publier • WhatsApp {user.whatsapp}</button>
+          <button onClick={handlePublish} className="w-full bg-[#6C3CE0] text-white p-4 rounded-full font-bold">Publier 🔒 comme {user.nom}</button>
+          <p className="text-[9px] text-center text-gray-500">Sécurité: userId={user.id?.slice(-4)} • whatsapp={user.whatsapp} • Un compte ne publie jamais pour autrui</p>
         </div>
       )}
     </div>
   );
-        }
+  }
