@@ -1,10 +1,10 @@
-// lib/paiement.ts - MODÈLE ÉCONOMIQUE OFFICIEL WENZE BUSINESS - 100% PARFAIT
+// lib/paiement.ts - MODÈLE ÉCONOMIQUE OFFICIEL WENZE BUSINESS - 100% PARFAIT - VERT
 export const TAUX_CDF = 2300;
 export const toCDF = (usd: number) => usd * TAUX_CDF;
 export const toUSD = (cdf: number) => Math.round(cdf / TAUX_CDF);
 
 export const FORMULES = {
-  // minuscule - utilisé par app/page.tsx, publier, inscription, connexion
+  // minuscule - utilisé par app/page.tsx, publier, inscription, connexion, boutiques, profil
   client: { prix: 0, prixUSD: 0, prixCDF: 0, nom: "Client / Acheteur", duree: "À vie", limite: "Recherche illimitée + Contact vendeur + Vente occasionnelle 3$ / 6900 CDF par annonce", annonces: 0 },
   freemium: { prix: 0, prixUSD: 0, prixCDF: 0, nom: "Vendeur Freemium", duree: "À vie", limite: "3 annonces à vie max", annonces: 3 },
   pro: { prix: 5, prixUSD: 5, prixCDF: 11500, nom: "Vendeur Pro", duree: "1 mois", limite: "Illimité + CRM + IA + Boost", annonces: 9999, professions: ["Vendeur boutique","Mécanicien","Salon de coiffure","Électricien","Plombier","Menuisier","Tailleur","Photographe","Restaurateur","Autres petits services"] },
@@ -60,23 +60,23 @@ export const handlePaiement = (type: TypeFormule | TypePub, devise: "$" | "CDF" 
     localStorage.setItem("dernier_paiement", JSON.stringify(paiement));
     localStorage.setItem("est_pro", String(key === "pro" || key === "grossiste"));
 
-    // CORRECTION CRITIQUE: Met à jour wenze_user directement
     try {
       const userRaw = localStorage.getItem("wenze_user");
       if (userRaw) {
         const user = JSON.parse(userRaw);
         if (key === "pro") {
-          user.type = "pro";
-          user.annoncesLimite = 9999;
+          user.type = "pro"; user.annoncesLimite = 9999;
           user.abonnement = `Pro ${FORMULES.pro.prix}$ / ${FORMULES.pro.prixCDF} CDF - Actif`;
           user.estBoutique = true;
         } else if (key === "grossiste") {
-          user.type = "grossiste";
-          user.annoncesLimite = 9999;
+          user.type = "grossiste"; user.annoncesLimite = 9999;
           user.abonnement = `Grossiste ${FORMULES.grossiste.prix}$ / ${FORMULES.grossiste.prixCDF} CDF - Actif`;
           user.estBoutique = true;
+        } else if (key === "freemium") {
+          user.type = "freemium"; user.annoncesLimite = 3;
+          user.abonnement = `Freemium - 3 annonces gratuites à vie`;
+          user.estBoutique = true;
         } else if (key === "occasionnel") {
-          // Client perso paie 1 annonce
           const occ = Number(localStorage.getItem("wenze_occasionnel_credit") || "0") + 1;
           localStorage.setItem("wenze_occasionnel_credit", String(occ));
         }
@@ -95,16 +95,15 @@ export const verifierAbonnement = () => {
   if (!expire) return { actif: false, formule: null, expireDans: 0 };
   const expireNum = Number(expire);
   const actif = Date.now() < expireNum;
-  // Si expiré, on remet en freemium
-  if (!actif && typeof window !== "undefined") {
+  if (!actif) {
     try {
       const userRaw = localStorage.getItem("wenze_user");
       if (userRaw) {
         const user = JSON.parse(userRaw);
         if (user.type === "pro" || user.type === "grossiste") {
-          user.type = "freemium";
-          user.annoncesLimite = 3;
+          user.type = "freemium"; user.annoncesLimite = 3;
           user.abonnement = `Freemium - Retour après expiration - 3 gratuites`;
+          user.estBoutique = true;
           localStorage.setItem("wenze_user", JSON.stringify(user));
         }
       }
@@ -114,40 +113,26 @@ export const verifierAbonnement = () => {
 };
 
 export const checkFreemiumLimit = () => {
-  if (typeof window === "undefined") return { peutPublier: true, annoncesRestantes: 3, type: "freemium" };
-  
-  // Vérifie abonnement Pro/Grossiste d'abord
+  if (typeof window === "undefined") return { peutPublier: true, annoncesRestantes: 3, type: "freemium" as const };
   const ab = verifierAbonnement();
-  if (ab.actif) return { peutPublier: true, annoncesRestantes: 999, type: "pro" };
-
-  // Vérifie user
+  if (ab.actif) return { peutPublier: true, annoncesRestantes: 999, type: "pro" as const };
   try {
     const userRaw = localStorage.getItem("wenze_user");
     if (userRaw) {
       const user = JSON.parse(userRaw);
-      // CLIENT PERSO: 0 annonce gratuite, doit payer occasionnel 3$
       if (user.type === "client" || user.estBoutique === false) {
         const creditOcc = Number(localStorage.getItem("wenze_occasionnel_credit") || "0");
         const annonces = Number(localStorage.getItem("wenze_annonces") || "0");
-        // S'il a payé un crédit occasionnel et pas encore utilisé
-        if (creditOcc > annonces) {
-          return { peutPublier: true, annoncesRestantes: creditOcc - annonces, type: "client_avec_credit" };
-        }
-        return { peutPublier: false, annoncesRestantes: 0, type: "client" };
+        if (creditOcc > annonces) return { peutPublier: true, annoncesRestantes: creditOcc - annonces, type: "client_avec_credit" as const };
+        return { peutPublier: false, annoncesRestantes: 0, type: "client" as const };
       }
-      // FREEMIUM: 3 max
       if (user.type === "freemium") {
         const annonces = Number(localStorage.getItem("wenze_annonces") || "0");
-        return { peutPublier: annonces < 3, annoncesRestantes: Math.max(0, 3 - annonces), type: "freemium" };
+        return { peutPublier: annonces < 3, annoncesRestantes: Math.max(0, 3 - annonces), type: "freemium" as const };
       }
-      // PRO/GROSSISTE: illimité
-      if (user.type === "pro" || user.type === "grossiste") {
-        return { peutPublier: true, annoncesRestantes: 999, type: user.type };
-      }
+      if (user.type === "pro" || user.type === "grossiste") return { peutPublier: true, annoncesRestantes: 999, type: user.type as any };
     }
   } catch {}
-
-  // Fallback ancien système
-  const annoncesPubliees = Number(localStorage.getItem("wenze_annonces") || localStorage.getItem("annonces_publiees") || "0");
-  return { peutPublier: annoncesPubliees < 3, annoncesRestantes: Math.max(0, 3 - annoncesPubliees), type: "freemium" };
+  const annoncesPubliees = Number(localStorage.getItem("wenze_annonces") || "0");
+  return { peutPublier: annoncesPubliees < 3, annoncesRestantes: Math.max(0, 3 - annoncesPubliees), type: "freemium" as const };
 };
