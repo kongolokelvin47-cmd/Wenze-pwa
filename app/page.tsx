@@ -1,26 +1,49 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { CATEGORIES_WENZE } from "@/lib/categories";
 import { FORMULES, TAUX_CDF } from "@/lib/paiement";
 
-const FLASH = [
-  { name: "Casque Bluetooth", priceUSD: 14, discount: "-20%", img: "🎧", tel: "243810000000" },
-  { name: "Sneakers Nike", priceUSD: 37, discount: "-15%", img: "👟", tel: "243810000000" },
-];
+const cleanWhatsapp = (n: string) => (n || "").toString().replace(/[^0-9]/g, "");
 
 export default function WenzeBusiness() {
   const [search, setSearch] = useState("");
+  const [annonces, setAnnonces] = useState<any[]>([]);
+
+  useEffect(() => {
+    try {
+      const list = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
+      // Dernières d'abord
+      setAnnonces(list.reverse());
+    } catch {}
+  }, []);
   
   const getWaLink = (titre: string, prix: string, tel: string) => {
     const msg = `Bonjour 👋 Je vous contacte depuis WENZE WENZE BUSINESS. Je suis intéressé par: ${titre} à ${prix}. Est-il dispo à Kinshasa?`;
-    return `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`;
+    return `https://wa.me/${cleanWhatsapp(tel)}?text=${encodeURIComponent(msg)}`;
   };
 
   const filteredCats = CATEGORIES_WENZE.filter(c => 
     c.titreCourt.toLowerCase().includes(search.toLowerCase()) || 
     c.titre.toLowerCase().includes(search.toLowerCase())
   );
+
+  // Vraies annonces filtrées par recherche
+  const filteredAnnonces = annonces.filter(a => 
+    a.titre?.toLowerCase().includes(search.toLowerCase()) ||
+    a.description?.toLowerCase().includes(search.toLowerCase()) ||
+    a.categorie?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const flashAnnonces = filteredAnnonces.filter(a => a.typeMedia === "image" || a.photo).slice(0, 6);
+  const videoAnnonces = filteredAnnonces.filter(a => a.typeMedia === "video" || a.video).slice(0, 6);
+
+  // Fallback si pas encore de vraies annonces
+  const FLASH_FALLBACK = [
+    { id: "f1", titre: "Casque Bluetooth", prix: "14", photo: "", prixCDF: `${14 * TAUX_CDF} CDF`, whatsapp: "243810000000" },
+  ];
+
+  const displayFlash = flashAnnonces.length > 0 ? flashAnnonces : [];
 
   return (
     <div className="max-w-[430px] mx-auto bg-[#FFFBF0] min-h-screen pb-20">
@@ -51,7 +74,7 @@ export default function WenzeBusiness() {
         </div>
       </div>
 
-      {/* 10 CATEGORIES OFFICIELLES - AVEC FILTRE */}
+      {/* 10 CATEGORIES */}
       <section className="px-4">
         <div className="flex justify-between items-center mb-3">
           <h3 className="font-bold">10 Métiers de Kinshasa</h3>
@@ -70,26 +93,68 @@ export default function WenzeBusiness() {
         {filteredCats.length === 0 && <p className="text-xs text-center text-gray-500 mt-3">Aucun métier trouvé pour "{search}"</p>}
       </section>
 
+      {/* ✅ WENZE VIDÉO - VRAIES VIDÉOS SUR ACCUEIL */}
+      {videoAnnonces.length > 0 && (
+        <section className="px-4 mt-6">
+          <div className="flex justify-between items-center">
+            <h3 className="font-bold text-lg">Wenze Vidéo 🎬</h3>
+            <Link href="/video" className="text-[#6C3CE0] text-sm font-semibold">Voir tout ›</Link>
+          </div>
+          <div className="flex gap-3 mt-3 overflow-x-auto pb-2 -mx-4 px-4">
+            {videoAnnonces.map((v) => (
+              <Link key={v.id} href="/video" className="min-w-[140px] w-[140px] relative rounded-xl overflow-hidden bg-black h-[220px] flex-shrink-0">
+                <video src={v.video} className="w-full h-full object-cover" muted />
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 p-2">
+                  <p className="text-white text-[11px] font-bold truncate">{v.titre}</p>
+                  <p className="text-white/80 text-[10px]">{v.prix} • {v.user}</p>
+                </div>
+                <span className="absolute top-2 left-2 bg-[#FF6B35] text-white text-[8px] px-2 py-1 rounded-full font-bold">▶️</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ✅ VENTES FLASH - VRAIES IMAGES */}
       <section className="px-4 mt-6">
         <div className="flex justify-between items-center">
-          <h3 className="font-bold text-lg">Ventes Flash</h3>
+          <h3 className="font-bold text-lg">Ventes Flash {annonces.length > 0 && `(${annonces.length})`}</h3>
           <Link href="/ventes-flash" className="text-[#6C3CE0] text-sm font-semibold">Voir tout ›</Link>
         </div>
-        <div className="grid grid-cols-2 gap-3 mt-3">
-          {FLASH.map(p => {
-            const prixCDF = p.priceUSD * TAUX_CDF;
-            const prixTxt = `${prixCDF.toLocaleString()} CDF`;
-            return (
-              <div key={p.name} className="border rounded-xl p-3 relative bg-white shadow-sm">
-                <span className="absolute top-2 left-2 bg-[#FF6B35] text-white text-[10px] px-2 py-1 rounded-full font-bold">{p.discount}</span>
-                <div className="text-5xl text-center py-4">{p.img}</div>
-                <p className="font-bold text-[#6C3CE0] text-sm">{prixTxt}</p>
-                <p className="text-[10px] text-gray-500">{p.priceUSD}$ • {p.name}</p>
-                <a href={getWaLink(p.name, prixTxt, p.tel)} target="_blank" className="mt-2 w-full bg-[#00C950] text-white text-[11px] font-bold py-2 rounded-full flex justify-center">💬 WhatsApp</a>
-              </div>
-            );
-          })}
-        </div>
+        
+        {displayFlash.length === 0 ? (
+          <div className="mt-3 bg-white border-2 border-dashed rounded-2xl p-8 text-center">
+            <p className="text-4xl">📸</p>
+            <p className="text-sm font-bold mt-2">Pas encore de produits</p>
+            <p className="text-[11px] text-gray-500 mt-1">Sois le premier à publier à Kinshasa</p>
+            <Link href="/publier" className="mt-3 inline-block bg-[#6C3CE0] text-white text-xs font-bold px-6 py-3 rounded-full">Publier maintenant ➕</Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 mt-3">
+            {displayFlash.map((p) => {
+              const prixTxt = p.prixCDF || `${p.prix} CDF`;
+              return (
+                <div key={p.id} className="border rounded-xl p-0 overflow-hidden relative bg-white shadow-sm flex flex-col">
+                  {/* ✅ Image réelle sans couper */}
+                  <div className="w-full aspect-[4/3] bg-white flex items-center justify-center overflow-hidden relative">
+                    {p.photo ? (
+                      <img src={p.photo} alt={p.titre} className="max-w-full max-h-full object-contain" />
+                    ) : (
+                      <span className="text-5xl">📦</span>
+                    )}
+                    <span className="absolute top-2 left-2 bg-[#FF6B35] text-white text-[10px] px-2 py-1 rounded-full font-bold">-20%</span>
+                  </div>
+                  <div className="p-3">
+                    <p className="font-bold text-[#6C3CE0] text-sm truncate">{prixTxt}</p>
+                    <p className="text-[11px] text-gray-700 font-semibold truncate">{p.titre}</p>
+                    <p className="text-[9px] text-gray-400 truncate">👤 {p.user} • {p.categorie}</p>
+                    <a href={getWaLink(p.titre, prixTxt, p.whatsapp)} target="_blank" className="mt-2 w-full bg-[#00C950] text-white text-[11px] font-bold py-2 rounded-full flex justify-center">💬 WhatsApp</a>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <Link href="/abonnement" className="m-4 bg-[#6C3CE0] rounded-xl p-4 text-white flex justify-between items-center shadow-wenze hover:shadow-wenze-hover transition">
@@ -104,7 +169,7 @@ export default function WenzeBusiness() {
         <span className="font-bold text-[#6C3CE0] flex flex-col items-center"><span className="text-base">🏠</span>Accueil</span>
         <Link href="/boutiques" className="flex flex-col items-center text-gray-500"><span className="text-base">🏪</span>Boutiques</Link>
         <Link href="/publier" className="flex flex-col items-center text-gray-500"><span className="text-base">➕</span>Vendre</Link>
-        <Link href="/panier" className="flex flex-col items-center text-gray-500"><span className="text-base">🛒</span>Panier</Link>
+        <Link href="/video" className="flex flex-col items-center text-gray-500"><span className="text-base">🎬</span>Vidéo</Link>
         <Link href="/profil" className="flex flex-col items-center text-gray-500"><span className="text-base">👤</span>Profil</Link>
       </nav>
     </div>
