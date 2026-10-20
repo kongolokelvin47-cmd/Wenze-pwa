@@ -5,15 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CATEGORIES_WENZE } from "@/lib/categories";
 import { FORMULES, TAUX_CDF, checkFreemiumLimit } from "@/lib/paiement";
 
-const comprendreImageLocal = async (base64: string) => {
-  await new Promise(r => setTimeout(r, 700));
-  return "Photo détectée: bon éclairage, fond clair. Prête pour vente Kinshasa.";
-};
-const genererDescriptionVenteLocal = async (titre: string, caption: string) => {
-  return `🔥 ${titre} - Qualité garantie! ${caption} Livraison rapide Kinshasa.`;
-};
-
-const cleanWhatsapp = (num: string) => (num || "").toString().replace(/[^0-9]/g, "");
+const cleanWhatsapp = (n: string) => (n || "").toString().replace(/[^0-9]/g, "");
 const getCurrentUser = () => {
   try { 
     const raw = typeof window !== "undefined" ? localStorage.getItem("wenze_user") : null; 
@@ -38,21 +30,24 @@ function PublierContent() {
   useEffect(() => {
     const u = getCurrentUser();
     setUser(u);
-    setCount(parseInt(localStorage.getItem("wenze_annonces") || "0"));
-    setFreemiumInfo(checkFreemiumLimit());
+    if (typeof window !== "undefined") {
+      setCount(parseInt(localStorage.getItem("wenze_annonces") || "0"));
+      setFreemiumInfo(checkFreemiumLimit());
+    }
     if (isVideoMode) setTypeMedia("video");
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(p => setForm(f => ({ ...f, lat: p.coords.latitude, lng: p.coords.longitude })), () => {});
     }
   }, [isVideoMode]);
 
+  // ✅ FIX: pas de rej() qui bloque
   const handleFile = (file: File): Promise<string> => {
-    return new Promise((res, rej) => {
+    return new Promise((resolve) => {
       if (file.type.startsWith("video/")) {
-        if (file.size > 25 * 1024 * 1024) { alert("Vidéo max 25MB"); rej(); return; }
+        if (file.size > 10 * 1024 * 1024) { alert("Vidéo max 10MB (anti-facture)"); return resolve(""); }
         setTypeMedia("video");
         const reader = new FileReader();
-        reader.onload = e => res(e.target?.result as string);
+        reader.onload = e => resolve(e.target?.result as string);
         reader.readAsDataURL(file);
         return;
       }
@@ -67,28 +62,12 @@ function PublierContent() {
           else { if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; } }
           c.width = w; c.height = h;
           c.getContext("2d")?.drawImage(img, 0, 0, w, h);
-          res(c.toDataURL("image/jpeg", 0.7));
+          resolve(c.toDataURL("image/jpeg", 0.7));
         };
         img.src = e.target?.result as string;
       };
       reader.readAsDataURL(file);
     });
-  };
-
-  const handleAideIA = async () => {
-    if (!media) { alert("Ajoutez photo d'abord"); return; }
-    if (typeMedia === "video") { alert("IA vidéo bientôt"); return; }
-    if (!user || user.type === "client" || user.type === "freemium" || user.estBoutique === false) {
-      alert(`🔒 IA réservée Pro ${FORMULES.pro.prix}$`); router.push("/abonnement"); return;
-    }
-    setLoadingIA(true);
-    try {
-      const cap = await comprendreImageLocal(media);
-      setCaptionIA(cap);
-      const desc = await genererDescriptionVenteLocal(form.titre || "Produit", cap);
-      setForm(f => ({ ...f, description: desc }));
-    } catch { alert("Erreur IA"); }
-    setLoadingIA(false);
   };
 
   const handlePublish = () => {
@@ -101,41 +80,39 @@ function PublierContent() {
     if (!form.titre || !form.prix || !media) { alert("Titre, prix et media obligatoires"); return; }
 
     const annonces = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
-    const nouvelleAnnonce = {
+    const nouvelle = {
       id: Date.now(), ...form,
       photo: typeMedia === "image" ? media : "",
       video: typeMedia === "video" ? media : "",
       typeMedia, user: current.nom, whatsapp: whatsappClean, telephone: whatsappClean,
-      type: current.type, profession: current.profession, categorie: form.categorie,
-      estBoutique: current.estBoutique, captionIA, date: new Date().toISOString(),
-      prixCDF: `${form.prix} (Taux ${TAUX_CDF})`, userId: current.id, ownerWhatsapp: whatsappClean, createdBy: current.id
+      type: current.type, categorie: form.categorie, estBoutique: current.estBoutique,
+      captionIA, date: new Date().toISOString(), prixCDF: `${form.prix} (Taux ${TAUX_CDF})`,
+      userId: current.id, ownerWhatsapp: whatsappClean,
     };
-    annonces.push(nouvelleAnnonce);
+    annonces.push(nouvelle);
     localStorage.setItem("wenze_annonces_list", JSON.stringify(annonces));
     const miennes = annonces.filter((a:any) => cleanWhatsapp(a.ownerWhatsapp||a.whatsapp) === whatsappClean);
     localStorage.setItem("wenze_annonces", String(miennes.length));
-    alert(`✅ ${typeMedia === "video" ? "Vidéo" : "Annonce"} publiée! ${current.nom}`);
-    router.push(typeMedia === "video" ? "/video" : "/");
+    alert(`✅ ${typeMedia === "video" ? "Vidéo" : "Annonce"} publiée!`);
+    router.push(isVideoMode ? "/video" : "/");
   };
 
   if (!user) return <div className="max-w-[430px] mx-auto p-5">Chargement... <Link href="/inscription" className="text-[#6C3CE0] font-bold">Créer compte</Link></div>;
 
-  const isClientPerso = user.estBoutique === false || freemiumInfo.type === "client";
-  const isFreemium = freemiumInfo.type === "freemium";
-  const isPayant = user.type === "pro" || user.type === "grossiste" || freemiumInfo.type === "pro";
   const blocked = !freemiumInfo.peutPublier;
   const catActive = CATEGORIES_WENZE.find((c: any) => c.id === form.categorie);
+  const isPayant = user.type === "pro" || user.type === "grossiste" || freemiumInfo.type === "pro";
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-5 pb-20">
       <Link href={isVideoMode ? "/video" : "/"} className="text-xs text-[#6C3CE0] font-bold">← {isVideoMode ? "Wenze Vidéo" : "Accueil"}</Link>
-      <h1 className="text-xl font-black mt-2">{isVideoMode ? "Publier Vidéo Vendeur 🎬" : "Publier Annonce"}</h1>
-      <div className={`p-2 rounded-xl mt-3 text-[10px] flex justify-between ${isClientPerso ? "bg-black text-white" : isFreemium ? "bg-gray-800 text-white" : "bg-[#6C3CE0] text-white"}`}>
+      <h1 className="text-xl font-black mt-2">{isVideoMode ? "Publier Vidéo 🎬" : "Publier Annonce"}</h1>
+      <div className="p-2 rounded-xl mt-3 text-[10px] flex justify-between bg-[#6C3CE0] text-white">
         <span>🔒 {user.nom} • {user.whatsapp?.slice(-4)}</span>
         <span>{blocked ? "BLOQUÉ" : isVideoMode ? "VIDÉO" : `${count}/3`}</span>
       </div>
       {blocked ? (
-        <div className="bg-white border-2 border-red-200 p-4 rounded-2xl mt-4 text-center"><Link href="/abonnement" className="block bg-[#6C3CE0] text-white p-4 rounded-full font-bold">Passer Pro</Link></div>
+        <div className="bg-white border p-4 rounded-2xl mt-4 text-center"><Link href="/abonnement" className="block bg-[#6C3CE0] text-white p-4 rounded-full font-bold">Passer Pro</Link></div>
       ) : (
         <div className="mt-4 space-y-3">
           <input placeholder="Titre" value={form.titre} onChange={e => setForm({ ...form, titre: e.target.value })} className="w-full border p-3 rounded-xl text-sm bg-white" />
@@ -144,22 +121,22 @@ function PublierContent() {
             <option value="">Catégorie</option>{CATEGORIES_WENZE.map((c: any) => <option key={c.id} value={c.id}>{c.icon} {c.titreCourt}</option>)}
           </select>
           <select value={form.activite} onChange={e => setForm({ ...form, activite: e.target.value })} className="w-full border p-3 rounded-xl text-sm bg-white">
-            <option value="">Métier précis...</option>{(catActive?.activites || []).map((a: any) => <option key={a.id} value={a.id}>{a.label}</option>)}
+            <option value="">Métier...</option>{(catActive?.activites || []).map((a: any) => <option key={a.id} value={a.id}>{a.label}</option>)}
           </select>
           <div>
-            <label className="text-[11px] font-bold">{isVideoMode ? "Vidéo verticale TikTok (max 25MB)" : "Photo / Vidéo adaptée auto"}</label>
-            <input type="file" accept={isVideoMode ? "video/*" : "image/*,video/*"} onChange={async e => { const f = e.target.files?.[0]; if (f) setMedia(await handleFile(f)); }} className="w-full border p-2 rounded-xl text-xs mt-1 bg-white" />
+            <label className="text-[11px] font-bold">{isVideoMode ? "Vidéo TikTok (max 10MB)" : "Photo / Vidéo adaptée auto"}</label>
+            <input type="file" accept={isVideoMode ? "video/*" : "image/*,video/*"} onChange={async e => { const f = e.target.files?.[0]; if (f) { const r = await handleFile(f); if (r) setMedia(r); } }} className="w-full border p-2 rounded-xl text-xs mt-1 bg-white" />
             <div className="w-full aspect-[4/3] bg-white rounded-xl mt-2 border-2 border-dashed flex items-center justify-center overflow-hidden p-2 relative">
               {media ? (
-                <>{typeMedia === "video" ? <video src={media} controls className="max-w-full max-h-full" /> : <img src={media} className="max-w-full max-h-full object-contain" />}<button onClick={() => setMedia("")} className="absolute top-2 right-2 bg-black text-white text-[10px] px-2 py-1 rounded-full">✕</button></>
+                <>{typeMedia === "video" ? <video src={media} controls className="max-w-full max-h-full" /> : <img src={media} className="max-w-full max-h-full object-contain" alt="preview" />}<button onClick={() => setMedia("")} className="absolute top-2 right-2 bg-black text-white text-[10px] px-2 py-1 rounded-full">✕</button></>
               ) : (
-                <div className="text-center"><p className="text-3xl">{isVideoMode ? "🎬" : "📸"}</p><p className="text-[11px] text-gray-400 font-bold mt-1">Aperçu sans couper</p></div>
+                <div className="text-center"><p className="text-3xl">{isVideoMode ? "🎬" : "📸"}</p><p className="text-[11px] text-gray-400 font-bold">Aperçu sans couper</p></div>
               )}
             </div>
           </div>
-          {isPayant ? <button onClick={handleAideIA} disabled={loadingIA} className="w-full bg-gradient-to-r from-[#6C3CE0] to-[#FF6B35] text-white p-3 rounded-xl text-sm font-bold">{loadingIA ? "IA..." : "🤖 IA Gratuite"}</button> : <div className="bg-gray-100 p-3 rounded-xl text-[11px] border">🔒 IA Pro</div>}
+          {isPayant && <button onClick={async () => { setLoadingIA(true); const cap = await comprendreImageLocal(media); setCaptionIA(cap); setForm(f => ({...f, description: `🔥 ${f.titre} - ${cap}`})); setLoadingIA(false); }} disabled={loadingIA} className="w-full bg-gradient-to-r from-[#6C3CE0] to-[#FF6B35] text-white p-3 rounded-xl text-sm font-bold">{loadingIA ? "IA..." : "🤖 IA Gratuite"}</button>}
           <textarea placeholder="Description" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="w-full border p-3 rounded-xl text-sm h-24 bg-white" />
-          <button onClick={handlePublish} className="w-full bg-[#6C3CE0] text-white p-4 rounded-full font-bold">Publier {typeMedia === "video" ? "Vidéo 🎬" : "🔒"} comme {user.nom}</button>
+          <button onClick={handlePublish} className="w-full bg-[#6C3CE0] text-white p-4 rounded-full font-bold">Publier comme {user.nom}</button>
         </div>
       )}
     </div>
@@ -172,4 +149,6 @@ export default function PublierPage() {
       <PublierContent />
     </Suspense>
   );
-                                    }
+}
+
+export const dynamic = 'force-dynamic';
