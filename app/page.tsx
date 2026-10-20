@@ -13,37 +13,26 @@ export default function WenzeBusiness() {
   useEffect(() => {
     try {
       const list = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
-      // Dernières d'abord
-      setAnnonces(list.reverse());
+      setAnnonces(list.reverse()); // dernières d'abord
     } catch {}
   }, []);
   
-  const getWaLink = (titre: string, prix: string, tel: string) => {
-    const msg = `Bonjour 👋 Je vous contacte depuis WENZE WENZE BUSINESS. Je suis intéressé par: ${titre} à ${prix}. Est-il dispo à Kinshasa?`;
-    return `https://wa.me/${cleanWhatsapp(tel)}?text=${encodeURIComponent(msg)}`;
+  const getWaLink = (v: any) => {
+    const prixTxt = v.prixCDF || `${v.prix}$`;
+    const msg = `Bonjour ${v.user} 👋 Je viens de WENZE BUSINESS, je veux "${v.titre}" à ${prixTxt} - owner ${cleanWhatsapp(v.ownerWhatsapp||v.whatsapp).slice(-4)}`;
+    return `https://wa.me/${cleanWhatsapp(v.ownerWhatsapp||v.whatsapp)}?text=${encodeURIComponent(msg)}`;
   };
 
   const filteredCats = CATEGORIES_WENZE.filter(c => 
-    c.titreCourt.toLowerCase().includes(search.toLowerCase()) || 
-    c.titre.toLowerCase().includes(search.toLowerCase())
+    !search || c.titreCourt.toLowerCase().includes(search.toLowerCase()) || c.titre.toLowerCase().includes(search.toLowerCase())
   );
 
-  // Vraies annonces filtrées par recherche
   const filteredAnnonces = annonces.filter(a => 
-    a.titre?.toLowerCase().includes(search.toLowerCase()) ||
-    a.description?.toLowerCase().includes(search.toLowerCase()) ||
-    a.categorie?.toLowerCase().includes(search.toLowerCase())
+    !search || a.titre?.toLowerCase().includes(search.toLowerCase()) || a.description?.toLowerCase().includes(search.toLowerCase()) || a.categorie?.toLowerCase().includes(search.toLowerCase())
   );
 
   const flashAnnonces = filteredAnnonces.filter(a => a.typeMedia === "image" || a.photo).slice(0, 6);
   const videoAnnonces = filteredAnnonces.filter(a => a.typeMedia === "video" || a.video).slice(0, 6);
-
-  // Fallback si pas encore de vraies annonces
-  const FLASH_FALLBACK = [
-    { id: "f1", titre: "Casque Bluetooth", prix: "14", photo: "", prixCDF: `${14 * TAUX_CDF} CDF`, whatsapp: "243810000000" },
-  ];
-
-  const displayFlash = flashAnnonces.length > 0 ? flashAnnonces : [];
 
   return (
     <div className="max-w-[430px] mx-auto bg-[#FFFBF0] min-h-screen pb-20">
@@ -51,10 +40,10 @@ export default function WenzeBusiness() {
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-[22px] font-black text-[#6C3CE0] leading-none">WENZE WENZE</h1>
-            <p className="text-[11px] font-bold text-[#FF6B35] tracking-[3px]">BUSINESS</p>
+            <p className="text-[11px] font-bold text-[#FF6B35] tracking-[3px]">BUSINESS • {annonces.length}/3</p>
           </div>
           <div className="flex gap-3 text-xl">
-            <Link href="/publier" className="hover:scale-110 transition">➕</Link> 
+            <Link href="/publier">➕</Link> 
             <Link href="/profil">👤</Link>
           </div>
         </div>
@@ -65,16 +54,15 @@ export default function WenzeBusiness() {
       </header>
 
       <div className="m-4 rounded-2xl bg-gradient-to-br from-[#6C3CE0] to-[#FF6B35] p-[1px]">
-        <div className="bg-black rounded-2xl overflow-hidden relative h-[180px] flex items-end p-4">
+        <div className="bg-black rounded-2xl h-[160px] flex items-end p-4 relative overflow-hidden">
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-black/20" />
           <div className="relative text-white z-10">
-            <h2 className="font-bold text-[18px] leading-tight">Achetez, Vendez, Gagnez</h2>
-            <p className="text-xs opacity-90 mt-1">0% commission • {FORMULES.pro.nom} {FORMULES.pro.prix}$ / {FORMULES.pro.prixCDF} CDF • IA Gratuite Pro</p>
+            <h2 className="font-bold text-[18px]">Achetez, Vendez, Gagnez</h2>
+            <p className="text-[11px] opacity-90 mt-1">0% commission • Pro {FORMULES.pro.prix}$ • Image 150KB • Vidéo 10MB • ownerWhatsapp</p>
           </div>
         </div>
       </div>
 
-      {/* 10 CATEGORIES */}
       <section className="px-4">
         <div className="flex justify-between items-center mb-3">
           <h3 className="font-bold">10 Métiers de Kinshasa</h3>
@@ -90,65 +78,58 @@ export default function WenzeBusiness() {
             </Link>
           ))}
         </div>
-        {filteredCats.length === 0 && <p className="text-xs text-center text-gray-500 mt-3">Aucun métier trouvé pour "{search}"</p>}
       </section>
 
-      {/* ✅ WENZE VIDÉO - VRAIES VIDÉOS SUR ACCUEIL */}
       {videoAnnonces.length > 0 && (
         <section className="px-4 mt-6">
           <div className="flex justify-between items-center">
-            <h3 className="font-bold text-lg">Wenze Vidéo 🎬</h3>
-            <Link href="/video" className="text-[#6C3CE0] text-sm font-semibold">Voir tout ›</Link>
+            <h3 className="font-bold">Wenze Vidéo 🎬 10MB</h3>
+            <Link href="/video" className="text-[#6C3CE0] text-xs font-bold">Voir tout ›</Link>
           </div>
           <div className="flex gap-3 mt-3 overflow-x-auto pb-2 -mx-4 px-4">
             {videoAnnonces.map((v) => (
-              <Link key={v.id} href="/video" className="min-w-[140px] w-[140px] relative rounded-xl overflow-hidden bg-black h-[220px] flex-shrink-0">
-                <video src={v.video} className="w-full h-full object-cover" muted />
+              <Link key={v.id} href="/video" className="min-w-[140px] w-[140px] relative rounded-xl overflow-hidden bg-black h-[200px] flex-shrink-0">
+                <video src={v.video} className="w-full h-full object-cover" muted preload="metadata" />
                 <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 p-2">
                   <p className="text-white text-[11px] font-bold truncate">{v.titre}</p>
-                  <p className="text-white/80 text-[10px]">{v.prix} • {v.user}</p>
+                  <p className="text-white/80 text-[10px]">🔒 {cleanWhatsapp(v.ownerWhatsapp||v.whatsapp).slice(-4)} • {v.prix}$</p>
                 </div>
-                <span className="absolute top-2 left-2 bg-[#FF6B35] text-white text-[8px] px-2 py-1 rounded-full font-bold">▶️</span>
+                <span className="absolute top-2 left-2 bg-[#FF6B35] text-white text-[8px] px-2 py-1 rounded-full font-bold">10MB</span>
               </Link>
             ))}
           </div>
         </section>
       )}
 
-      {/* ✅ VENTES FLASH - VRAIES IMAGES */}
       <section className="px-4 mt-6">
         <div className="flex justify-between items-center">
-          <h3 className="font-bold text-lg">Ventes Flash {annonces.length > 0 && `(${annonces.length})`}</h3>
-          <Link href="/ventes-flash" className="text-[#6C3CE0] text-sm font-semibold">Voir tout ›</Link>
+          <h3 className="font-bold">Ventes Flash 150KB ({filteredAnnonces.length})</h3>
+          <Link href="/ventes-flash" className="text-[#6C3CE0] text-xs font-bold">Voir tout ›</Link>
         </div>
         
-        {displayFlash.length === 0 ? (
+        {flashAnnonces.length === 0 ? (
           <div className="mt-3 bg-white border-2 border-dashed rounded-2xl p-8 text-center">
             <p className="text-4xl">📸</p>
             <p className="text-sm font-bold mt-2">Pas encore de produits</p>
-            <p className="text-[11px] text-gray-500 mt-1">Sois le premier à publier à Kinshasa</p>
+            <p className="text-[11px] text-gray-500 mt-1">Image 150KB • Vidéo 10MB • ownerWhatsapp</p>
             <Link href="/publier" className="mt-3 inline-block bg-[#6C3CE0] text-white text-xs font-bold px-6 py-3 rounded-full">Publier maintenant ➕</Link>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 mt-3">
-            {displayFlash.map((p) => {
-              const prixTxt = p.prixCDF || `${p.prix} CDF`;
+            {flashAnnonces.map((p) => {
+              const prixTxt = p.prixCDF || `${p.prix}$`;
               return (
-                <div key={p.id} className="border rounded-xl p-0 overflow-hidden relative bg-white shadow-sm flex flex-col">
-                  {/* ✅ Image réelle sans couper */}
+                <div key={p.id} className="border rounded-xl overflow-hidden bg-white shadow-sm flex flex-col">
                   <div className="w-full aspect-[4/3] bg-white flex items-center justify-center overflow-hidden relative">
-                    {p.photo ? (
-                      <img src={p.photo} alt={p.titre} className="max-w-full max-h-full object-contain" />
-                    ) : (
-                      <span className="text-5xl">📦</span>
-                    )}
-                    <span className="absolute top-2 left-2 bg-[#FF6B35] text-white text-[10px] px-2 py-1 rounded-full font-bold">-20%</span>
+                    {p.photo ? <img src={p.photo} alt={p.titre} className="max-w-full max-h-full object-contain" /> : <span className="text-3xl">📦</span>}
+                    <span className="absolute top-2 left-2 bg-[#FF6B35] text-white text-[9px] px-2 py-1 rounded-full font-bold">150KB</span>
+                    <span className="absolute top-2 right-2 bg-black/70 text-white text-[8px] px-2 py-1 rounded-full">🔒 {cleanWhatsapp(p.ownerWhatsapp||p.whatsapp).slice(-4)}</span>
                   </div>
                   <div className="p-3">
                     <p className="font-bold text-[#6C3CE0] text-sm truncate">{prixTxt}</p>
-                    <p className="text-[11px] text-gray-700 font-semibold truncate">{p.titre}</p>
+                    <p className="text-[11px] font-semibold truncate">{p.titre}</p>
                     <p className="text-[9px] text-gray-400 truncate">👤 {p.user} • {p.categorie}</p>
-                    <a href={getWaLink(p.titre, prixTxt, p.whatsapp)} target="_blank" className="mt-2 w-full bg-[#00C950] text-white text-[11px] font-bold py-2 rounded-full flex justify-center">💬 WhatsApp</a>
+                    <a href={getWaLink(p)} target="_blank" className="mt-2 w-full bg-[#00C950] text-white text-[11px] font-bold py-2 rounded-full flex justify-center">💬 WhatsApp</a>
                   </div>
                 </div>
               );
@@ -157,10 +138,10 @@ export default function WenzeBusiness() {
         )}
       </section>
 
-      <Link href="/abonnement" className="m-4 bg-[#6C3CE0] rounded-xl p-4 text-white flex justify-between items-center shadow-wenze hover:shadow-wenze-hover transition">
+      <Link href="/abonnement" className="m-4 bg-[#6C3CE0] rounded-xl p-4 text-white flex justify-between items-center">
         <div>
-          <h4 className="font-bold">Devenez Boutique Pro 👑 + IA</h4>
-          <p className="text-xs opacity-90">{FORMULES.pro.prix}$ / {FORMULES.pro.prixCDF.toLocaleString()} CDF/mois, 0% commission, IA gratuite</p>
+          <h4 className="font-bold text-sm">Devenez Boutique Pro 👑</h4>
+          <p className="text-[11px] opacity-90">{FORMULES.pro.prix}$ / {FORMULES.pro.prixCDF.toLocaleString()} CDF - 0% commission - 150KB/10MB</p>
         </div>
         <span className="bg-[#FF6B35] text-white text-xs font-bold px-4 py-2 rounded-full">Pro {FORMULES.pro.prix}$</span>
       </Link>
@@ -174,4 +155,7 @@ export default function WenzeBusiness() {
       </nav>
     </div>
   );
-          }
+}
+
+// 🔥 FIX VERCEL FINAL - SANS ÇA TES 292 RESTENT ROUGES
+export const dynamic = 'force-dynamic';
