@@ -1,29 +1,67 @@
-// app/dashboard/page.tsx - VERSION VISION
-if (!me) router.push('/onboarding') // pas de profil -> onboarding
+'use client'
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { createClient } from '@/utils/supabase/client'
 
-if (me.user_type === 'client') {
-  router.push('/') // PAS /favoris. Home = son dashboard avec favoris inclus
-} 
-else {
-  // ICI ON AFFICHE LE VRAI DASHBOARD BUSINESS
-  switch(me.user_type) {
+// On importe les 3 dashboards
+import GrossisteDashboard from '@/components/dashboard/GrossisteDashboard'
+import VendeurDashboard from '@/components/dashboard/VendeurDashboard'
+import PrestataireDashboard from '@/components/dashboard/PrestataireDashboard'
+
+export default function DashboardRouter() {
+  const [me, setMe] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const router = useRouter()
+  const supabase = createClient()
+
+  useEffect(() => {
+    const check = async () => {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        router.push('/login')
+        return
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('user_type, domaine')
+        .eq('id', user.id)
+        .single()
+
+      // 1. PAS DE PROFIL -> ONBOARDING
+      if (!profile?.user_type) {
+        router.push('/onboarding')
+        return
+      }
+
+      // 2. CLIENT -> PAS DE DASHBOARD BUSINESS
+      // Vision: son dashboard c'est le Home avec favoris
+      if (profile.user_type === 'client') {
+        router.push('/')
+        return
+      }
+
+      setMe(profile)
+      setLoading(false)
+    }
+    check()
+  }, [])
+
+  if (loading) return <div className="p-6">Chargement WENZE...</div>
+
+  // 3. VRAI ROUTAGE BUSINESS - ICI ON AFFICHE
+  switch (me.user_type) {
     case 'grossiste':
-      // Métriques: 
-      // SELECT count(distinct vendeur_id) FROM commandes WHERE grossiste_id = me.id
-      // SELECT sum(total) WHERE created_at = today AND type='b2b'
-      // Liste: Mes Vendeurs fidèles (top 10)
-      break;
+      return <GrossisteDashboard />
+    
     case 'vendeur':
     case 'boutique':
-      // Métriques:
-      // Ventes du jour: SELECT sum(total) FROM commandes WHERE vendeur_id = me.id AND date=today
-      // Stock faible: SELECT * FROM produits WHERE vendeur_id=me.id AND stock < 5
-      // Commandes grossiste: bouton "Voir grossistes"
-      break;
+      return <VendeurDashboard />
+    
     case 'prestataire':
-      // Métriques:
-      // Demandes: SELECT * FROM demandes WHERE prestataire_id=me.id AND statut='en_attente'
-      // Avis: SELECT avg(note) FROM avis WHERE prestataire_id=me.id
-      break;
+      return <PrestataireDashboard />
+    
+    default:
+      return <div className="p-6">Rôle inconnu: {me.user_type}</div>
   }
-}
+        }
