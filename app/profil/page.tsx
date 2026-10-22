@@ -21,6 +21,7 @@ function ProfilContent() {
   const [profile, setProfile] = useState<any>(null)
   const [produits, setProduits] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [userId, setUserId] = useState<string|null>(null)
 
   useEffect(() => {
     (async () => {
@@ -45,10 +46,12 @@ function ProfilContent() {
         return
       }
 
+      setUserId(user.id)
       let { data: prof } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle()
+      
       if (!prof) {
         const u = getLocal()
-        const { data: np } = await supabase.from('profiles').insert({
+        const { data: np, error } = await supabase.from('profiles').insert({
           id: user.id,
           nom: u?.nom || user.email?.split('@')[0],
           telephone: u?.whatsapp || '',
@@ -58,8 +61,10 @@ function ProfilContent() {
           province: 'Kinshasa',
           ville: 'Kinshasa',
           commune: u?.commune || '',
+          territoire: '',
           quartier: ''
         }).select().single()
+        if (error) console.log("Erreur insert profil:", error.message)
         prof = np
       }
 
@@ -76,8 +81,6 @@ function ProfilContent() {
 
   const save = async () => {
     const supabase = createClient()
-    
-    // Validation extension
     if (!profile.ville) return alert('Ajoute ta ville')
     if (isKinshasa && !profile.commune) return alert('Ajoute ta commune')
     if (!isKinshasa && !profile.territoire) return alert('Ajoute ton territoire')
@@ -93,10 +96,11 @@ function ProfilContent() {
       quartier: profile.quartier || null,
     }
 
-    const { error } = await supabase.from('profiles').update(payload).eq('id', profile.id)
-    if (error) return alert(error.message)
+    // ON UTILISE userId QUI EST LE VRAI UUID, PAS profile.id
+    const targetId = userId || profile.id
+    const { error } = await supabase.from('profiles').update(payload).eq('id', targetId)
+    if (error) return alert("Erreur Supabase: " + error.message)
     
-    // Sync local aussi
     localStorage.setItem("wenze_user", JSON.stringify({...getLocal(), ...payload, whatsapp: payload.telephone}))
     alert('✅ Profil mis à jour DG!')
   }
@@ -119,39 +123,26 @@ function ProfilContent() {
     <div className="max-w-[430px] mx-auto min-h-screen bg-white p-5 pb-20">
       <button onClick={() => router.push('/')} className="bg-black text-white w-10 h-10 rounded-full">←</button>
       <h1 className="text-xl font-black mt-3">👤 Mon Profil</h1>
-
       <div className="mt-4 space-y-3">
         <input value={profile.nom || ''} onChange={e=>setProfile({...profile, nom:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="Nom complet"/>
-
         <input value={profile.telephone || profile.whatsapp || ''} onChange={e=>setProfile({...profile, telephone:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="WhatsApp ex: 082..."/>
-
         <div className="grid grid-cols-2 gap-2">
-          <select value={profile.pays || 'RDC'} onChange={e=>setProfile({...profile, pays:e.target.value})} className="border p-3 w-full rounded-xl bg-white">
-            <option value="RDC">RDC</option>
-          </select>
-          <select value={profile.province || 'Kinshasa'} onChange={e=>setProfile({...profile, province: e.target.value, ville: e.target.value === 'Kinshasa' ? 'Kinshasa' : ''})} className="border p-3 w-full rounded-xl bg-white">
-            {PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
+          <select value={profile.pays || 'RDC'} onChange={e=>setProfile({...profile, pays:e.target.value})} className="border p-3 w-full rounded-xl bg-white"><option value="RDC">RDC</option></select>
+          <select value={profile.province || 'Kinshasa'} onChange={e=>setProfile({...profile, province: e.target.value, ville: e.target.value === 'Kinshasa' ? 'Kinshasa' : ''})} className="border p-3 w-full rounded-xl bg-white">{PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}</select>
         </div>
-
         <input value={profile.ville || ''} onChange={e=>setProfile({...profile, ville:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="Ville ex: Kinshasa"/>
-
         {isKinshasa ? (
           <input value={profile.commune || ''} onChange={e=>setProfile({...profile, commune:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="Commune * ex: Ngaliema"/>
         ) : (
           <input value={profile.territoire || ''} onChange={e=>setProfile({...profile, territoire:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="Territoire * ex: Mbanza-Ngungu"/>
         )}
-
         <input value={profile.quartier || ''} onChange={e=>setProfile({...profile, quartier:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="Quartier (facultatif) ex: Binza Pigeon"/>
-
         <button onClick={save} className="w-full bg-black text-white p-3 rounded-full font-bold">Enregistrer</button>
       </div>
-
       <div className="mt-4 bg-black text-white p-3 rounded-xl flex justify-between text-sm">
         <p>{produits.length} / {limite === 9999 ? "ILLIMITÉ" : limite} annonces</p>
         {isFreemium && <p className="text-xs opacity-80">{restant > 0 ? `${restant} restantes` : 'Limite atteinte!'}</p>}
       </div>
-
       <div className="mt-6 space-y-2">
         {isFreemium && restant <= 0 ? 
           <Link href="/tarifs" className="block bg-[#6C3CE0] text-white p-3 rounded-full text-center font-bold">Passer Pro 5$ = {TAUX_CDF.toLocaleString()} CDF</Link> :
