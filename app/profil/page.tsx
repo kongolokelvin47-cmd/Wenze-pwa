@@ -8,6 +8,14 @@ import { TAUX_CDF } from '@/lib/paiement'
 const clean = (n: string) => (n || "").replace(/[^0-9]/g, "")
 const getLocal = () => { try { return JSON.parse(localStorage.getItem("wenze_user") || "null") } catch { return null } }
 
+const PROVINCES = [
+  "Kinshasa", "Kongo Central", "Kwango", "Kwilu", "Mai-Ndombe",
+  "Kasaï", "Kasaï-Central", "Kasaï-Oriental", "Lomami", "Sankuru",
+  "Maniema", "Sud-Kivu", "Nord-Kivu", "Ituri", "Haut-Uele", 
+  "Bas-Uele", "Tshopo", "Equateur", "Mongala", "Nord-Ubangi",
+  "Sud-Ubangi", "Tshuapa", "Tanganyika", "Haut-Lomami", "Lualaba", "Haut-Katanga"
+]
+
 function ProfilContent() {
   const router = useRouter()
   const [profile, setProfile] = useState<any>(null)
@@ -22,7 +30,15 @@ function ProfilContent() {
       if (!user) {
         const u = getLocal()
         if (!u) { router.replace('/connexion'); return }
-        setProfile(u)
+        setProfile({
+          ...u,
+          pays: u.pays || 'RDC',
+          province: u.province || 'Kinshasa',
+          ville: u.ville || 'Kinshasa',
+          commune: u.commune || '',
+          territoire: u.territoire || '',
+          quartier: u.quartier || ''
+        })
         const all = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]")
         setProduits(all.filter((a:any) => clean(a.whatsapp) === clean(u.whatsapp)))
         setLoading(false)
@@ -36,9 +52,13 @@ function ProfilContent() {
           id: user.id,
           nom: u?.nom || user.email?.split('@')[0],
           telephone: u?.whatsapp || '',
-          commune: 'Kinshasa',
           email: user.email,
-          type: 'freemium'
+          type: 'freemium',
+          pays: 'RDC',
+          province: 'Kinshasa',
+          ville: 'Kinshasa',
+          commune: u?.commune || '',
+          quartier: ''
         }).select().single()
         prof = np
       }
@@ -50,17 +70,35 @@ function ProfilContent() {
       setProduits(prods || [])
       setLoading(false)
     })()
-  }, [])
+  }, [router])
+
+  const isKinshasa = (profile?.province || 'Kinshasa') === 'Kinshasa'
 
   const save = async () => {
     const supabase = createClient()
-    const { error } = await supabase.from('profiles').update({
+    
+    // Validation extension
+    if (!profile.ville) return alert('Ajoute ta ville')
+    if (isKinshasa && !profile.commune) return alert('Ajoute ta commune')
+    if (!isKinshasa && !profile.territoire) return alert('Ajoute ton territoire')
+
+    const payload = {
       nom: profile.nom,
       telephone: profile.telephone || profile.whatsapp,
-      commune: profile.commune
-    }).eq('id', profile.id)
+      pays: profile.pays || 'RDC',
+      province: profile.province,
+      ville: profile.ville,
+      commune: isKinshasa ? profile.commune : null,
+      territoire: !isKinshasa ? profile.territoire : null,
+      quartier: profile.quartier || null,
+    }
+
+    const { error } = await supabase.from('profiles').update(payload).eq('id', profile.id)
     if (error) return alert(error.message)
-    alert('✅ Profil mis à jour')
+    
+    // Sync local aussi
+    localStorage.setItem("wenze_user", JSON.stringify({...getLocal(), ...payload, whatsapp: payload.telephone}))
+    alert('✅ Profil mis à jour DG!')
   }
 
   const logout = async () => {
@@ -83,21 +121,41 @@ function ProfilContent() {
       <h1 className="text-xl font-black mt-3">👤 Mon Profil</h1>
 
       <div className="mt-4 space-y-3">
-        <input value={profile.nom || ''} onChange={e=>setProfile({...profile, nom:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="Nom"/>
-        <input value={profile.telephone || profile.whatsapp || ''} onChange={e=>setProfile({...profile, telephone:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="WhatsApp"/>
-        <input value={profile.commune || ''} onChange={e=>setProfile({...profile, commune:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="Commune"/>
+        <input value={profile.nom || ''} onChange={e=>setProfile({...profile, nom:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="Nom complet"/>
+
+        <input value={profile.telephone || profile.whatsapp || ''} onChange={e=>setProfile({...profile, telephone:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="WhatsApp ex: 082..."/>
+
+        <div className="grid grid-cols-2 gap-2">
+          <select value={profile.pays || 'RDC'} onChange={e=>setProfile({...profile, pays:e.target.value})} className="border p-3 w-full rounded-xl bg-white">
+            <option value="RDC">RDC</option>
+          </select>
+          <select value={profile.province || 'Kinshasa'} onChange={e=>setProfile({...profile, province: e.target.value, ville: e.target.value === 'Kinshasa' ? 'Kinshasa' : ''})} className="border p-3 w-full rounded-xl bg-white">
+            {PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+
+        <input value={profile.ville || ''} onChange={e=>setProfile({...profile, ville:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="Ville ex: Kinshasa"/>
+
+        {isKinshasa ? (
+          <input value={profile.commune || ''} onChange={e=>setProfile({...profile, commune:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="Commune * ex: Ngaliema"/>
+        ) : (
+          <input value={profile.territoire || ''} onChange={e=>setProfile({...profile, territoire:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="Territoire * ex: Mbanza-Ngungu"/>
+        )}
+
+        <input value={profile.quartier || ''} onChange={e=>setProfile({...profile, quartier:e.target.value})} className="border p-3 w-full rounded-xl" placeholder="Quartier (facultatif) ex: Binza Pigeon"/>
+
         <button onClick={save} className="w-full bg-black text-white p-3 rounded-full font-bold">Enregistrer</button>
       </div>
 
-      <div className="mt-4 bg-black text-white p-3 rounded-xl flex justify-between">
-        <p>{produits.length} / {limite === 9999 ? "ILLIMITÉ" : limite}</p>
-        {isFreemium && <p className="text-xs">{restant > 0 ? `${restant} restantes` : 'Limite atteinte!'}</p>}
+      <div className="mt-4 bg-black text-white p-3 rounded-xl flex justify-between text-sm">
+        <p>{produits.length} / {limite === 9999 ? "ILLIMITÉ" : limite} annonces</p>
+        {isFreemium && <p className="text-xs opacity-80">{restant > 0 ? `${restant} restantes` : 'Limite atteinte!'}</p>}
       </div>
 
       <div className="mt-6 space-y-2">
         {isFreemium && restant <= 0 ? 
           <Link href="/tarifs" className="block bg-[#6C3CE0] text-white p-3 rounded-full text-center font-bold">Passer Pro 5$ = {TAUX_CDF.toLocaleString()} CDF</Link> :
-          <Link href="/publier" className="block bg-black text-white p-3 rounded-xl text-center font-bold">+ Publier</Link>
+          <Link href="/publier" className="block bg-black text-white p-3 rounded-xl text-center font-bold">+ Publier une annonce</Link>
         }
         <button onClick={logout} className="w-full bg-red-50 text-red-600 p-3 rounded-xl font-bold">Déconnexion</button>
       </div>
