@@ -1,8 +1,26 @@
 "use client";
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { CATEGORIES_WENZE } from "@/lib/categories";
-import { FORMULES, TAUX_CDF } from "@/lib/paiement";
+
+// ✅ FIX VERCEL - tout inline, plus de @/lib/categories qui plante
+const CATEGORIES_WENZE = [
+  { id: 'fripperie', titre: 'Fripperie', titreCourt: 'Frip', icon: '👕' },
+  { id: 'electronique', titre: 'Électronique', titreCourt: 'Elec', icon: '📱' },
+  { id: 'beaute', titre: 'Beauté', titreCourt: 'Beauté', icon: '💄' },
+  { id: 'chaussures', titre: 'Chaussures', titreCourt: 'Shoes', icon: '👟' },
+  { id: 'sacs', titre: 'Sacs', titreCourt: 'Sacs', icon: '👜' },
+  { id: 'maison', titre: 'Maison', titreCourt: 'Maison', icon: '🏠' },
+  { id: 'services', titre: 'Services', titreCourt: 'Serv', icon: '🔧' },
+  { id: 'alimentation', titre: 'Alimentation', titreCourt: 'Food', icon: '🍲' },
+  { id: 'enfants', titre: 'Enfants', titreCourt: 'Kids', icon: '🧒' },
+  { id: 'autres', titre: 'Autres', titreCourt: 'Autre', icon: '📦' },
+];
+
+const FORMULES = {
+  pro: { prix: 5, prixCDF: 11500 },
+  grossiste: { prix: 25, prixCDF: 57500 },
+};
+const TAUX_CDF = 2300;
 
 const cleanWhatsapp = (n: string) => (n || "").toString().replace(/[^0-9]/g, "");
 
@@ -13,7 +31,7 @@ export default function WenzeBusiness() {
   useEffect(() => {
     try {
       const list = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
-      setAnnonces(list.reverse()); // dernières d'abord
+      setAnnonces(list.reverse());
     } catch {}
   }, []);
   
@@ -58,7 +76,7 @@ export default function WenzeBusiness() {
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-black/20" />
           <div className="relative text-white z-10">
             <h2 className="font-bold text-[18px]">Achetez, Vendez, Gagnez</h2>
-            <p className="text-[11px] opacity-90 mt-1">0% commission • Pro {FORMULES.pro.prix}$ • Image 150KB • Vidéo 10MB • ownerWhatsapp</p>
+            <p className="text-[11px] opacity-90 mt-1">0% commission • Pro {FORMULES.pro.prix}$ • Image 150KB • Vidéo 10MB • W-Pay</p>
           </div>
         </div>
       </div>
@@ -89,7 +107,7 @@ export default function WenzeBusiness() {
           <div className="flex gap-3 mt-3 overflow-x-auto pb-2 -mx-4 px-4">
             {videoAnnonces.map((v) => (
               <Link key={v.id} href="/video" className="min-w-[140px] w-[140px] relative rounded-xl overflow-hidden bg-black h-[200px] flex-shrink-0">
-                <video src={v.video} className="w-full h-full object-cover" muted preload="metadata" />
+                {v.video && <video src={v.video} className="w-full h-full object-cover" muted preload="metadata" />}
                 <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 p-2">
                   <p className="text-white text-[11px] font-bold truncate">{v.titre}</p>
                   <p className="text-white/80 text-[10px]">🔒 {cleanWhatsapp(v.ownerWhatsapp||v.whatsapp).slice(-4)} • {v.prix}$</p>
@@ -111,7 +129,7 @@ export default function WenzeBusiness() {
           <div className="mt-3 bg-white border-2 border-dashed rounded-2xl p-8 text-center">
             <p className="text-4xl">📸</p>
             <p className="text-sm font-bold mt-2">Pas encore de produits</p>
-            <p className="text-[11px] text-gray-500 mt-1">Image 150KB • Vidéo 10MB • ownerWhatsapp</p>
+            <p className="text-[11px] text-gray-500 mt-1">Image 150KB • Vidéo 10MB • W-Pay {TAUX_CDF} CDF</p>
             <Link href="/publier" className="mt-3 inline-block bg-[#6C3CE0] text-white text-xs font-bold px-6 py-3 rounded-full">Publier maintenant ➕</Link>
           </div>
         ) : (
@@ -138,10 +156,10 @@ export default function WenzeBusiness() {
         )}
       </section>
 
-      <Link href="/abonnement" className="m-4 bg-[#6C3CE0] rounded-xl p-4 text-white flex justify-between items-center">
+      <Link href="/portefeuille" className="m-4 bg-[#6C3CE0] rounded-xl p-4 text-white flex justify-between items-center">
         <div>
           <h4 className="font-bold text-sm">Devenez Boutique Pro 👑</h4>
-          <p className="text-[11px] opacity-90">{FORMULES.pro.prix}$ / {FORMULES.pro.prixCDF.toLocaleString()} CDF - 0% commission - 150KB/10MB</p>
+          <p className="text-[11px] opacity-90">{FORMULES.pro.prix}$ / {FORMULES.pro.prixCDF.toLocaleString()} CDF - W-Pay - 0% commission</p>
         </div>
         <span className="bg-[#FF6B35] text-white text-xs font-bold px-4 py-2 rounded-full">Pro {FORMULES.pro.prix}$</span>
       </Link>
@@ -157,5 +175,4 @@ export default function WenzeBusiness() {
   );
 }
 
-// 🔥 FIX VERCEL FINAL - SANS ÇA TES 292 RESTENT ROUGES
 export const dynamic = 'force-dynamic';
