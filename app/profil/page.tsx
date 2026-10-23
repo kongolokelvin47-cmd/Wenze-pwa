@@ -1,8 +1,14 @@
 "use client"
 import { useEffect, useState } from "react"
-import { supabase } from "../../lib/supabase"
-import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { createClient } from "@supabase/supabase-js"
+
+// ✅ FIX VERCEL ANTI-ROUGE - plus de ../../lib/supabase
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 export default function ProfilWenze() {
   const router = useRouter()
@@ -14,26 +20,33 @@ export default function ProfilWenze() {
   useEffect(() => { charger() }, [])
 
   async function charger() {
-    const { data: { user } } = await supabase.auth.getUser()
-    setUser(user)
-    
-    if (user) {
-      // Profil + solde W-Pay en même temps
-      const [profRes, soldeRes] = await Promise.all([
-        supabase.from('profiles').select('*').eq('id', user.id).single(),
-        supabase.from('portefeuilles').select('solde').eq('user_id', user.id).single()
-      ])
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      setUser(user)
       
-      if (profRes.data) setProfile(profRes.data)
-      if (soldeRes.data) setSolde(soldeRes.data.solde)
-
-      // Auto-downgrade si expiré (logique de ton Tarifs.tsx)
-      if (profRes.data?.plan_expire_at && new Date(profRes.data.plan_expire_at) < new Date() && profRes.data.plan !== 'freemium') {
-        await supabase.from('profiles').update({ plan: 'freemium', annonces_max: 3 }).eq('id', user.id)
-        setProfile({ ...profRes.data, plan: 'freemium' })
+      if (user) {
+        const [profRes, soldeRes] = await Promise.all([
+          supabase.from('profiles').select('*').eq('id', user.id).single(),
+          supabase.from('portefeuilles').select('solde').eq('user_id', user.id).single()
+        ])
+        
+        if (profRes.data) {
+          // Auto-downgrade si expiré
+          if (profRes.data?.plan_expire_at && new Date(profRes.data.plan_expire_at) < new Date() && profRes.data.plan !== 'freemium') {
+            await supabase.from('profiles').update({ plan: 'freemium', annonces_max: 3 }).eq('id', user.id)
+            setProfile({ ...profRes.data, plan: 'freemium' })
+          } else {
+            setProfile(profRes.data)
+          }
+        }
+        if (soldeRes.data) setSolde(soldeRes.data.solde)
+        else {
+          // Crée portefeuille si n'existe pas
+          await supabase.from('portefeuilles').insert({ user_id: user.id, solde: 0 })
+        }
       }
-    }
-    setLoading(false)
+    } catch(e) { console.log(e) }
+    finally { setLoading(false) }
   }
 
   async function logout() {
@@ -49,8 +62,6 @@ export default function ProfilWenze() {
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#f5f5f5] pb-24">
-      
-      {/* HEADER - Identique KiKUU */}
       <div className="bg-white p-4">
         {!user ? (
           <Link href="/login" className="block w-full bg-white border shadow-sm rounded-full py-3 font-bold text-orange-600 text-center text-sm">
@@ -83,7 +94,6 @@ export default function ProfilWenze() {
         )}
       </div>
 
-      {/* MA COMMANDE */}
       <div className="bg-white mt-2 p-4">
         <div className="flex justify-between mb-4">
           <h2 className="font-bold text-[14px]">Ma Commande</h2>
@@ -97,7 +107,6 @@ export default function ProfilWenze() {
         </div>
       </div>
 
-      {/* W-PAY - RECOMMANDATION #1 */}
       <div className="bg-white mt-2">
         <div className="p-3 bg-gradient-to-r from-purple-50 to-orange-50">
           <p className="text-[11px] font-black">💳 MON W-PAY (recommandé)</p>
@@ -108,15 +117,12 @@ export default function ProfilWenze() {
         <Item icon="🚀" label="Boost & Vidéo Pub" right="Dès 2 300 CDF" onClick={() => router.push('/portefeuille')} />
       </div>
 
-      {/* LISTE WENZE */}
       <div className="bg-white mt-2 divide-y divide-gray-100">
         <Item icon="❤️" label="Liste de souhait" onClick={() => router.push('/favoris')} />
         <Item icon="🏪" label="Magasin suivi" value="0" />
         <Item icon="🕒" label="Vu récemment" />
         <Item icon="🎟️" label="Mes bons" right="Disponible: 0" />
-        
         <div className="h-2 bg-[#f5f5f5]"></div>
-        
         <Item icon="🏠" label="Gestion des adresses" onClick={() => router.push('/profil/adresses')} />
         <Item icon="🎧" label="Centre de services" />
         <Item icon="👥" label="Inviter un ami - Gagne 1 mois Pro" />
@@ -131,7 +137,6 @@ export default function ProfilWenze() {
         </div>
       )}
 
-      {/* BOTTOM NAV FIXE */}
       <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white border-t flex justify-around py-3 text-[11px] z-50">
         <span onClick={() => router.push('/')} className="cursor-pointer">Accueil</span>
         <span className="cursor-pointer">Catégories</span>
