@@ -1,6 +1,6 @@
 {
   "name": "wenze-wenze-business",
-  "version": "1.0.0",
+  "version": "2.3.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -13,7 +13,8 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "@supabase/supabase-js": "^2.45.4",
-    "@supabase/ssr": "^0.5.2"
+    "@supabase/ssr": "^0.5.2",
+    "lucide-react": "^0.400.0"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
