@@ -47,7 +47,7 @@ export const CATEGORIES_WENZE: Categorie[] = [
     titre: "Technique, Réparation, BTP", 
     titreCourt: "Technique", 
     icon: "🔧", 
-    description: "Maçon, électricien, plombier, mécanicien", 
+    description: "Maçon, électricien, plombier, mécanicien, soudeur - tout travaux techniques", 
     activites: [
       { id: "t1", label: "Maçon", slug: "macon" },
       { id: "t2", label: "Électricien", slug: "electricien" },
@@ -55,6 +55,10 @@ export const CATEGORIES_WENZE: Categorie[] = [
       { id: "t4", label: "Mécanicien", slug: "mecanicien" },
       { id: "t5", label: "Menuisier", slug: "menuisier" },
       { id: "t6", label: "Peintre bâtiment", slug: "peintre" },
+      { id: "t7", label: "Soudeur", slug: "soudeur" },
+      { id: "t8", label: "Tout travaux techniques", slug: "tout-travaux-techniques" },
+      { id: "t9", label: "Carreleur", slug: "carreleur" },
+      { id: "t10", label: "Vitreur / Aluminium", slug: "vitreur" },
     ]
   },
   { 
@@ -111,4 +115,4 @@ export function getActiviteById(catId: string, actSlug: string) {
 
 export function getAllActivites() {
   return CATEGORIES_WENZE.flatMap(c => c.activites.map(a => ({ ...a, categorieId: c.id })));
-}
+    }
