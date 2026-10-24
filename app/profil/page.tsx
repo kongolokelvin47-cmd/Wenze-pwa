@@ -1,158 +1,215 @@
-"use client"
-import { useEffect, useState } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
-import { createClient } from "@supabase/supabase-js"
+"use client";
+import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { CATEGORIES_WENZE, getCategorieById } from "@/lib/categories";
+import { FORMULES, verifierAbonnement, TAUX_CDF } from "@/lib/paiement";
 
-// ✅ FIX VERCEL ANTI-ROUGE - plus de ../../lib/supabase
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
+const cleanWhatsapp = (n: string) => (n || "").toString().replace(/[^0-9]/g, "");
 
-export default function ProfilWenze() {
-  const router = useRouter()
-  const [user, setUser] = useState<any>(null)
-  const [profile, setProfile] = useState<any>(null)
-  const [solde, setSolde] = useState(0)
-  const [loading, setLoading] = useState(true)
+export default function ProfilPage() {
+  const router = useRouter();
+  const [user, setUser] = useState<any>(null);
+  const [annonces, setAnnonces] = useState<any[]>([]);
+  const [abonnement, setAbonnement] = useState<any>(null);
+  const [solde, setSolde] = useState(0);
 
-  useEffect(() => { charger() }, [])
-
-  async function charger() {
+  useEffect(() => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      setUser(user)
-      
-      if (user) {
-        const [profRes, soldeRes] = await Promise.all([
-          supabase.from('profiles').select('*').eq('id', user.id).single(),
-          supabase.from('portefeuilles').select('solde').eq('user_id', user.id).single()
-        ])
+      const raw = localStorage.getItem("wenze_user");
+      if (raw) {
+        const u = JSON.parse(raw);
+        // ✅ FIX BOUTIQUE - assure regime prestataire unique + estBoutique
+        const fixedUser = {
+          ...u,
+          regime: u.regime || "prestataire",
+          estBoutique: u.estBoutique !== false, // Par défaut true si pas défini - pour que /boutiques fonctionne
+          categorieId: u.categorieId || u.categorie || "commerce",
+          profession: u.profession || u.activite || "Prestataire",
+        };
+        setUser(fixedUser);
         
-        if (profRes.data) {
-          // Auto-downgrade si expiré
-          if (profRes.data?.plan_expire_at && new Date(profRes.data.plan_expire_at) < new Date() && profRes.data.plan !== 'freemium') {
-            await supabase.from('profiles').update({ plan: 'freemium', annonces_max: 3 }).eq('id', user.id)
-            setProfile({ ...profRes.data, plan: 'freemium' })
-          } else {
-            setProfile(profRes.data)
-          }
-        }
-        if (soldeRes.data) setSolde(soldeRes.data.solde)
-        else {
-          // Crée portefeuille si n'existe pas
-          await supabase.from('portefeuilles').insert({ user_id: user.id, solde: 0 })
-        }
+        // ✅ SYNC vers wenze_all_users pour que /boutiques te voie - CRITIQUE
+        try {
+          const allRaw = localStorage.getItem("wenze_all_users");
+          const allUsers = allRaw ? JSON.parse(allRaw) : [];
+          const wa = cleanWhatsapp(fixedUser.ownerWhatsapp || fixedUser.whatsapp);
+          const idx = allUsers.findIndex((x:any) => cleanWhatsapp(x.ownerWhatsapp || x.whatsapp) === wa);
+          if (idx >= 0) allUsers[idx] = { ...allUsers[idx], ...fixedUser };
+          else allUsers.push(fixedUser);
+          localStorage.setItem("wenze_all_users", JSON.stringify(allUsers));
+          localStorage.setItem("wenze_user", JSON.stringify(fixedUser));
+        } catch {}
+
+        // Solde W-Pay si existe
+        const s = parseInt(localStorage.getItem("wenze_solde") || "0");
+        setSolde(s);
       }
-    } catch(e) { console.log(e) }
-    finally { setLoading(false) }
+      const list = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
+      setAnnonces(list);
+      setAbonnement(verifierAbonnement());
+    } catch {}
+  }, []);
+
+  const myAnnonces = useMemo(() => {
+    if (!user) return [];
+    const myWa = cleanWhatsapp(user.ownerWhatsapp || user.whatsapp);
+    return annonces.filter((a: any) => cleanWhatsapp(a.ownerWhatsapp || a.whatsapp) === myWa);
+  }, [user, annonces]);
+
+  const getCategorieInfo = (catId: string) => {
+    const cat = getCategorieById((catId || "").toLowerCase());
+    return cat ? `${cat.icon} ${cat.titreCourt}` : catId || "Non défini";
+  };
+
+  const getRegimeBadge = () => {
+    if (!user) return null;
+    const act = (user.activiteId || user.activite || user.profession || "").toLowerCase();
+    const isTech = act.includes("soudeur") || act.includes("tout-travaux") || user.categorieId === "technique";
+    // ✅ Régime prestataire unique - Soudeur + Tout travaux = même régime que tous les prestataires
+    if (user.type === "pro") return { label: `PRO ${FORMULES.pro.prix}$ / ${FORMULES.pro.prixCDF.toLocaleString()} CDF • Régime prestataire unique ${isTech ? "🔧 Soudeur + Tout travaux inclus" : ""}`, color: "bg-[#6C3CE0]" };
+    if (user.type === "grossiste") return { label: `GROSSISTE ${FORMULES.grossiste.prix}$ / ${FORMULES.grossiste.prixCDF.toLocaleString()} CDF • Régime prestataire`, color: "bg-orange-500" };
+    return { label: `FREEMIUM 3 gratuites • Régime prestataire • Taux ${TAUX_CDF} CDF`, color: "bg-gray-800" };
+  };
+
+  const handleLogout = () => {
+    if (confirm("Déconnexion ? Supprime aussi ta boutique locale ?")) {
+      const wa = cleanWhatsapp(user.ownerWhatsapp || user.whatsapp);
+      try {
+        const allRaw = localStorage.getItem("wenze_all_users");
+        if (allRaw) {
+          const allUsers = JSON.parse(allRaw);
+          const filtered = allUsers.filter((x:any) => cleanWhatsapp(x.ownerWhatsapp || x.whatsapp) !== wa);
+          localStorage.setItem("wenze_all_users", JSON.stringify(filtered));
+        }
+      } catch {}
+      localStorage.removeItem("wenze_user");
+      router.push("/");
+    }
+  };
+
+  if (!user) {
+    return (
+      <div className="max-w-[430px] mx-auto bg-[#FFFBF0] min-h-screen p-6 text-center">
+        <p className="text-4xl mt-10">👤</p>
+        <p className="font-black mt-4">Pas connecté</p>
+        <p className="text-[11px] text-gray-500 mt-1">Connecte-toi - Régime prestataire unique Pro {FORMULES.pro.prix}$ / {FORMULES.pro.prixCDF.toLocaleString()} CDF - Taux {TAUX_CDF} CDF</p>
+        <div className="grid grid-cols-2 gap-2 mt-6">
+          <Link href="/connexion" className="bg-black text-white py-3 rounded-full text-sm font-bold">Connexion</Link>
+          <Link href="/inscription" className="bg-[#6C3CE0] text-white py-3 rounded-full text-sm font-bold">Inscription Prestataire</Link>
+        </div>
+      </div>
+    );
   }
 
-  async function logout() {
-    await supabase.auth.signOut()
-    if (typeof window !== 'undefined') localStorage.clear()
-    router.push('/login')
-  }
-
-  if (loading) return <div className="max-w-[430px] mx-auto p-10 text-center text-xs">Chargement WENZE...</div>
-
-  const isPro = profile?.plan === 'pro' || profile?.plan === 'grossiste'
-  const isExpired = profile?.plan_expire_at ? new Date(profile.plan_expire_at) < new Date() : false
+  const badge = getRegimeBadge();
+  const catInfo = getCategorieInfo(user.categorieId || user.categorie);
+  const actLower = (user.activiteId || user.activite || user.profession || "").toLowerCase();
+  const isSpecialRegime = actLower.includes("soudeur") || actLower.includes("tout-travaux");
 
   return (
-    <div className="max-w-[430px] mx-auto min-h-screen bg-[#f5f5f5] pb-24">
-      <div className="bg-white p-4">
-        {!user ? (
-          <Link href="/login" className="block w-full bg-white border shadow-sm rounded-full py-3 font-bold text-orange-600 text-center text-sm">
-            S'IDENTIFIER / S'ENREGISTRER
-          </Link>
-        ) : (
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-black text-white rounded-full flex items-center justify-center font-bold text-lg">
-              {user.email?.[0]?.toUpperCase()}
+    <div className="max-w-[430px] mx-auto bg-[#FFFBF0] min-h-screen pb-24">
+      <header className="sticky top-0 bg-white z-20 p-4 border-b flex items-center gap-3">
+        <Link href="/" className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
+        <h1 className="font-black">Profil • {myAnnonces.length} annonces</h1>
+        <span className="ml-auto text-[10px] bg-black text-white px-2 py-1 rounded-full font-bold">{solde.toLocaleString()} CDF • Taux {TAUX_CDF}</span>
+      </header>
+
+      <div className="p-4">
+        <div className="bg-white border rounded-2xl p-4">
+          <div className="flex gap-3">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-100 to-orange-100 flex items-center justify-center text-2xl border overflow-hidden">
+              {user.photo ? <img src={user.photo} className="w-full h-full rounded-full object-contain" /> : "👤"}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-bold text-sm truncate">{user.email}</p>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${isPro && !isExpired ? 'bg-purple-100 text-[#6C3CE0]' : 'bg-gray-100 text-gray-600'}`}>
-                  {isExpired ? 'EXPIRÉ' : (profile?.plan || 'FREEMIUM').toUpperCase()}
-                </span>
-                <span className="text-[11px] text-green-600 font-bold">
-                  {isPro && !isExpired ? 'ILLIMITÉ' : '3 annonces max'}
-                </span>
+              <p className="font-black text-[15px] flex items-center gap-2">{user.nom} {isSpecialRegime && <span className="text-[8px] bg-[#6C3CE0] text-white px-2 py-0.5 rounded-full">PRESTATAIRE UNIQUE</span>}</p>
+              <p className="text-[11px] text-gray-600">👤 {user.profession || user.categorie || "Prestataire"} • {catInfo}</p>
+              <p className="text-[10px] text-gray-500">📍 {user.ville || user.commune || "Kinshasa"} • 🔒 {cleanWhatsapp(user.ownerWhatsapp || user.whatsapp).slice(-4)} • Taux {TAUX_CDF} CDF</p>
+              <div className="flex gap-2 mt-2 flex-wrap">
+                <span className={`text-[9px] px-2 py-1 rounded-full font-bold text-white ${badge?.color}`}>{badge?.label}</span>
+                <span className="text-[9px] px-2 py-1 rounded-full bg-green-50 text-green-700 font-bold">Régime: {user.regime || "prestataire"} • estBoutique: {user.estBoutique ? "OUI" : "NON"}</span>
+                {abonnement?.actif && <span className="text-[9px] px-2 py-1 rounded-full bg-green-500 text-white font-bold">Actif {abonnement.expireDans}j restants</span>}
               </div>
-              {profile?.plan_expire_at && !isExpired && (
-                <p className="text-[10px] text-gray-500 mt-1">Expire le {new Date(profile.plan_expire_at).toLocaleDateString('fr-FR')}</p>
-              )}
-              {isExpired && <p className="text-[10px] text-red-500 font-bold">Repaye pour réactiver</p>}
             </div>
-            <Link href="/portefeuille" className="bg-black text-white text-[10px] px-3 py-2 rounded-full font-bold">
-              {solde.toLocaleString()} CDF
-            </Link>
           </div>
-        )}
-      </div>
 
-      <div className="bg-white mt-2 p-4">
-        <div className="flex justify-between mb-4">
-          <h2 className="font-bold text-[14px]">Ma Commande</h2>
-          <Link href="/commandes" className="text-blue-600 text-[11px]">Voir tout</Link>
+          <div className="mt-4 bg-[#6C3CE0]/5 border border-[#6C3CE0]/20 rounded-xl p-3">
+            <p className="text-[11px] font-bold text-[#6C3CE0]">🔧 Régime prestataire unique - 6 métiers - Taux {TAUX_CDF} CDF fixe</p>
+            <p className="text-[10px] text-gray-600 mt-1 leading-snug">
+              {isSpecialRegime
+                ? `Tu es ${user.profession} - Régime prestataire Pro ${FORMULES.pro.prix}$ / ${FORMULES.pro.prixCDF.toLocaleString()} CDF - Même régime que tous les prestataires (Commerce, Beauté, Alimentation...). Soudeur + Tout travaux = même régime.`
+                : `Tous les prestataires au même régime Pro ${FORMULES.pro.prix}$ / ${FORMULES.pro.prixCDF.toLocaleString()} CDF (Taux ${TAUX_CDF} CDF). Soudeur + Tout travaux inclus dans même régime.`}
+            </p>
+            <p className="text-[10px] text-gray-500 mt-1">Catégorie: {catInfo} • Activité: {user.activite || user.profession} • {CATEGORIES_WENZE.length} métiers • Boutique fonctionnelle: {user.estBoutique ? "OUI visible dans /boutiques" : "NON - sera fixée auto"}</p>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2 mt-4 text-center">
+            <div className="bg-gray-50 rounded-xl p-3"><p className="font-black text-lg">{myAnnonces.length}</p><p className="text-[10px] text-gray-500">Annonces</p><p className="text-[8px] text-green-600">wenze_annonces_list</p></div>
+            <div className="bg-gray-50 rounded-xl p-3"><p className="font-black text-lg">{user.type === "pro" || user.type === "grossiste" ? "∞" : Math.max(0, 3 - myAnnonces.length)}</p><p className="text-[10px] text-gray-500">Restantes</p><p className="text-[8px] text-gray-400">{user.type}</p></div>
+            <div className="bg-gray-50 rounded-xl p-3"><p className="font-black text-lg">{solde.toLocaleString()}</p><p className="text-[10px] text-gray-500">CDF W-Pay</p><p className="text-[8px] text-gray-400">Taux {TAUX_CDF}</p></div>
+          </div>
         </div>
-        <div className="grid grid-cols-4 gap-2 text-center">
-          <div onClick={()=>router.push('/commandes')} className="flex flex-col items-center cursor-pointer"><span className="text-xl">⏳</span><span className="text-[10px] mt-1 leading-tight">En attente<br/>paiement</span></div>
-          <div className="flex flex-col items-center"><span className="text-xl">🚚</span><span className="text-[10px] mt-1">Expédition</span></div>
-          <div className="flex flex-col items-center"><span className="text-xl">💬</span><span className="text-[10px] mt-1">Commentaires</span></div>
-          <div className="flex flex-col items-center"><span className="text-xl">📦</span><span className="text-[10px] mt-1">Retours</span></div>
+
+        <div className="mt-6">
+          <div className="flex justify-between items-center mb-3">
+            <h2 className="font-bold text-[14px]">Mes annonces ({myAnnonces.length}) - Boutique fonctionnelle • Taux {TAUX_CDF}</h2>
+            <Link href="/publier" className="text-[11px] bg-black text-white px-3 py-1.5 rounded-full font-bold">+ Publier</Link>
+          </div>
+          
+          {myAnnonces.length === 0 ? (
+            <div className="bg-white border-2 border-dashed rounded-2xl p-6 text-center">
+              <p className="text-2xl">📦</p>
+              <p className="text-[12px] font-bold mt-2">Pas encore d'annonce</p>
+              <p className="text-[10px] text-gray-500 mt-1">Publie pour que ta boutique apparaisse dans /boutiques avec régime prestataire unique Pro {FORMULES.pro.prix}$ / {FORMULES.pro.prixCDF.toLocaleString()} CDF (Taux {TAUX_CDF})</p>
+              <Link href="/publier" className="mt-3 inline-block bg-[#6C3CE0] text-white px-5 py-2 rounded-full text-[11px] font-bold">Publier première annonce - {FORMULES.pro.prix}$</Link>
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              {myAnnonces.map((a: any) => {
+                const cInfo = getCategorieInfo(a.categorieId || a.categorie);
+                const aAct = (a.activiteId || a.activite || "").toLowerCase();
+                const aSpecial = aAct.includes("soudeur") || aAct.includes("tout-travaux");
+                return (
+                  <div key={a.id} className="bg-white border rounded-xl p-3 flex gap-3">
+                    <div className="w-14 h-14 bg-gray-50 rounded-xl flex items-center justify-center overflow-hidden relative">
+                      {a.photo ? <img src={a.photo} className="max-w-full max-h-full object-contain" /> : "📦"}
+                      {aSpecial && <span className="absolute -top-1 -right-1 text-[8px] bg-[#6C3CE0] text-white px-1 rounded-full">PREST</span>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-bold truncate">{a.titre} {aSpecial && "🔧"}</p>
+                      <p className="text-[10px] text-gray-500">{cInfo} • {a.activite || a.profession} • {a.prix}$ / {(a.prix * TAUX_CDF).toLocaleString()} CDF • Régime prestataire</p>
+                      <p className="text-[9px] text-green-600 mt-1">✅ Visible dans /boutiques + catégorie {a.categorieId} • Taux {TAUX_CDF}</p>
+                    </div>
+                    <Link href={`/produit/${a.id}`} className="text-[10px] bg-gray-100 px-3 py-1.5 rounded-full font-bold h-fit">Voir</Link>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
-      </div>
 
-      <div className="bg-white mt-2">
-        <div className="p-3 bg-gradient-to-r from-purple-50 to-orange-50">
-          <p className="text-[11px] font-black">💳 MON W-PAY (recommandé)</p>
+        <div className="mt-6 grid gap-2">
+          <Link href="/boutiques" className="bg-white border p-3 rounded-xl flex justify-between items-center">
+            <span className="text-[13px] font-bold">🏪 Voir toutes boutiques - {CATEGORIES_WENZE.length} métiers - Taux {TAUX_CDF}</span>
+            <span className="text-[#6C3CE0]">→</span>
+          </Link>
+          <Link href={`/boutique/${encodeURIComponent(user.ownerWhatsapp || user.whatsapp)}`} className="bg-[#6C3CE0] text-white p-3 rounded-xl text-center font-bold text-[13px]">
+            🔧 Ma boutique publique - {user.profession} - Régime prestataire unique {isSpecialRegime ? "Soudeur + Tout travaux même régime" : `${FORMULES.pro.prix}$`} • {TAUX_CDF} CDF
+          </Link>
+          <div className="grid grid-cols-2 gap-2">
+            <Link href="/video" className="bg-black text-white p-3 rounded-xl text-center font-bold text-[12px]">🎬 Vidéos {myAnnonces.filter((a:any)=>a.video).length}</Link>
+            <Link href="/portefeuille" className="bg-white border p-3 rounded-xl text-center font-bold text-[12px]">💳 W-Pay {solde.toLocaleString()} CDF</Link>
+          </div>
+          <button onClick={handleLogout} className="bg-white border border-red-200 text-red-600 p-3 rounded-xl font-bold text-[13px]">Déconnexion • Taux {TAUX_CDF} CDF</button>
         </div>
-        <Item icon="💳" label="Mon W-Pay - Portefeuille" right={`${solde.toLocaleString()} CDF`} onClick={() => router.push('/portefeuille')} highlight />
-        <Item icon="💰" label="Devenir Pro" right="5$ / 11 500 CDF" onClick={() => router.push('/tarifs')} highlight />
-        <Item icon="🏢" label="Devenir Grossiste" right="25$ / 57 500 CDF" onClick={() => router.push('/tarifs')} />
-        <Item icon="🚀" label="Boost & Vidéo Pub" right="Dès 2 300 CDF" onClick={() => router.push('/portefeuille')} />
-      </div>
 
-      <div className="bg-white mt-2 divide-y divide-gray-100">
-        <Item icon="❤️" label="Liste de souhait" onClick={() => router.push('/favoris')} />
-        <Item icon="🏪" label="Magasin suivi" value="0" />
-        <Item icon="🕒" label="Vu récemment" />
-        <Item icon="🎟️" label="Mes bons" right="Disponible: 0" />
-        <div className="h-2 bg-[#f5f5f5]"></div>
-        <Item icon="🏠" label="Gestion des adresses" onClick={() => router.push('/profil/adresses')} />
-        <Item icon="🎧" label="Centre de services" />
-        <Item icon="👥" label="Inviter un ami - Gagne 1 mois Pro" />
-      </div>
-
-      {user && (
-        <div className="p-4 space-y-2">
-          <button onClick={logout} className="w-full bg-white border border-red-200 text-red-500 p-3 rounded-xl text-sm font-bold">
-            Déconnexion sécurisée
-          </button>
-          <p className="text-[9px] text-center text-gray-400">ID: {user.id.slice(0,8)}... | WENZE v2.3 | Taux 2300 CDF</p>
+        <div className="mt-4 bg-white border rounded-xl p-3 text-[9px] text-gray-400">
+          <p className="font-bold text-gray-600">Diagnostic boutiques temps présent</p>
+          <p className="mt-1">Catégorie: {catInfo} • Activité: {user.activite || user.profession} • Régime: {user.regime} • estBoutique: {user.estBoutique ? "OUI" : "NON"} • WhatsApp: 🔒 {cleanWhatsapp(user.ownerWhatsapp || user.whatsapp).slice(-4)} • Plan: {user.type} • Annonces: {myAnnonces.length} • wenze_all_users sync: OK • Taux: {TAUX_CDF} CDF fixe • Pro: {FORMULES.pro.prix}$ = {FORMULES.pro.prixCDF} CDF</p>
+          <p className="mt-1 text-[#6C3CE0] font-bold">Soudeur + Tout travaux = même régime prestataire unique Pro {FORMULES.pro.prix}$ - Boutique fonctionnelle dans /boutiques - Taux {TAUX_CDF} CDF</p>
         </div>
-      )}
-
-      <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white border-t flex justify-around py-3 text-[11px] z-50">
-        <span onClick={() => router.push('/')} className="cursor-pointer">Accueil</span>
-        <span className="cursor-pointer">Catégories</span>
-        <span className="font-bold cursor-pointer">Shopping</span>
-        <span className="cursor-pointer">Chariot</span>
-        <span className="text-orange-600 font-black">Mon WENZE</span>
       </div>
     </div>
-  )
+  );
 }
-
-function Item({ icon, label, right, value, onClick, highlight }: any) {
-  return (
-    <div onClick={onClick} className={`flex items-center justify-between p-4 ${highlight ? 'bg-purple-50 border-l-4 border-l-[#6C3CE0]' : 'bg-white'} ${onClick ? 'cursor-pointer active:bg-gray-50' : ''}`}>
-      <div className="flex items-center gap-3"><span className="text-[18px] w-6 text-center">{icon}</span><span className="text-[13px] font-medium">{label}</span></div>
-      <span className="text-blue-600 text-[11px] font-bold ml-2 truncate">{right || value || "›"}</span>
-    </div>
-  )
-        }
+export const dynamic = 'force-dynamic';
