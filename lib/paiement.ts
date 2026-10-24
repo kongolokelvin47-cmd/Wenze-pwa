@@ -1,138 +1,162 @@
-// lib/paiement.ts - MODÈLE ÉCONOMIQUE OFFICIEL WENZE BUSINESS - 100% PARFAIT - VERT
+// lib/paiement.ts - WENZE 2026 - REGIME PRESTATAIRE UNIQUE - VERT
+// Soudeur + Tout travaux techniques = même régime que Prestataire Pro 5$
+
 export const TAUX_CDF = 2300;
-export const toCDF = (usd: number) => usd * TAUX_CDF;
+export const toCDF = (usd: number) => Math.round(usd * TAUX_CDF);
 export const toUSD = (cdf: number) => Math.round(cdf / TAUX_CDF);
 
+// ✅ 5 FORMULES SEULEMENT - REGIME PRESTATAIRE UNIQUE
 export const FORMULES = {
-  // minuscule - utilisé par app/page.tsx, publier, inscription, connexion, boutiques, profil
-  client: { prix: 0, prixUSD: 0, prixCDF: 0, nom: "Client / Acheteur", duree: "À vie", limite: "Recherche illimitée + Contact vendeur + Vente occasionnelle 3$ / 6900 CDF par annonce", annonces: 0 },
-  freemium: { prix: 0, prixUSD: 0, prixCDF: 0, nom: "Vendeur Freemium", duree: "À vie", limite: "3 annonces à vie max", annonces: 3 },
-  pro: { prix: 5, prixUSD: 5, prixCDF: 11500, nom: "Vendeur Pro", duree: "1 mois", limite: "Illimité + CRM + IA + Boost", annonces: 9999, professions: ["Vendeur boutique","Mécanicien","Salon de coiffure","Électricien","Plombier","Menuisier","Tailleur","Photographe","Restaurateur","Autres petits services"] },
-  grossiste: { prix: 25, prixUSD: 25, prixCDF: 57500, nom: "Grossiste / Grande échelle", duree: "1 mois", limite: "Illimité + B2B + Sous-comptes + IA", annonces: 9999, professions: ["Grossiste / Dépôt B2B","Agriculteur","Entreprise","Grande échelle / Usine"] },
-  occasionnel: { prix: 3, prixUSD: 3, prixCDF: 6900, nom: "Publication Occasionnelle", duree: "5 jours", limite: "1 annonce pour Client perso", annonces: 1 },
-  
-  // MAJUSCULE pour compatibilité ancien code
-  CLIENT: { prix: 0, prixUSD: 0, prixCDF: 0, nom: "Client / Acheteur", duree: "À vie", limite: "Recherche + Contact", annonces: 0 } as any,
-  FREEMIUM: { prix: 0, prixUSD: 0, prixCDF: 0, nom: "Vendeur Freemium", duree: "À vie", limite: "3 annonces", annonces: 3 } as any,
-  PRO: { prix: 5, prixUSD: 5, prixCDF: 11500, nom: "Vendeur Pro", duree: "1 mois", limite: "Illimité + CRM + IA", annonces: 9999 } as any,
-  GROSSISTE: { prix: 25, prixUSD: 25, prixCDF: 57500, nom: "Grossiste", duree: "1 mois", limite: "Illimité + B2B", annonces: 9999 } as any,
-  OCCASIONNEL: { prix: 3, prixUSD: 3, prixCDF: 6900, nom: "Occasionnel", duree: "5 jours", limite: "1 annonce", annonces: 1 } as any,
-} as any;
+  freemium: {
+    prix: 0, prixUSD: 0, prixCDF: 0,
+    nom: "Prestataire Freemium",
+    duree: "À vie", jours: 36500,
+    limite: "3 annonces gratuites à vie - Tous métiers: Soudeur, Tout travaux, etc",
+    annonces: 3, badge: "🆓",
+    regime: "prestataire"
+  },
+  client: {
+    prix: 0, prixUSD: 0, prixCDF: 0,
+    nom: "Client / Acheteur",
+    duree: "À vie", jours: 36500,
+    limite: "Recherche illimitée + 1 annonce occasionnelle 3$",
+    annonces: 0, badge: "👤",
+    regime: "client"
+  },
+  pro: {
+    prix: 5, prixUSD: 5, prixCDF: 11500,
+    nom: "Prestataire Pro", // ✅ NOM UNIQUE - inclut soudeur et tout travaux
+    duree: "1 mois", jours: 30,
+    limite: "Illimité - REGIME PRESTATAIRE UNIQUE: Soudeur + Tout travaux techniques + Commerce + Beauté + Technique + Alimentation + Ménage + Événementiel + CRM + IA",
+    annonces: 9999, badge: "👑",
+    regime: "prestataire",
+    // ✅ TOUS LES METIERS AU MEME REGIME
+    professions: [
+      "Prestataire", "Soudeur", "Tout travaux techniques",
+      "Commerce", "Beauté", "Technique", "Alimentation", "Ménage", "Événementiel",
+      "Électricien", "Plombier", "Menuisier", "Mécanicien", "Peintre", "Carreleur", "Vitrier"
+    ]
+  },
+  grossiste: {
+    prix: 25, prixUSD: 25, prixCDF: 57500,
+    nom: "Grossiste B2B - Prestataire",
+    duree: "1 mois", jours: 30,
+    limite: "Illimité B2B - Même régime prestataire mais volume grossiste",
+    annonces: 9999, badge: "🏭",
+    regime: "prestataire",
+    professions: ["Grossiste", "Dépôt", "Usine"]
+  },
+  occasionnel: {
+    prix: 3, prixUSD: 3, prixCDF: 6900,
+    nom: "Annonce Occasionnelle",
+    duree: "5 jours", jours: 5,
+    limite: "1 annonce",
+    annonces: 1, badge: "🎟️",
+    regime: "client"
+  },
+} as const;
 
 export const PUBS = {
-  boost_image: { prix: 2, prixUSD: 2, prixCDF: 4600, jours: 5, nom: "Boost Image", limite: "1 image + carrousel" },
-  occasionnel: { prix: 3, prixUSD: 3, prixCDF: 6900, jours: 5, nom: "Occasionnel", limite: "1 annonce Client" },
-  video_express: { prix: 1, prixUSD: 1, prixCDF: 2300, jours: 2, nom: "Vidéo Express 60s", limite: "1 vidéo 60s" },
-  video_standard: { prix: 3, prixUSD: 3, prixCDF: 6900, jours: 6, nom: "Vidéo Standard 60s", limite: "1 vidéo 60s" },
-  video_mensuelle: { prix: 15, prixUSD: 15, prixCDF: 34500, jours: 30, nom: "Vidéo Mensuelle 60s", limite: "1 vidéo 60s" },
-  BOOST_IMAGE: { prix: 2, prixUSD: 2, prixCDF: 4600, jours: 5, nom: "Boost Image" } as any,
-  OCCASIONNEL: { prix: 3, prixUSD: 3, prixCDF: 6900, jours: 5, nom: "Occasionnel" } as any,
-  VIDEO_EXPRESS: { prix: 1, prixUSD: 1, prixCDF: 2300, jours: 2, nom: "Vidéo Express" } as any,
-  VIDEO_STANDARD: { prix: 3, prixUSD: 3, prixCDF: 6900, jours: 6, nom: "Vidéo Standard" } as any,
-  VIDEO_MENSUELLE: { prix: 15, prixUSD: 15, prixCDF: 34500, jours: 30, nom: "Vidéo Mensuelle" } as any,
-} as any;
+  boost_image: { prix: 2, prixUSD: 2, prixCDF: 4600, jours: 5, nom: "Boost Image" },
+  video_express: { prix: 1, prixUSD: 1, prixCDF: 2300, jours: 2, nom: "Vidéo Express" },
+  video_standard: { prix: 3, prixUSD: 3, prixCDF: 6900, jours: 6, nom: "Vidéo Standard" },
+  video_mensuelle: { prix: 15, prixUSD: 15, prixCDF: 34500, jours: 30, nom: "Vidéo Mensuelle" },
+} as const;
+
+// Compatibilité ancien code - ne supprime pas
+export const FORMULES_ALIAS: any = {
+  CLIENT: FORMULES.client, FREEMIUM: FORMULES.freemium,
+  PRO: FORMULES.pro, GROSSISTE: FORMULES.grossiste, OCCASIONNEL: FORMULES.occasionnel,
+  SOUDEUR: FORMULES.pro, TOUT_TRAVAUX: FORMULES.pro, // ✅ Soudeur et tout travaux = Pro
+};
 
 export const COMMUNES_KIN = ["Gombe","Lingwala","Kinshasa","Barumbu","Bandalungwa","Ngaliema","Kintambo","Mont Ngafula","Bumbu","Makala","Selembao","Ngaba","Lemba","Matete","Kisenso","Masina","Ndjili","Kimbanseke","Nsele","Maluku","Limete","Ngiri-Ngiri","Kasa-Vubu"] as const;
 
 export type TypeFormule = keyof typeof FORMULES;
-export type TypePub = keyof typeof PUBS;
 
-export const handlePaiement = (type: TypeFormule | TypePub, devise: "$" | "CDF" = "$") => {
-  const key = String(type).toLowerCase();
-  let prixUSD = 0, prixCDF = 0, nom = "", dureeJours = 30;
+export const handlePaiement = (type: string, devise: "$" | "CDF" = "$") => {
+  const raw = String(type).toLowerCase();
+  // ✅ Si on paie "soudeur" ou "tout-travaux" -> on map direct sur "pro" - même régime
+  const key = (raw.includes("soudeur") || raw.includes("tout") ? "pro" : raw) as TypeFormule;
+  
+  const f: any = (FORMULES as any)[key] || FORMULES_ALIAS[raw.toUpperCase()] || (PUBS as any)[raw];
+  if (!f) return null;
 
-  const f = (FORMULES as any)[key] || (FORMULES as any)[type] || (PUBS as any)[key] || (PUBS as any)[type];
-  if (f) {
-    prixUSD = f.prixUSD ?? f.prix ?? 0;
-    prixCDF = f.prixCDF ?? (prixUSD * TAUX_CDF);
-    nom = f.nom ?? String(type);
-    dureeJours = f.jours ?? (key.includes("pro") || key.includes("grossiste") ? 30 : key === "occasionnel" ? 5 : 30);
-  }
+  const prixUSD = f.prixUSD ?? f.prix ?? 0;
+  const prixCDF = f.prixCDF ?? toCDF(prixUSD);
+  const expire = Date.now() + (f.jours ?? 30) * 86400000;
 
-  const now = Date.now();
-  const expire = now + dureeJours * 24 * 60 * 60 * 1000;
-  const paiement = { type, nom, prixUSD, prixCDF, prix: prixUSD, devise, date: new Date().toISOString(), expire, actif: true, taux: TAUX_CDF };
+  const paiement = {
+    type: key, nom: f.nom, prixUSD, prixCDF, prix: prixUSD,
+    devise, date: new Date().toISOString(), expire, actif: true, taux: TAUX_CDF,
+    regime: f.regime || "prestataire"
+  };
 
   if (typeof window !== "undefined") {
     localStorage.setItem("paiement_reussi", "true");
-    localStorage.setItem("type_paye", String(type));
+    localStorage.setItem("type_paye", key);
     localStorage.setItem("abonnement_expire", String(expire));
     localStorage.setItem("dernier_paiement", JSON.stringify(paiement));
     localStorage.setItem("est_pro", String(key === "pro" || key === "grossiste"));
+    localStorage.setItem("regime_prestataire", "true"); // ✅ Marqueur régime unique
 
     try {
       const userRaw = localStorage.getItem("wenze_user");
       if (userRaw) {
         const user = JSON.parse(userRaw);
         if (key === "pro") {
-          user.type = "pro"; user.annoncesLimite = 9999;
-          user.abonnement = `Pro ${FORMULES.pro.prix}$ / ${FORMULES.pro.prixCDF} CDF - Actif`;
-          user.estBoutique = true;
+          user.type = "pro"; user.regime = "prestataire"; user.annoncesLimite = 9999;
+          user.abonnement = `Prestataire Pro 5$ - Régime unique inclut Soudeur + Tout travaux - Actif`;
+          user.estBoutique = true; user.badge = "👑";
         } else if (key === "grossiste") {
-          user.type = "grossiste"; user.annoncesLimite = 9999;
-          user.abonnement = `Grossiste ${FORMULES.grossiste.prix}$ / ${FORMULES.grossiste.prixCDF} CDF - Actif`;
+          user.type = "grossiste"; user.regime = "prestataire"; user.annoncesLimite = 9999;
+          user.abonnement = `Grossiste Prestataire 25$`;
           user.estBoutique = true;
-        } else if (key === "freemium") {
-          user.type = "freemium"; user.annoncesLimite = 3;
-          user.abonnement = `Freemium - 3 annonces gratuites à vie`;
-          user.estBoutique = true;
-        } else if (key === "occasionnel") {
-          const occ = Number(localStorage.getItem("wenze_occasionnel_credit") || "0") + 1;
-          localStorage.setItem("wenze_occasionnel_credit", String(occ));
         }
         localStorage.setItem("wenze_user", JSON.stringify(user));
       }
-      if (key === "pro" || key === "grossiste") localStorage.setItem("limite_annonces", "illimite");
     } catch {}
   }
   return paiement;
 };
 
 export const verifierAbonnement = () => {
-  if (typeof window === "undefined") return { actif: false, formule: null, expireDans: 0 };
+  if (typeof window === "undefined") return { actif: false, formule: null as any, expireDans: 0, regime: "prestataire" };
   const expire = localStorage.getItem("abonnement_expire");
-  const formule = localStorage.getItem("type_paye");
-  if (!expire) return { actif: false, formule: null, expireDans: 0 };
-  const expireNum = Number(expire);
-  const actif = Date.now() < expireNum;
-  if (!actif) {
-    try {
-      const userRaw = localStorage.getItem("wenze_user");
-      if (userRaw) {
-        const user = JSON.parse(userRaw);
-        if (user.type === "pro" || user.type === "grossiste") {
-          user.type = "freemium"; user.annoncesLimite = 3;
-          user.abonnement = `Freemium - Retour après expiration - 3 gratuites`;
-          user.estBoutique = true;
-          localStorage.setItem("wenze_user", JSON.stringify(user));
-        }
-      }
-    } catch {}
-  }
-  return { actif, formule, expireDans: Math.max(0, Math.ceil((expireNum - Date.now()) / 86400000)) };
+  const formule = localStorage.getItem("type_paye") as TypeFormule | null;
+  if (!expire) return { actif: false, formule, expireDans: 0, regime: "prestataire" };
+  const actif = Date.now() < Number(expire);
+  return { actif, formule, expireDans: Math.max(0, Math.ceil((Number(expire) - Date.now()) / 86400000)), regime: "prestataire" };
 };
 
+// ✅ Compte réel depuis list + régime prestataire unique
 export const checkFreemiumLimit = () => {
-  if (typeof window === "undefined") return { peutPublier: true, annoncesRestantes: 3, type: "freemium" as const };
+  if (typeof window === "undefined") return { peutPublier: true, annoncesRestantes: 3, type: "freemium" as const, isPro: false, regime: "prestataire" };
+
   const ab = verifierAbonnement();
-  if (ab.actif) return { peutPublier: true, annoncesRestantes: 999, type: "pro" as const };
+  if (ab.actif && (ab.formule === "pro" || ab.formule === "grossiste")) {
+    return { peutPublier: true, annoncesRestantes: 999, type: ab.formule as any, isPro: true, regime: "prestataire" as const };
+  }
+
   try {
+    const list = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
     const userRaw = localStorage.getItem("wenze_user");
     if (userRaw) {
       const user = JSON.parse(userRaw);
-      if (user.type === "client" || user.estBoutique === false) {
-        const creditOcc = Number(localStorage.getItem("wenze_occasionnel_credit") || "0");
-        const annonces = Number(localStorage.getItem("wenze_annonces") || "0");
-        if (creditOcc > annonces) return { peutPublier: true, annoncesRestantes: creditOcc - annonces, type: "client_avec_credit" as const };
-        return { peutPublier: false, annoncesRestantes: 0, type: "client" as const };
-      }
-      if (user.type === "freemium") {
-        const annonces = Number(localStorage.getItem("wenze_annonces") || "0");
-        return { peutPublier: annonces < 3, annoncesRestantes: Math.max(0, 3 - annonces), type: "freemium" as const };
-      }
-      if (user.type === "pro" || user.type === "grossiste") return { peutPublier: true, annoncesRestantes: 999, type: user.type as any };
+      const myWa = (user.whatsapp || "").replace(/[^0-9]/g,"");
+      const myCount = myWa ? list.filter((a:any) => (a.ownerWhatsapp||a.whatsapp||"").replace(/[^0-9]/g,"") === myWa).length : list.length;
+      if (user.type === "pro" || user.type === "grossiste") return { peutPublier: true, annoncesRestantes: 999, type: user.type, isPro: true, regime: "prestataire" as const };
+      return { peutPublier: myCount < 3, annoncesRestantes: Math.max(0, 3 - myCount), type: "freemium" as const, isPro: false, regime: "prestataire" as const };
     }
-  } catch {}
-  const annoncesPubliees = Number(localStorage.getItem("wenze_annonces") || "0");
-  return { peutPublier: annoncesPubliees < 3, annoncesRestantes: Math.max(0, 3 - annoncesPubliees), type: "freemium" as const };
+    return { peutPublier: list.length < 3, annoncesRestantes: Math.max(0, 3 - list.length), type: "freemium" as const, isPro: false, regime: "prestataire" as const };
+  } catch {
+    return { peutPublier: true, annoncesRestantes: 3, type: "freemium" as const, isPro: false, regime: "prestataire" as const };
+  }
+};
+
+export const getBadgeForUser = (user: any) => {
+  if(!user) return "";
+  if(user.type === "pro") return "👑 Prestataire Pro";
+  if(user.type === "grossiste") return "🏭 Grossiste Prestataire";
+  return "🆓 Prestataire Freemium";
 };
