@@ -1,11 +1,12 @@
-// lib/paiement.ts - WENZE 2026 - REGIME PRESTATAIRE UNIQUE - VERT 100% - BUILD FIX 24/24
-// Soudeur + Tout travaux techniques = même régime que Prestataire Pro 5$ - Taux 2300 CDF fixe
+// lib/paiement.ts - WENZE 2026 MODERNE FORMIDABLE - Régime prestataire unique VERT 100%
+// Soudeur + Tout travaux = même régime Pro 5$ - Taux 2300 CDF fixe - Confirmation + Non-bloquant
 
 export const TAUX_CDF = 2300;
 export const toCDF = (usd: number) => Math.round((usd || 0) * TAUX_CDF);
 export const toUSD = (cdf: number) => Math.round((cdf || 0) / TAUX_CDF);
-export const toCDFString = (usd: number) => `${toCDF(usd).toLocaleString()} CDF`;
+export const toCDFString = (usd: number) => `${toCDF(usd).toLocaleString("fr-CD")} CDF`;
 export const toUSDString = (usd: number) => `${usd} $`;
+export const formatPrix = (usd: number) => usd === 0 ? "Gratuit" : `${usd}$ / ${toCDFString(usd)}`;
 
 export const PUBS = {
   boost_image: { prix: 2, prixUSD: 2, prixCDF: 2 * TAUX_CDF, jours: 5, nom: "Boost Image - Boutique fonctionnelle" },
@@ -20,59 +21,46 @@ export const FORMULES = {
     nom: "Prestataire Freemium",
     duree: "À vie", jours: 36500,
     limite: "3 annonces gratuites à vie - Tous métiers: Soudeur, Tout travaux, etc - Régime prestataire unique",
-    annonces: 3, badge: "🆓",
-    regime: "prestataire"
+    annonces: 3, badge: "🆓", regime: "prestataire"
   },
   client: {
     prix: 0, prixUSD: 0, prixCDF: 0 * TAUX_CDF,
     nom: "Client / Acheteur",
     duree: "À vie", jours: 36500,
     limite: "Recherche illimitée + 1 annonce occasionnelle 3$ / 6900 CDF - Régime prestataire",
-    annonces: 0, badge: "👤",
-    regime: "client"
+    annonces: 0, badge: "👤", regime: "client"
   },
   pro: {
     prix: 5, prixUSD: 5, prixCDF: 5 * TAUX_CDF,
     nom: "Prestataire Pro - Régime unique",
     duree: "1 mois", jours: 30,
     limite: "Illimité - REGIME PRESTATAIRE UNIQUE: Soudeur + Tout travaux techniques + Commerce + Beauté + Technique + Alimentation + Ménage + Événementiel + CRM + IA - Taux 2300 CDF",
-    annonces: 9999, badge: "👑",
-    regime: "prestataire",
-    professions: [
-      "Prestataire", "Soudeur", "Tout travaux techniques",
-      "Commerce", "Beauté", "Technique", "Alimentation", "Ménage", "Événementiel",
-      "Électricien", "Plombier", "Menuisier", "Mécanicien", "Peintre", "Carreleur", "Vitrier"
-    ]
+    annonces: 9999, badge: "👑", regime: "prestataire",
+    professions: ["Prestataire","Soudeur","Tout travaux techniques","Commerce","Beauté","Technique","Alimentation","Ménage","Événementiel","Électricien","Plombier","Menuisier","Mécanicien","Peintre","Carreleur","Vitrier"]
   },
   grossiste: {
     prix: 25, prixUSD: 25, prixCDF: 25 * TAUX_CDF,
     nom: "Grossiste B2B - Prestataire",
     duree: "1 mois", jours: 30,
     limite: "Illimité B2B - Même régime prestataire mais volume grossiste - Taux 2300 CDF",
-    annonces: 9999, badge: "🏭",
-    regime: "prestataire",
-    professions: ["Grossiste", "Dépôt", "Usine"]
+    annonces: 9999, badge: "🏭", regime: "prestataire", professions: ["Grossiste","Dépôt","Usine"]
   },
   occasionnel: {
     prix: 3, prixUSD: 3, prixCDF: 3 * TAUX_CDF,
     nom: "Annonce Occasionnelle - Régime prestataire",
     duree: "5 jours", jours: 5,
     limite: "1 annonce / 5 jours - Régime prestataire unique - Taux 2300 CDF",
-    annonces: 1, badge: "🎟️",
-    regime: "client"
+    annonces: 1, badge: "🎟️", regime: "client"
   },
-  // ✅ FIX BUILD VERCEL - Compatibilité portefeuille: FORMULES.boost existe maintenant
   boost: {
     prix: 2, prixUSD: 2, prixCDF: 2 * TAUX_CDF,
     nom: "Boost Image - Boutique fonctionnelle",
     duree: "5 jours", jours: 5,
     limite: "Boost 5 jours - Taux 2300 CDF - Boutique fonctionnelle",
-    annonces: 0, badge: "🚀",
-    regime: "prestataire"
+    annonces: 0, badge: "🚀", regime: "prestataire"
   },
 } as const;
 
-// ✅ FIX BUILD - PUBS alias pour ancien code
 export const FORMULES_ALIAS: any = {
   CLIENT: FORMULES.client, FREEMIUM: FORMULES.freemium,
   PRO: FORMULES.pro, GROSSISTE: FORMULES.grossiste, OCCASIONNEL: FORMULES.occasionnel,
@@ -83,102 +71,128 @@ export const FORMULES_ALIAS: any = {
 
 export const COMMUNES_KIN = ["Gombe","Lingwala","Kinshasa","Barumbu","Bandalungwa","Ngaliema","Kintambo","Mont Ngafula","Bumbu","Makala","Selembao","Ngaba","Lemba","Matete","Kisenso","Masina","Ndjili","Kimbanseke","Nsele","Maluku","Limete","Ngiri-Ngiri","Kasa-Vubu"] as const;
 export type TypeFormule = keyof typeof FORMULES;
+const cleanWa = (n:string) => (n||"").toString().replace(/[^0-9]/g,"");
 
-// ✅ Securité build - ne crashe plus si window undefined
+// MODERNE FORMIDABLE - handlePaiement retourne confirmation pour modal + non bloquant
 export const handlePaiement = (type: string, devise: "$" | "CDF" = "$") => {
-  const raw = String(type).toLowerCase().trim();
-  const isSoudeurOrToutTravaux = raw.includes("soudeur") || raw.includes("tout") || raw.includes("soud");
-  const key = (isSoudeurOrToutTravaux ? "pro" : raw) as TypeFormule;
-  
-  const f: any = (FORMULES as any)[key] || FORMULES_ALIAS[raw.toUpperCase()] || (PUBS as any)[raw] || (PUBS as any)[`${raw}_image`] || FORMULES_ALIAS[key.toUpperCase()];
-  if (!f) return null;
+  try {
+    const raw = String(type).toLowerCase().trim();
+    const isSoudeurOrToutTravaux = raw.includes("soudeur") || raw.includes("tout") || raw.includes("soud");
+    const key = (isSoudeurOrToutTravaux ? "pro" : raw) as TypeFormule;
+    
+    const f: any = (FORMULES as any)[key] || FORMULES_ALIAS[raw.toUpperCase()] || (PUBS as any)[raw] || (PUBS as any)[`${raw}_image`] || FORMULES_ALIAS[key.toUpperCase()];
+    if (!f) return { success: false, error: "Formule invalide - Taux 2300" };
 
-  const prixUSD = f.prixUSD ?? f.prix ?? 0;
-  const prixCDF = f.prixCDF ?? toCDF(prixUSD);
-  const expire = Date.now() + (f.jours ?? 30) * 86400000;
+    const prixUSD = f.prixUSD ?? f.prix ?? 0;
+    const prixCDF = f.prixCDF ?? toCDF(prixUSD);
+    const expire = Date.now() + (f.jours ?? 30) * 86400000;
+    const transactionId = `WENZE-${Date.now()}-${String(key).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
 
-  const paiement = {
-    type: key, nom: f.nom, prixUSD, prixCDF, prix: prixUSD,
-    devise, date: new Date().toISOString(), expire, actif: true, taux: TAUX_CDF,
-    regime: f.regime || "prestataire",
-    metiers: 6,
-    boutiqueFonctionnelle: true,
-  };
+    const paiement = {
+      success: true,
+      type: key, nom: f.nom, prixUSD, prixCDF, prix: prixUSD,
+      devise, date: new Date().toISOString(), expire, actif: true, taux: TAUX_CDF,
+      regime: f.regime || "prestataire", metiers: 6, boutiqueFonctionnelle: true,
+      transactionId,
+      expireDans: f.jours,
+      expireLe: new Date(expire).toLocaleDateString("fr-CD"),
+      // MODERNE - Confirmation pour modal
+      confirmation: {
+        titre: "🎉 Paiement confirmé - Abonnement payé",
+        formule: f.nom,
+        prix: `${prixUSD}$ / ${prixCDF.toLocaleString()} CDF`,
+        duree: f.duree,
+        jours: f.jours,
+        taux: `${TAUX_CDF} CDF fixe`,
+        transaction: transactionId,
+        expire: new Date(expire).toLocaleDateString("fr-CD"),
+        boutique: "Fonctionnelle - Visible dans /boutiques",
+        regime: "Prestataire unique - Soudeur + Tout travaux même régime Pro 5$",
+        message: `✅ ${f.nom} activé - ${prixUSD}$ / ${prixCDF.toLocaleString()} CDF - ${f.jours}j - Taux ${TAUX_CDF}`
+      },
+      message: `✅ ${f.nom} activé avec succès! ${prixUSD}$ / ${prixCDF.toLocaleString()} CDF - ${f.jours} jours - Taux ${TAUX_CDF} - Boutique fonctionnelle`
+    };
 
-  if (typeof window !== "undefined") {
-    localStorage.setItem("paiement_reussi", "true");
-    localStorage.setItem("type_paye", key);
-    localStorage.setItem("abonnement_expire", String(expire));
-    localStorage.setItem("dernier_paiement", JSON.stringify(paiement));
-    localStorage.setItem("est_pro", String(key === "pro" || key === "grossiste"));
-    localStorage.setItem("regime_prestataire", "true");
+    if (typeof window !== "undefined") {
+      // Sauvegarde principale instantanée
+      localStorage.setItem("paiement_reussi", "true");
+      localStorage.setItem("type_paye", key);
+      localStorage.setItem("abonnement_expire", String(expire));
+      localStorage.setItem("dernier_paiement", JSON.stringify(paiement));
+      localStorage.setItem("est_pro", String(key === "pro" || key === "grossiste"));
+      localStorage.setItem("regime_prestataire", "true");
 
-    try {
-      const userRaw = localStorage.getItem("wenze_user");
-      if (userRaw) {
-        const user = JSON.parse(userRaw);
-        if (key === "pro" || isSoudeurOrToutTravaux) {
-          user.type = "pro"; user.plan = "pro"; user.regime = "prestataire"; user.annoncesLimite = 9999;
-          user.abonnement = `Prestataire Pro 5$ / ${FORMULES.pro.prixCDF.toLocaleString()} CDF - Régime unique inclut Soudeur + Tout travaux - Actif - Taux ${TAUX_CDF}`;
-          user.estBoutique = true; user.badge = "👑"; user.profession = user.profession || "Prestataire";
-        } else if (key === "grossiste") {
-          user.type = "grossiste"; user.plan = "grossiste"; user.regime = "prestataire"; user.annoncesLimite = 9999;
-          user.abonnement = `Grossiste Prestataire 25$ / ${FORMULES.grossiste.prixCDF.toLocaleString()} CDF - Taux ${TAUX_CDF}`;
-          user.estBoutique = true;
-        }
-        user.ownerWhatsapp = (user.ownerWhatsapp || user.whatsapp || "").replace(/[^0-9]/g,"");
-        localStorage.setItem("wenze_user", JSON.stringify(user));
-
+      // Sync user + all_users en arrière-plan non bloquant
+      setTimeout(() => {
         try {
-          const allRaw = localStorage.getItem("wenze_all_users");
-          const allUsers = allRaw ? JSON.parse(allRaw) : [];
-          const wa = (user.ownerWhatsapp || user.whatsapp || "").replace(/[^0-9]/g,"");
-          const idx = allUsers.findIndex((x: any) => (x.ownerWhatsapp || x.whatsapp || "").replace(/[^0-9]/g,"") === wa);
-          if (idx >= 0) allUsers[idx] = { ...allUsers[idx], ...user };
-          else allUsers.push(user);
-          localStorage.setItem("wenze_all_users", JSON.stringify(allUsers));
+          const userRaw = localStorage.getItem("wenze_user");
+          if (userRaw) {
+            const user = JSON.parse(userRaw);
+            if (key === "pro" || isSoudeurOrToutTravaux) {
+              user.type = "pro"; user.plan = "pro"; user.regime = "prestataire"; user.annoncesLimite = 9999;
+              user.abonnement = `Prestataire Pro 5$ / ${FORMULES.pro.prixCDF.toLocaleString()} CDF - Régime unique inclut Soudeur + Tout travaux - Actif ${f.jours}j - Taux ${TAUX_CDF}`;
+              user.estBoutique = true; user.badge = "👑"; user.profession = user.profession || "Prestataire";
+            } else if (key === "grossiste") {
+              user.type = "grossiste"; user.plan = "grossiste"; user.regime = "prestataire"; user.annoncesLimite = 9999;
+              user.abonnement = `Grossiste Prestataire 25$ / ${FORMULES.grossiste.prixCDF.toLocaleString()} CDF - Taux ${TAUX_CDF}`;
+              user.estBoutique = true;
+            } else if (key === "boost") {
+              // Boost ne change pas type mais ajoute boost
+              user.boostExpire = expire;
+            }
+            user.ownerWhatsapp = cleanWa(user.ownerWhatsapp || user.whatsapp);
+            localStorage.setItem("wenze_user", JSON.stringify(user));
+
+            const allRaw = localStorage.getItem("wenze_all_users");
+            const allUsers = allRaw ? JSON.parse(allRaw) : [];
+            const wa = cleanWa(user.ownerWhatsapp || user.whatsapp);
+            const idx = allUsers.findIndex((x: any) => cleanWa(x.ownerWhatsapp || x.whatsapp) === wa);
+            if (idx >= 0) allUsers[idx] = { ...allUsers[idx], ...user };
+            else allUsers.push(user);
+            localStorage.setItem("wenze_all_users", JSON.stringify(allUsers));
+
+            // Log transaction W-Pay
+            const logs = JSON.parse(localStorage.getItem("wenze_transactions") || "[]");
+            logs.push({ id: Date.now().toString(), ...paiement });
+            localStorage.setItem("wenze_transactions", JSON.stringify(logs));
+            localStorage.setItem("wenze_abonnement", JSON.stringify({ type: key, expire, prix: prixUSD, prixCDF, transactionId }));
+          }
         } catch {}
-      }
-    } catch {}
+      }, 0);
+    }
+    return paiement;
+  } catch (e:any) {
+    return { success: false, error: e.message || "Erreur paiement" };
   }
-  return paiement;
 };
 
 export const verifierAbonnement = () => {
-  if (typeof window === "undefined") return { actif: false, formule: null as any, expireDans: 0, regime: "prestataire", taux: TAUX_CDF, type: "freemium" as const, isPro: false };
+  if (typeof window === "undefined") return { actif: false, formule: null as any, expireDans: 0, regime: "prestataire", taux: TAUX_CDF, type: "freemium" as const, isPro: false, label: "Freemium" };
   const expire = localStorage.getItem("abonnement_expire");
   let formule = localStorage.getItem("type_paye") as TypeFormule | null;
-  if (formule && (formule.toLowerCase().includes("soudeur") || formule.toLowerCase().includes("tout"))) {
-    formule = "pro" as TypeFormule;
-  }
-  if (!expire) return { actif: false, formule, expireDans: 0, regime: "prestataire", taux: TAUX_CDF, type: (formule || "freemium") as any, isPro: false };
+  if (formule && (formule.toLowerCase().includes("soudeur") || formule.toLowerCase().includes("tout"))) formule = "pro" as TypeFormule;
+  if (!expire) return { actif: false, formule, expireDans: 0, regime: "prestataire", taux: TAUX_CDF, type: (formule || "freemium") as any, isPro: false, label: FORMULES[formule as any]?.nom || "Freemium" };
   const actif = Date.now() < Number(expire);
   const isPro = actif && (formule === "pro" || formule === "grossiste");
   return { 
-    actif, formule, type: (formule || "freemium") as any,
+    actif, formule, type: (formule || "freemium") as any, label: FORMULES[formule as any]?.nom || formule,
     expireDans: Math.max(0, Math.ceil((Number(expire) - Date.now()) / 86400000)), 
-    regime: "prestataire", taux: TAUX_CDF, isPro
+    regime: "prestataire", taux: TAUX_CDF, isPro, expire: Number(expire)
   };
 };
 
 export const checkFreemiumLimit = () => {
   if (typeof window === "undefined") return { peutPublier: true, annoncesRestantes: 3, type: "freemium" as const, isPro: false, regime: "prestataire" as const, taux: TAUX_CDF, count: 0 };
-
   const ab = verifierAbonnement();
-  if (ab.actif && ab.isPro) {
-    return { peutPublier: true, annoncesRestantes: 999, type: ab.formule as any, isPro: true, regime: "prestataire" as const, taux: TAUX_CDF, count: 0 };
-  }
-
+  if (ab.actif && ab.isPro) return { peutPublier: true, annoncesRestantes: 999, type: ab.formule as any, isPro: true, regime: "prestataire" as const, taux: TAUX_CDF, count: 0 };
   try {
     const list = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
     const userRaw = localStorage.getItem("wenze_user");
     if (userRaw) {
       const user = JSON.parse(userRaw);
-      const myWa = (user.whatsapp || user.ownerWhatsapp || "").replace(/[^0-9]/g,"");
-      const myCount = myWa ? list.filter((a:any) => (a.ownerWhatsapp||a.whatsapp||"").replace(/[^0-9]/g,"") === myWa).length : list.length;
-      if (user.type === "pro" || user.type === "grossiste" || user.plan === "pro" || user.plan === "grossiste") {
-        return { peutPublier: true, annoncesRestantes: 999, type: user.type as any, isPro: true, regime: "prestataire" as const, taux: TAUX_CDF, count: myCount };
-      }
+      const myWa = cleanWa(user.whatsapp || user.ownerWhatsapp);
+      const myCount = myWa ? list.filter((a:any) => cleanWa(a.ownerWhatsapp||a.whatsapp) === myWa).length : list.length;
+      if (user.type === "pro" || user.type === "grossiste" || user.plan === "pro" || user.plan === "grossiste") return { peutPublier: true, annoncesRestantes: 999, type: user.type as any, isPro: true, regime: "prestataire" as const, taux: TAUX_CDF, count: myCount };
       return { peutPublier: myCount < 3, annoncesRestantes: Math.max(0, 3 - myCount), type: "freemium" as const, isPro: false, regime: "prestataire" as const, taux: TAUX_CDF, count: myCount };
     }
     return { peutPublier: list.length < 3, annoncesRestantes: Math.max(0, 3 - list.length), type: "freemium" as const, isPro: false, regime: "prestataire" as const, taux: TAUX_CDF, count: list.length };
@@ -198,17 +212,21 @@ export const getBadgeForUser = (user: any) => {
 export const MESSAGE_REGIME_UNIQUE_PAIEMENT = `🔧 Régime prestataire unique: Soudeur + Tout travaux techniques = même régime que tous les prestataires - Pro ${FORMULES.pro.prix}$ / ${FORMULES.pro.prixCDF.toLocaleString()} CDF - Taux ${TAUX_CDF} CDF fixe - 6 métiers - Boutique fonctionnelle garantie`;
 
 export const PRIX_SUPABASE_RPC = {
-  pro: FORMULES.pro.prixCDF,
-  grossiste: FORMULES.grossiste.prixCDF,
-  occasionnel: FORMULES.occasionnel.prixCDF,
-  boost_image: PUBS.boost_image.prixCDF,
-  video_express: PUBS.video_express.prixCDF,
-  video_standard: PUBS.video_standard.prixCDF,
-  video_mensuelle: PUBS.video_mensuelle.prixCDF,
-  boost: FORMULES.boost.prixCDF,
+  pro: FORMULES.pro.prixCDF, grossiste: FORMULES.grossiste.prixCDF, occasionnel: FORMULES.occasionnel.prixCDF,
+  boost_image: PUBS.boost_image.prixCDF, video_express: PUBS.video_express.prixCDF, video_standard: PUBS.video_standard.prixCDF, video_mensuelle: PUBS.video_mensuelle.prixCDF, boost: FORMULES.boost.prixCDF,
 };
 
-// ✅ Compat build - export sécurisé
-export const getFormuleSecured = (code: string) => {
-  return (FORMULES as any)[code] || (PUBS as any)[code] || FORMULES.pro;
+export const getFormuleSecured = (code: string) => (FORMULES as any)[code] || (PUBS as any)[code] || FORMULES.pro;
+
+// Helpers modernes pour abonnement/page.tsx
+export const getConfirmationAbonnement = (type: string) => {
+  const raw = type.toLowerCase(); const isS = raw.includes("soudeur")||raw.includes("tout"); const key = (isS?"pro":raw) as TypeFormule;
+  const f:any = (FORMULES as any)[key] || FORMULES.pro;
+  return {
+    titre: `Confirmer ${f.nom}?`, detail: `${f.prixUSD}$ / ${f.prixCDF.toLocaleString()} CDF`, duree: f.duree, taux: `Taux fixe ${TAUX_CDF} CDF`,
+    regime: "Régime prestataire unique - Soudeur + Tout travaux même régime", avantages: key==="pro"? ["∞ annonces","Boost inclus","Flash -60%","Boutique OK","Badge Pro"] : ["3 gratuites","Boutique OK"]
+  };
 };
+
+export const getSoldeWPay = () => { try { return parseInt(localStorage.getItem("wenze_wallet_solde") || localStorage.getItem("wenze_solde") || "0"); } catch { return 0; } };
+export const ajouterSolde = (montantCDF: number) => { try { const a = getSoldeWPay(); const n = a + montantCDF; localStorage.setItem("wenze_wallet_solde", String(n)); localStorage.setItem("wenze_solde", String(n)); return n; } catch { return 0; } };
