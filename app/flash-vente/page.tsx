@@ -1,253 +1,163 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { CATEGORIES_WENZE, getCategorieById, normalizeCategorie } from "@/lib/categories";
-import { FORMULES, TAUX_CDF, toCDF, verifierAbonnement, checkFreemiumLimit } from "@/lib/paiement";
+import { normalizeCategorie, getCategorieById, getPrixByCategorie } from "@/lib/categories";
+import { TAUX_CDF } from "@/lib/paiement";
 
-const cleanWhatsapp = (n: string) => (n || "").toString().replace(/[^0-9]/g, "");
-const cleanPrix = (p: any) => parseFloat((p || "0").toString().replace(/[^0-9.]/g, "")) || 0;
+const cleanWa = (n: string) => (n || "").toString().replace(/[^0-9]/g, "");
 
-type AnnonceFlash = {
-  id: string;
-  titre: string;
-  prix: number;
-  prixOrigin?: number;
-  photo?: string;
-  categorieId: string;
-  activiteId?: string;
-  ownerWhatsapp: string;
-  whatsapp: string;
-  nom?: string;
-  ville?: string;
-  flash: true;
-  flashExpire: number;
-  flashRemise: number;
-  views?: number;
-};
+export default function Connexion() {
+  const router = useRouter();
+  const [whatsapp, setWhatsapp] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-export default function VenteFlashPage() {
-  const [annonces, setAnnonces] = useState<AnnonceFlash[]>([]);
-  const [user, setUser] = useState<any>(null);
-  const [filtreCat, setFiltreCat] = useState<string>("all");
-  const [timeLeft, setTimeLeft] = useState<number>(0);
-  const [abonnement, setAbonnement] = useState<any>(null);
-
-  useEffect(() => {
+  const handleLogin = () => {
+    setError("");
+    const waClean = cleanWa(whatsapp);
+    if (!waClean || !password) { 
+      setError("WhatsApp et mot de passe requis"); 
+      return; 
+    }
+    if(waClean.length < 9){
+      setError("Numéro WhatsApp invalide - ex: +243810...");
+      return;
+    }
+    
+    setLoading(true);
+    
     try {
-      const uRaw = localStorage.getItem("wenze_user");
-      if (uRaw) setUser(JSON.parse(uRaw));
-      setAbonnement(verifierAbonnement());
-
-      const listRaw = localStorage.getItem("wenze_annonces_list");
-      const list = listRaw ? JSON.parse(listRaw) : [];
+      // ✅ WENZE 2.0 FIX: check wenze_all_users d'abord (multi-comptes), puis wenze_user
+      let foundUser: any = null;
       
-      // Filtre vente flash active seulement
-      const now = Date.now();
-      const flashList = list.filter((a: any) => a.flash && a.flashExpire && a.flashExpire > now);
+      const allRaw = localStorage.getItem("wenze_all_users");
+      if(allRaw){
+        const all = JSON.parse(allRaw);
+        foundUser = all.find((u:any)=> cleanWa(u.ownerWhatsapp || u.whatsapp) === waClean);
+      }
       
-      // Si pas de flash, crée des exemples pour demo - concordance
-      if (flashList.length === 0 && list.length > 0) {
-        const demoFlash = list.slice(0, 6).map((a: any, i: number) => ({
-          ...a,
-          flash: true,
-          flashExpire: now + (2 + i) * 3600000, // 2h à 7h
-          flashRemise: [30, 50, 25, 40, 35, 60][i] || 30,
-          prixOrigin: cleanPrix(a.prix) * 1.5,
-          prix: cleanPrix(a.prix),
-        }));
-        setAnnonces(demoFlash);
-      } else {
-        setAnnonces(flashList);
+      // Fallback ancien single user
+      if(!foundUser){
+        const singleRaw = localStorage.getItem("wenze_user");
+        if(singleRaw){
+          const u = JSON.parse(singleRaw);
+          if(cleanWa(u.ownerWhatsapp || u.whatsapp) === waClean) foundUser = u;
+        }
       }
 
-      // Timer global vente flash - reset toutes les 24h à minuit Kinshasa
-      const nextMidnight = new Date();
-      nextMidnight.setHours(24, 0, 0, 0);
-      setTimeLeft(nextMidnight.getTime() - now);
-    } catch {}
-  }, []);
+      if (!foundUser) {
+        setError("Aucun compte avec ce WhatsApp. Crée un compte d'abord - 🛍️ 5$ ou 🏭 10$.");
+        setLoading(false);
+        return;
+      }
 
-  // Timer countdown
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setTimeLeft((prev) => (prev > 1000 ? prev - 1000 : 0));
-      // Nettoie flash expirés
-      const now = Date.now();
-      setAnnonces((prev) => prev.filter((a) => a.flashExpire > now));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, []);
+      // ✅ Vérif password simple MVP - password stocké dans user pour WENZE 2.0 local
+      if (foundUser.password && foundUser.password !== password) {
+        setError("Mot de passe incorrect.");
+        setLoading(false);
+        return;
+      }
 
-  const formatTime = (ms: number) => {
-    const h = Math.floor(ms / 3600000);
-    const m = Math.floor((ms % 3600000) / 60000);
-    const s = Math.floor((ms % 60000) / 1000);
-    return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+      // ✅ FIX: normalise categorieId ancien → nouveau 2 catégories
+      const fixedCatId = normalizeCategorie(foundUser.categorieId || foundUser.categorie || "commerces-services");
+      const catObj = getCategorieById(fixedCatId);
+      const prix = catObj ? getPrixByCategorie(catObj.id) : { prixUSD: 5, prixCDF: 11500 };
+
+      const finalUser = {
+        ...foundUser,
+        categorieId: fixedCatId,
+        ownerWhatsapp: waClean,
+        whatsapp: waClean,
+        categorieTitre: catObj?.titre || fixedCatId,
+        prixUSD: prix.prixUSD,
+        prixCDF: prix.prixCDF,
+      };
+
+      // Sauve session active
+      localStorage.setItem("wenze_user", JSON.stringify(finalUser));
+      
+      // Met à jour aussi dans all_users avec categorie fixée
+      if(allRaw){
+        const all = JSON.parse(allRaw);
+        const idx = all.findIndex((u:any)=> cleanWa(u.ownerWhatsapp || u.whatsapp) === waClean);
+        if(idx >= 0){
+          all[idx] = finalUser;
+          localStorage.setItem("wenze_all_users", JSON.stringify(all));
+        }
+      }
+
+      setLoading(false);
+      // ✅ Redirection vers profil avec next param si présent
+      const params = new URLSearchParams(window.location.search);
+      const next = params.get("next") || "/profil";
+      router.push(next);
+      
+    } catch(e){
+      setError("Erreur lecture compte - vide cache et réessaie.");
+      setLoading(false);
+    }
   };
-
-  const filtered = useMemo(() => {
-    if (filtreCat === "all") return annonces;
-    return annonces.filter((a) => {
-      const cat = (a.categorieId || "").toLowerCase();
-      return cat === filtreCat || normalizeCategorie(cat) === filtreCat;
-    });
-  }, [annonces, filtreCat]);
-
-  const getCategorieInfo = (catId: string) => {
-    const cat = getCategorieById(catId?.toLowerCase().trim() || "commerce");
-    return cat ? `${cat.icon} ${cat.titreCourt}` : "🛒 Commerce";
-  };
-
-  const handleContact = (a: AnnonceFlash) => {
-    const wa = cleanWhatsapp(a.ownerWhatsapp || a.whatsapp);
-    const msg = `Salut ${a.nom || "Prestataire"}! Je veux ton article FLASH ${a.titre} à ${a.prix}$ / ${toCDF(a.prix).toLocaleString()} CDF (remise ${a.flashRemise}% - Taux ${TAUX_CDF}). Toujours dispo? WENZE Vente Flash 🔥`;
-    window.open(`https://wa.me/${wa}?text=${encodeURIComponent(msg)}`, "_blank");
-  };
-
-  const canCreateFlash = useMemo(() => {
-    if (!user) return false;
-    const ab = verifierAbonnement();
-    if (ab.actif) return true; // Pro peut créer flash illimité
-    const check = checkFreemiumLimit();
-    return check.peutPublier; // Freemium 3 max
-  }, [user]);
 
   return (
-    <div className="max-w-[430px] mx-auto bg-[#FFFBF0] min-h-screen pb-24">
-      {/* HEADER VENTE FLASH */}
-      <header className="sticky top-0 z-20 bg-gradient-to-r from-[#FF3B30] to-[#FF6B30] text-white p-4">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">←</Link>
-          <div className="flex-1">
-            <h1 className="font-black text-[16px] flex items-center gap-2">🔥 VENTE FLASH KIN • Taux {TAUX_CDF}</h1>
-            <p className="text-[10px] opacity-90">Fin dans {formatTime(timeLeft)} • {filtered.length} articles • Régime prestataire unique</p>
-          </div>
-          <span className="text-[10px] bg-black text-white px-2 py-1 rounded-full font-bold animate-pulse">{formatTime(timeLeft)}</span>
-        </div>
-      </header>
-
-      {/* BANNIERE TAUX + REGIME */}
-      <div className="bg-black text-white text-center py-2 px-4">
-        <p className="text-[10px] font-bold">⚡ VENTE FLASH -50% • Pro {FORMULES.pro.prix}$ / {FORMULES.pro.prixCDF.toLocaleString()} CDF • Grossiste {FORMULES.grossiste.prix}$ • Taux {TAUX_CDF} CDF fixe • {CATEGORIES_WENZE.length} métiers • Régime prestataire unique Soudeur + Tout travaux même régime</p>
+    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-5 pb-24">
+      <Link href="/" className="text-[#6C3CE0] font-bold text-xs">← Accueil</Link>
+      
+      <div className="mt-4">
+        <h1 className="text-2xl font-black">Connexion WENZE 2.0</h1>
+        <p className="text-[11px] text-gray-500 mt-1">🛍️ Commerces & Services 5$ / 11 500 CDF • 🏭 Gros & Autres 10$ / 23 000 CDF • Taux fixe {TAUX_CDF} CDF • 0% commission</p>
       </div>
 
-      {/* FILTRES CATEGORIES */}
-      <div className="p-3 bg-white border-b sticky top-[64px] z-10">
-        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-          <button
-            onClick={() => setFiltreCat("all")}
-            className={`whitespace-nowrap px-3 py-1.5 rounded-full text-[11px] font-bold border ${filtreCat === "all" ? "bg-black text-white border-black" : "bg-gray-50 text-gray-700 border-gray-200"}`}
-          >
-            🔥 Tous • {annonces.length} • Taux {TAUX_CDF}
-          </button>
-          {CATEGORIES_WENZE.map((c) => {
-            const count = annonces.filter((a) => (a.categorieId || "").toLowerCase() === c.id).length;
-            if (count === 0) return null;
-            return (
-              <button
-                key={c.id}
-                onClick={() => setFiltreCat(c.id)}
-                className={`whitespace-nowrap px-3 py-1.5 rounded-full text-[11px] font-bold border ${filtreCat === c.id ? "bg-[#6C3CE0] text-white border-[#6C3CE0]" : "bg-gray-50 text-gray-700 border-gray-200"}`}
-              >
-                {c.icon} {c.titreCourt} • {count}
-              </button>
-            );
-          })}
+      <div className="mt-6 bg-black text-white rounded-2xl p-4 flex justify-between items-center">
+        <div>
+          <p className="font-black text-[12px]">WENZE 2.0 - 2 catégories</p>
+          <p className="text-[10px] opacity-70">Électricité, maçon, soudeur, coiffure = 5$ même régime</p>
         </div>
+        <span className="bg-white text-black text-[9px] px-2 py-1 rounded-full font-black">Taux {TAUX_CDF}</span>
       </div>
 
-      {/* LISTE VENTE FLASH */}
-      <div className="p-3">
-        {filtered.length === 0 ? (
-          <div className="bg-white border-2 border-dashed rounded-2xl p-8 text-center mt-6">
-            <p className="text-4xl">🔥</p>
-            <p className="font-black mt-3 text-[14px]">Pas de vente flash active</p>
-            <p className="text-[11px] text-gray-500 mt-1">Les ventes flash durent 2h à 24h - Remise 25% à 60% - Régime prestataire unique Pro {FORMULES.pro.prix}$ / {FORMULES.pro.prixCDF.toLocaleString()} CDF - Taux {TAUX_CDF} CDF</p>
-            <div className="mt-4 grid gap-2">
-              <Link href="/publier" className="bg-[#FF3B30] text-white py-3 rounded-full text-[12px] font-bold">+ Créer vente flash • {FORMULES.pro.prix}$ • Taux {TAUX_CDF}</Link>
-              <Link href="/boutiques" className="bg-white border py-3 rounded-full text-[12px] font-bold">🏪 Voir boutiques • {CATEGORIES_WENZE.length} métiers</Link>
-            </div>
-            <p className="text-[9px] text-gray-400 mt-3">Soudeur + Tout travaux = même régime Pro {FORMULES.pro.prix}$ - Boutique fonctionnelle - Taux {TAUX_CDF} CDF fixe</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3">
-            {filtered.map((a) => {
-              const remise = a.flashRemise || 30;
-              const prixOrigin = a.prixOrigin || a.prix * 1.5;
-              const timeFlashLeft = a.flashExpire - Date.now();
-              const catInfo = getCategorieInfo(a.categorieId);
-              const actLower = (a.activiteId || "").toLowerCase();
-              const isTech = actLower.includes("soudeur") || actLower.includes("tout-travaux");
-
-              return (
-                <div key={a.id} className="bg-white border rounded-2xl overflow-hidden relative">
-                  {/* BADGE FLASH */}
-                  <div className="absolute top-2 left-2 z-10 flex gap-1">
-                    <span className="bg-[#FF3B30] text-white text-[9px] font-black px-2 py-1 rounded-full animate-pulse">🔥 -{remise}% FLASH</span>
-                    {isTech && <span className="bg-[#6C3CE0] text-white text-[7px] font-bold px-1.5 py-1 rounded-full">PRESTATAIRE</span>}
-                  </div>
-                  <div className="absolute top-2 right-2 z-10 bg-black text-white text-[8px] font-bold px-2 py-1 rounded-full">{formatTime(Math.max(0, timeFlashLeft))}</div>
-
-                  {/* IMAGE */}
-                  <div className="h-36 bg-gray-50 flex items-center justify-center overflow-hidden">
-                    {a.photo ? <img src={a.photo} className="w-full h-full object-contain" alt={a.titre} /> : <span className="text-3xl">📦</span>}
-                  </div>
-
-                  {/* INFOS */}
-                  <div className="p-3">
-                    <p className="font-bold text-[12px] line-clamp-2 leading-tight">{a.titre}</p>
-                    <p className="text-[10px] text-gray-500 mt-1">{catInfo} • {a.ville || "Kinshasa"} • Taux {TAUX_CDF}</p>
-                    
-                    <div className="mt-2 flex items-center gap-2">
-                      <span className="font-black text-[14px] text-[#FF3B30]">{a.prix}$ / {toCDF(a.prix).toLocaleString()} CDF</span>
-                      <span className="text-[10px] text-gray-400 line-through">{prixOrigin.toFixed(0)}$</span>
-                    </div>
-                    <p className="text-[8px] text-green-600 mt-1">✅ Économise {(prixOrigin - a.prix).toFixed(0)}$ • Régime prestataire • Boutique fonctionnelle</p>
-
-                    <div className="mt-3 grid grid-cols-2 gap-1.5">
-                      <button onClick={() => handleContact(a)} className="bg-black text-white text-[10px] font-bold py-2 rounded-full">💬 WhatsApp</button>
-                      <Link href={`/produit/${a.id}`} className="bg-gray-100 text-center text-[10px] font-bold py-2 rounded-full">Voir • {TAUX_CDF}</Link>
-                    </div>
-
-                    <p className="text-[8px] text-gray-400 mt-2 text-center">👤 {a.nom || "Prestataire"} • 🔒 {cleanWhatsapp(a.ownerWhatsapp || a.whatsapp).slice(-4)} • {isTech ? "Soudeur + Tout travaux même régime" : `Pro ${FORMULES.pro.prix}$`}</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+      <div className="mt-6 bg-white border-2 rounded-2xl p-5 space-y-4">
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 text-[12px] p-3 rounded-xl font-bold">{error}</div>
         )}
-      </div>
 
-      {/* CTA CREER VENTE FLASH */}
-      <div className="p-4">
-        <div className="bg-gradient-to-r from-[#6C3CE0] to-[#FF3B30] rounded-2xl p-4 text-white">
-          <p className="font-black text-[14px]">🔥 Tu es prestataire ? Crée ta vente flash!</p>
-          <p className="text-[11px] mt-1 opacity-90">Remise 25% à 60% • Visible 2h à 24h • Boost boutique • Régime prestataire unique Pro {FORMULES.pro.prix}$ / {FORMULES.pro.prixCDF.toLocaleString()} CDF - Soudeur + Tout travaux même régime - Taux {TAUX_CDF} CDF fixe - {CATEGORIES_WENZE.length} métiers</p>
-          
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {canCreateFlash ? (
-              <Link href="/publier?type=flash" className="bg-white text-[#6C3CE0] py-2.5 rounded-full text-center font-bold text-[12px]">+ Créer Flash • {FORMULES.pro.prix}$</Link>
-            ) : (
-              <Link href="/tarifs" className="bg-white text-[#6C3CE0] py-2.5 rounded-full text-center font-bold text-[12px]">🔓 Débloque Pro {FORMULES.pro.prix}$</Link>
-            )}
-            <Link href="/boutiques" className="bg-black/20 border border-white/30 text-white py-2.5 rounded-full text-center font-bold text-[12px]">🏪 Boutiques • Taux {TAUX_CDF}</Link>
-          </div>
-
-          <div className="mt-3 bg-white/10 rounded-xl p-2">
-            <p className="text-[9px] font-bold">Diagnostic vente flash - Temps présent - Concordance</p>
-            <p className="text-[8px] opacity-80 mt-1">Flash: {annonces.length} actives • Filtre: {filtreCat} • User: {user ? `${user.nom} ${user.type} • ${user.regime}` : "Non connecté"} • Abonnement: {abonnement?.actif ? `${abonnement.type} ${abonnement.expireDans}j` : "Freemium"} • Peut créer: {canCreateFlash ? "OUI" : "NON"} • Taux: {TAUX_CDF} CDF • Pro: {FORMULES.pro.prix}$ = {FORMULES.pro.prixCDF} CDF • {CATEGORIES_WENZE.length} métiers • Régime: prestataire unique Soudeur + Tout travaux même régime • Boutiques fonctionnelles: OUI</p>
-          </div>
+        <div>
+          <label className="text-[11px] font-black">WhatsApp (+243)</label>
+          <input value={whatsapp} onChange={e=> setWhatsapp(e.target.value)} placeholder="+243810..." className="mt-1 w-full border-2 p-3 rounded-xl text-sm outline-none focus:border-[#6C3CE0] focus:ring-2 focus:ring-[#6C3CE0]/20" />
+          <p className="text-[9px] text-gray-400 mt-1">On nettoie auto: +243, 0, espaces → 243...</p>
         </div>
 
-        <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-          <div className="bg-white border rounded-xl p-3"><p className="font-black">{annonces.length}</p><p className="text-[10px] text-gray-500">Flash actifs</p><p className="text-[8px] text-[#FF3B30]">-25% à -60%</p></div>
-          <div className="bg-white border rounded-xl p-3"><p className="font-black">{formatTime(timeLeft)}</p><p className="text-[10px] text-gray-500">Fin globale</p><p className="text-[8px] text-gray-400">Minuit Kin</p></div>
-          <div className="bg-white border rounded-xl p-3"><p className="font-black">{TAUX_CDF}</p><p className="text-[10px] text-gray-500">CDF fixe</p><p className="text-[8px] text-green-600">Pro {FORMULES.pro.prix}$</p></div>
+        <div>
+          <label className="text-[11px] font-black">Mot de passe</label>
+          <input type="password" value={password} onChange={e=> setPassword(e.target.value)} placeholder="••••••••" className="mt-1 w-full border-2 p-3 rounded-xl text-sm outline-none focus:border-[#6C3CE0]" onKeyDown={e=> e.key==="Enter" && handleLogin()} />
+        </div>
+
+        <button onClick={handleLogin} disabled={loading} className="w-full bg-[#6C3CE0] text-white font-black py-3.5 rounded-full text-[13px] disabled:opacity-50 active:scale-[0.98] transition">
+          {loading ? "Connexion..." : "Se connecter →"}
+        </button>
+
+        <div className="text-center space-y-2 pt-2">
+          <p className="text-[11px] text-gray-500">Pas de compte? WENZE 2.0 - 2 prix seulement</p>
+          <div className="grid grid-cols-2 gap-2">
+            <Link href="/inscription?type=client" className="bg-black text-white p-3 rounded-xl text-center text-[11px] font-bold">Client 0$</Link>
+            <Link href="/inscription" className="bg-[#6C3CE0] text-white p-3 rounded-xl text-center text-[11px] font-bold">🛍️ Boutique 5$</Link>
+          </div>
+          <Link href="/confidentialite" className="block text-[10px] text-gray-400 mt-3">Politique confidentialité • Taux {TAUX_CDF}</Link>
         </div>
       </div>
 
-      <div className="h-20" />
+      <div className="mt-6 bg-white border rounded-2xl p-4">
+        <p className="font-black text-[11px]">Comment ça marche - WENZE 2.0</p>
+        <ul className="text-[11px] text-gray-600 mt-2 space-y-1 list-disc ml-4">
+          <li>Connexion cherche dans <b>wenze_all_users</b> (multi-comptes) + fallback wenze_user</li>
+          <li>Numéro nettoyé: +243810 → 243810 (compatible tous formats)</li>
+          <li>Anciens comptes <b>technique/commerce</b> auto convertis → 🛍️ 5$ ou 🏭 10$</li>
+          <li>Après login, boutique visible dans /boutiques avec badge prix</li>
+        </ul>
+      </div>
     </div>
   );
 }
+
 export const dynamic = 'force-dynamic';
