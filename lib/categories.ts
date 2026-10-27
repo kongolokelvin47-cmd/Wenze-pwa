@@ -1,7 +1,7 @@
-// lib/categories.ts - SOURCE UNIQUE OFFICIELLE - 6 METIERS DE KINSHASA - VERT 100% - BUILD FIX 24/24
-// CONCORDANCE TOTALE - TAUX 2300 depuis paiement.ts - REGIME PRESTATAIRE UNIQUE
+// lib/categories.ts - WENZE 2.0 MODERNE FORMIDABLE - 2 CATEGORIES 2 PRIX - SOURCE UNIQUE
+// REGLE DG FINALE: 1) Toutes petites activités même régime 5$ 2) Gros + production 10$
 
-export type Activite = { id: string; label: string; slug: string; regime?: "prestataire" };
+export type Activite = { id: string; label: string; slug: string; regime: string; prixUSD?: number };
 export type Categorie = {
   id: string;
   numero: string;
@@ -10,190 +10,159 @@ export type Categorie = {
   icon: string;
   description: string;
   activites: Activite[];
-  regime?: "prestataire";
+  regime: string;
+  couleur: string;
+  prixUSD: number;
+  prixCDF: number;
 };
 
-// ✅ FIX 1: Import unique TAUX_CDF depuis paiement.ts - plus de duplication - concordance totale
 import { TAUX_CDF as TAUX_PAIEMENT } from "./paiement";
 export const TAUX_CDF = TAUX_PAIEMENT || 2300;
 
+// ✅ 2 CATEGORIES MODERNES - 2 PRIX
 export const CATEGORIES_WENZE: Categorie[] = [
-  { 
-    id: "commerce", numero: "01", titre: "Commerce, Vente, Boutique", titreCourt: "Commerce", icon: "🛒", 
-    description: "Vente de produits à Kinshasa - Régime prestataire unique Pro 5$ / 11500 CDF - Taux 2300", regime: "prestataire",
+  {
+    id: "commerces-services",
+    numero: "01",
+    titre: "Commerces et Services",
+    titreCourt: "Détails & Services",
+    icon: "🛍️",
+    description: `Toutes petites activités - commerces détails, services, technique (électricité, maçon, soudeur, coiffure, alimentation, ménage, événement) - Même abonnement 5$ / ${5*2300} CDF - Taux ${TAUX_PAIEMENT}`,
+    regime: "petites-activites",
+    couleur: "#6C3CE0",
+    prixUSD: 5,
+    prixCDF: 5 * TAUX_CDF,
     activites: [
-      { id: "c1", label: "Vendeur boutique", slug: "vendeur-boutique", regime: "prestataire" },
-      { id: "c2", label: "Vendeur en ligne", slug: "vendeur-en-ligne", regime: "prestataire" },
-      { id: "c3", label: "Grossiste", slug: "grossiste", regime: "prestataire" },
-      { id: "c4", label: "Détaillant", slug: "detaillant", regime: "prestataire" },
-      { id: "c5", label: "Vendeur friperie", slug: "vendeur-friperie", regime: "prestataire" },
+      { id: "cs1", label: "Commerces en détails", slug: "detail", regime: "petites-activites", prixUSD: 5 },
+      { id: "cs2", label: "Services", slug: "service", regime: "petites-activites", prixUSD: 5 },
     ]
   },
-  { 
-    id: "beaute", numero: "02", titre: "Beauté, Coiffure, Mode", titreCourt: "Beauté", icon: "💇", 
-    description: "Salon, coiffure, maquillage, couture - Régime prestataire unique", regime: "prestataire",
+  {
+    id: "gros-autres",
+    numero: "02",
+    titre: "Commerces en gros et autres activités",
+    titreCourt: "Gros & Autres",
+    icon: "🏭",
+    description: `Grossistes, production, import, B2B, fabrication - Volume - Abonnement 10$ / ${10*2300} CDF - Taux ${TAUX_PAIEMENT}`,
+    regime: "grossiste",
+    couleur: "#111111",
+    prixUSD: 10,
+    prixCDF: 10 * TAUX_CDF,
     activites: [
-      { id: "b1", label: "Coiffeur", slug: "coiffeur", regime: "prestataire" },
-      { id: "b2", label: "Barbier", slug: "barbier", regime: "prestataire" },
-      { id: "b3", label: "Maquilleuse", slug: "maquilleuse", regime: "prestataire" },
-      { id: "b4", label: "Styliste / Couturier", slug: "styliste", regime: "prestataire" },
-      { id: "b5", label: "Manucure / Pédicure", slug: "manucure", regime: "prestataire" },
+      { id: "ga1", label: "Commerces en gros", slug: "gros", regime: "grossiste", prixUSD: 10 },
+      { id: "ga2", label: "Autres activités", slug: "autres", regime: "grossiste", prixUSD: 10 },
     ]
-  },
-  { 
-    id: "technique", numero: "03", titre: "Technique, Réparation, BTP", titreCourt: "Technique", icon: "🔧", 
-    description: "Maçon, électricien, plombier, mécanicien, soudeur + tout travaux techniques = même régime prestataire unique Pro 5$ / 11500 CDF - Taux 2300", regime: "prestataire",
-    activites: [
-      { id: "t1", label: "Maçon", slug: "macon", regime: "prestataire" },
-      { id: "t2", label: "Électricien", slug: "electricien", regime: "prestataire" },
-      { id: "t3", label: "Plombier", slug: "plombier", regime: "prestataire" },
-      { id: "t4", label: "Mécanicien", slug: "mecanicien", regime: "prestataire" },
-      { id: "t5", label: "Menuisier", slug: "menuisier", regime: "prestataire" },
-      { id: "t6", label: "Peintre bâtiment", slug: "peintre", regime: "prestataire" },
-      { id: "t7", label: "Soudeur - Régime unique 5$ / 11500 CDF", slug: "soudeur", regime: "prestataire" },
-      { id: "t8", label: "Tout travaux techniques - Même régime 5$ / 11500 CDF", slug: "tout-travaux-techniques", regime: "prestataire" },
-      { id: "t9", label: "Carreleur", slug: "carreleur", regime: "prestataire" },
-      { id: "t10", label: "Vitreur / Aluminium", slug: "vitreur", regime: "prestataire" },
-    ]
-  },
-  { 
-    id: "alimentation", numero: "04", titre: "Alimentation, Restauration", titreCourt: "Alimentation", icon: "🍲", 
-    description: "Cuisine, restaurant, street food, boulangerie - Régime prestataire unique", regime: "prestataire",
-    activites: [
-      { id: "a1", label: "Cuisinier", slug: "cuisinier", regime: "prestataire" },
-      { id: "a2", label: "Boulanger / Pâtissier", slug: "boulanger", regime: "prestataire" },
-      { id: "a3", label: "Vendeuse de rue", slug: "vendeuse-rue", regime: "prestataire" },
-      { id: "a4", label: "Traiteur", slug: "traiteur", regime: "prestataire" },
-    ]
-  },
-  { 
-    id: "menage", numero: "05", titre: "Ménage, Nettoyage", titreCourt: "Ménage", icon: "🧹", 
-    description: "Femme de ménage, pressing, nettoyage - Régime prestataire unique", regime: "prestataire",
-    activites: [
-      { id: "m1", label: "Femme de ménage", slug: "femme-menage", regime: "prestataire" },
-      { id: "m2", label: "Pressing / Blanchisserie", slug: "pressing", regime: "prestataire" },
-      { id: "m3", label: "Nettoyage bureaux", slug: "nettoyage", regime: "prestataire" },
-    ]
-  },
-  { 
-    id: "evenement", numero: "06", titre: "Événementiel, Musique", titreCourt: "Événement", icon: "🎤", 
-    description: "DJ, décorateur, animateur, sonorisation - Régime prestataire unique", regime: "prestataire",
-    activites: [
-      { id: "ev1", label: "DJ", slug: "dj", regime: "prestataire" },
-      { id: "ev2", label: "Décorateur", slug: "decorateur", regime: "prestataire" },
-      { id: "ev3", label: "Animateur / MC", slug: "animateur", regime: "prestataire" },
-      { id: "ev4", label: "Photographe événement", slug: "photographe-event", regime: "prestataire" },
-    ]
-  },
+  }
 ];
 
-// === ALIAS COMPATIBILITE BUILD - FIX 404 evenementiel ===
+// ✅ MIGRATION INTELLIGENTE - SEULS MOTS GROS = CATEGORIE 2 - TOUT LE RESTE = 5$
+const MOTS_CLES_GROS = ["gros","wholesale","b2b","production","import","usine","fabrication","industriel","distributeur","fournisseur","manufacture","semi-gros","demi-gros"];
+
 export const CATEGORIES_ALIAS: Record<string, string> = {
-  "evenementiel": "evenement",
-  "evenementiel-musique": "evenement",
-  "event": "evenement",
-  "commerce-general": "commerce",
-  "beaute-mode": "beaute",
-  "technique-btp": "technique",
+  // Anciennes 6 → toutes petites activités sauf si mot gros
+  "commerce": "commerces-services",
+  "beaute": "commerces-services",
+  "technique": "commerces-services", // Électricien, soudeur, maçon = 5$
+  "alimentation": "commerces-services",
+  "menage": "commerces-services",
+  "evenement": "commerces-services",
+  "evenementiel": "commerces-services",
+  "commerce-general": "commerces-services",
+  "beaute-mode": "commerces-services",
+  "technique-btp": "commerces-services",
+  // Gros explicites
+  "grossiste": "gros-autres",
+  "production": "gros-autres",
 };
 
-// === FONCTIONS VERT 100% - CONCORDANCE ===
-
 export function normalizeCategorie(raw: string): string {
-  if (!raw) return "commerce";
+  if (!raw) return "commerces-services";
   const lower = raw.toLowerCase().trim();
-  // Alias direct
   if (CATEGORIES_ALIAS[lower]) return CATEGORIES_ALIAS[lower];
-  
-  if (lower.includes("soud") || lower.includes("tout-travaux") || lower.includes("tout travaux") || lower.includes("technique") || lower.includes("mécanic") || lower.includes("macon") || lower.includes("electric") || lower.includes("plomb") || lower.includes("menuisier") || lower.includes("peintre") || lower.includes("carreleur") || lower.includes("vitreur") || lower.includes("btp")) return "technique";
-  if (lower.includes("beauté") || lower.includes("beaute") || lower.includes("coiff") || lower.includes("barbier") || lower.includes("maquillage") || lower.includes("styliste") || lower.includes("manucure")) return "beaute";
-  if (lower.includes("aliment") || lower.includes("restauration") || lower.includes("cuisin") || lower.includes("boulang") || lower.includes("traiteur") || lower.includes("food")) return "alimentation";
-  if (lower.includes("ménage") || lower.includes("menage") || lower.includes("nettoyage") || lower.includes("pressing")) return "menage";
-  if (lower.includes("événement") || lower.includes("evenement") || lower.includes("dj") || lower.includes("décorateur") || lower.includes("animateur") || lower.includes("photographe")) return "evenement";
-  // Si c'est directement un slug d'activité, trouve sa catégorie
-  const catByAct = getCategorieByActiviteSlug(lower);
-  if (catByAct) return catByAct.id;
-  return "commerce";
+  // ✅ REGLE DG: Si contient mot gros → 10$, sinon 5$
+  for (const mot of MOTS_CLES_GROS) {
+    if (lower.includes(mot)) return "gros-autres";
+  }
+  return "commerces-services"; // Toutes petites activités = 5$
 }
 
 export function getCategorieById(id: string) {
-  if (!id) return undefined;
-  const clean = id.toLowerCase().trim();
-  // ✅ FIX 2: normalise d'abord pour boutique fonctionnelle
-  const normalized = normalizeCategorie(clean);
-  // Cherche par id exact, puis normalisé, puis alias
-  return CATEGORIES_WENZE.find(c => 
-    c.id.toLowerCase() === clean || 
-    c.id.toLowerCase() === normalized ||
-    CATEGORIES_ALIAS[clean] === c.id
-  );
+  if (!id) return CATEGORIES_WENZE[0];
+  const normalized = normalizeCategorie(id);
+  return CATEGORIES_WENZE.find(c => c.id === normalized) || CATEGORIES_WENZE[0];
 }
 
 export function getActiviteById(catId: string, actSlug: string) {
-  if (!actSlug) return undefined;
   const cat = getCategorieById(catId);
-  if (cat) {
-    const found = cat.activites.find(a => 
-      a.slug.toLowerCase() === actSlug.toLowerCase() || 
-      a.id.toLowerCase() === actSlug.toLowerCase() ||
-      a.slug.toLowerCase().includes(actSlug.toLowerCase())
-    );
-    if (found) return found;
-  }
-  // ✅ FIX 3: Fallback global si catId mauvais (ex: soudeur stocké comme categorie)
-  const all = getAllActivites();
-  return all.find(a => a.slug.toLowerCase() === actSlug.toLowerCase() || a.id.toLowerCase() === actSlug.toLowerCase());
+  if (!actSlug) return cat.activites[0];
+  return cat.activites.find(a => a.slug === actSlug.toLowerCase() || a.label.toLowerCase().includes(actSlug.toLowerCase())) || cat.activites[0];
 }
 
 export function getAllActivites() {
-  return CATEGORIES_WENZE.flatMap(c => c.activites.map(a => ({ ...a, categorieId: c.id, categorieTitre: c.titreCourt, regime: c.regime })));
+  return CATEGORIES_WENZE.flatMap(c => c.activites.map(a => ({ ...a, categorieId: c.id, categorieTitre: c.titreCourt, categoriePrix: c.prixUSD })));
 }
 
 export function normalizeActivite(raw: string): string {
-  if (!raw) return "vendeur-boutique";
+  if (!raw) return "detail";
   const lower = raw.toLowerCase().trim();
-  const all = getAllActivites();
-  const found = all.find(a => 
-    a.slug === lower || 
-    a.id.toLowerCase() === lower || 
-    a.label.toLowerCase().includes(lower) ||
-    lower.includes(a.label.toLowerCase())
-  );
-  return found ? found.slug : "vendeur-boutique";
+  if (MOTS_CLES_GROS.some(m => lower.includes(m))) return "gros";
+  if (lower.includes("autre")) return "autres";
+  if (lower.includes("service")) return "service";
+  return "detail";
 }
 
 export function isCategorieValide(id: string): boolean {
-  return !!getCategorieById(id);
+  return CATEGORIES_WENZE.some(c => c.id === id || normalizeCategorie(id) === c.id);
 }
 
 export function getCategorieByActiviteSlug(actSlug: string) {
-  if (!actSlug) return undefined;
-  return CATEGORIES_WENZE.find(c => c.activites.some(a => a.slug.toLowerCase() === actSlug.toLowerCase() || a.id.toLowerCase() === actSlug.toLowerCase()));
+  const norm = normalizeActivite(actSlug);
+  return norm === "gros" || norm === "autres" ? CATEGORIES_WENZE[1] : CATEGORIES_WENZE[0];
 }
 
-export const NOMBRE_METIERS = CATEGORIES_WENZE.length;
+// ✅ HELPERS MODERNES FORMIDABLES - 2 PRIX
+export const NOMBRE_METIERS = 2;
+export const NOMBRE_CATEGORIES = 2;
 
-export const MESSAGE_REGIME_UNIQUE = `🔧 Régime prestataire unique: Soudeur (t7) + Tout travaux techniques (t8) = même régime que tous les prestataires - Pro 5$ / ${5 * TAUX_CDF} CDF - Taux ${TAUX_CDF} CDF fixe - ${CATEGORIES_WENZE.length} métiers - Boutique fonctionnelle garantie`;
+export const getPrixByCategorie = (id: string) => {
+  const cat = getCategorieById(id);
+  return { prix: cat.prixUSD, prixUSD: cat.prixUSD, prixCDF: cat.prixCDF, titre: cat.titre };
+};
+
+export const MESSAGE_REGIME_UNIQUE = `🛍️ Petites activités (Détails & Services + toute technique électricité etc) 5$ / ${5*TAUX_CDF} CDF - 🏭 Gros & Autres (grossiste, production) 10$ / ${10*TAUX_CDF} CDF - Taux ${TAUX_CDF} fixe - 2 catégories`;
 
 export const CATEGORIES_OPTIONS = CATEGORIES_WENZE.map(c => ({
   value: c.id,
-  label: `${c.icon} ${c.titreCourt} - ${c.titre}`,
-  regime: c.regime || "prestataire",
+  label: `${c.icon} ${c.titreCourt} - ${c.prixUSD}$ / ${c.prixCDF.toLocaleString()} CDF`,
+  fullLabel: `${c.icon} ${c.titre}`,
+  regime: c.regime,
   numero: c.numero,
+  couleur: c.couleur,
+  prix: c.prixUSD,
+  prixUSD: c.prixUSD,
+  prixCDF: c.prixCDF,
 }));
 
-export const getAllSousCategoriesLabels = (): string[] => {
-  return CATEGORIES_WENZE.flatMap(c => c.activites.map(a => a.label));
-};
+export const getAllSousCategoriesLabels = (): string[] => CATEGORIES_WENZE.flatMap(c => c.activites.map(a => a.label));
+export const getCategorieCouleur = (id: string) => getCategorieById(id).couleur;
+export const getCategorieIcon = (id: string) => getCategorieById(id).icon;
 
-// ✅ FIX 4: Helper pour Vente Flash + Boost sans incidence - utilisé dans publier
-export const isSoudeurOrToutTravaux = (slug: string) => {
-  const s = (slug || "").toLowerCase();
-  return s.includes("soudeur") || s.includes("tout-travaux") || s.includes("tout travaux");
-};
+// ✅ Compatibilité ancien code publier/abonnement
+export const isSoudeurOrToutTravaux = (slug: string) => normalizeCategorie(slug) === "commerces-services"; // Soudeur = 5$ maintenant
+export const getPrixFormule = (catIdOrSlug: string) => getPrixByCategorie(catIdOrSlug);
 
-export const getPrixFormule = (slug: string) => {
-  // Soudeur et Tout travaux même régime Pro 5$ / 11500 CDF
-  if (isSoudeurOrToutTravaux(slug)) return { prix: 5, prixCDF: 5 * TAUX_CDF };
-  return { prix: 0, prixCDF: 0 };
+// ✅ Nouveau helper pour abonnement
+export const getFormuleByCategorie = (catId: string) => {
+  const cat = getCategorieById(catId);
+  return {
+    id: cat.id,
+    nom: cat.titre,
+    prix: cat.prixUSD,
+    prixUSD: cat.prixUSD,
+    prixCDF: cat.prixCDF,
+    duree: "30 jours",
+    jours: 30,
+    regime: cat.regime,
+    limite: cat.id === "gros-autres" ? "Gros volume illimité" : "Petites activités illimité",
+  };
 };
