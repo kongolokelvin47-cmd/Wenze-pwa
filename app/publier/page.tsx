@@ -5,10 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { CATEGORIES_WENZE, getCategorieById, getActiviteById, normalizeCategorie } from "@/lib/categories";
 import { FORMULES, TAUX_CDF, toCDF, checkFreemiumLimit, verifierAbonnement, toCDFString } from "@/lib/paiement";
 
+export const dynamic = 'force-dynamic'; // FIX 404 VERCEL - DOIT ÊTRE EN HAUT
+
 function cleanWhatsapp(n: string) {
   return (n || "").toString().replace(/[^0-9]/g, "");
 }
-
 function getCurrentUser() {
   try {
     if (typeof window === "undefined") return null;
@@ -18,7 +19,6 @@ function getCurrentUser() {
     return null;
   }
 }
-
 async function comprendreImageLocal(media: string) {
   if (!media) return "Produit de qualité à Kinshasa";
   return "Produit authentique WENZE - qualité vérifiée Kinshasa. Taux 2300 CDF fixe - Boutique fonctionnelle.";
@@ -180,6 +180,7 @@ function PublierContent() {
         categorie: catObj.id,
         categorieId: catObj.id,
         categorieTitre: catObj.titre,
+        categorieIcon: catObj.icon,
         activite: actObj.slug,
         activiteId: actObj.id,
         activiteSlug: actObj.slug,
@@ -227,7 +228,7 @@ function PublierContent() {
             estBoutique: true,
             categorieId: catObj.id,
             profession: actObj.label,
-            activiteId: actObj.id,
+            activiteId: catObj.id,
             activiteLabel: actObj.label,
           };
           localStorage.setItem("wenze_user", JSON.stringify(fixedUser));
@@ -243,24 +244,27 @@ function PublierContent() {
           if (idx >= 0) allUsers[idx] = { ...allUsers[idx], ...fixedUser };
           else allUsers.push(fixedUser);
           localStorage.setItem("wenze_all_users", JSON.stringify(allUsers));
+          // Notifie Accueil pour refresh instantané sans quitter l'app
+          window.dispatchEvent(new Event("storage"));
         } catch {}
       }, 0);
 
-      showToast("Publie! " + form.titre + " - " + toCDFString(prixNum) + " - Boutique OK", "success");
+      showToast(`✅ ${isBoost ? `Boosté TOP 5j - ` : ""}${form.titre} - ${toCDFString(prixNum)} - Boutique OK`, "success");
 
       setTimeout(() => {
         setIsPublishing(false);
-        // FIX 404: On va vers /profil qui existe toujours, pas /boutiques qui peut 404 si pas force-dynamic
-        if (isFlash) router.push("/vente-flash");
-        else router.push("/profil");
+        // ✅ FIX 404 BOOST + FIL D'ACTUALITÉ - EXPERT WENZE
+        // On revient toujours au fil d'actualité, jamais /vente-flash ou /boost qui n'existent pas
+        // Accueil a le listener focus + storage, il voit l'annonce instantanément
+        router.push("/");
       }, 900);
+
     } catch (e) {
       showToast("Erreur publication", "error");
       setIsPublishing(false);
     }
   }
 
-  // FIX BUILD: plus de .find(c=>c.id===...), utilise getCategorieById
   const catActive = useMemo(() => {
     return getCategorieById(form.categorie) || getCategorieById(normalizeCategorie(form.categorie));
   }, [form.categorie]);
@@ -281,7 +285,7 @@ function PublierContent() {
 
   const blocked = !freemiumInfo.peutPublier && !abInfo.actif;
   const isPayant = freemiumInfo.isPro || abInfo.actif;
-  const backLink = isVideoMode ? "/video" : isFlashMode ? "/vente-flash" : "/";
+  const backLink = isVideoMode ? "/video" : "/"; // FIX 404: plus de /vente-flash
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-5 pb-28 relative">
@@ -317,7 +321,7 @@ function PublierContent() {
           <select value={form.categorie} onChange={(e) => setForm({ ...form, categorie: e.target.value, activite: "" })} className="w-full border-2 p-3.5 rounded-xl text-[13px] bg-white">
             <option value="">📁 Choisis Catégorie</option>
             {CATEGORIES_WENZE.map((c: any) => (
-              <option key={c.id} value={c.id}>{c.titre} - {c.activites.length} métiers</option>
+              <option key={c.id} value={c.id}>{c.icon} {c.titre} - {c.activites.length} métiers</option>
             ))}
           </select>
           <select value={form.activite} onChange={(e) => setForm({ ...form, activite: e.target.value })} className="w-full border-2 p-3.5 rounded-xl text-[13px] bg-white">
@@ -376,5 +380,4 @@ export default function PublierPage() {
       <PublierContent />
     </Suspense>
   );
-}
-export const dynamic = 'force-dynamic';
+      }
