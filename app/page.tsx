@@ -2,13 +2,13 @@
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CATEGORIES_WENZE, getCategorieById, normalizeCategorie, getPrixByCategorie, getActiviteById } from "@/lib/categories";
+import { CATEGORIES_WENZE, getCategorieById, normalizeCategorie, getPrixByCategorie } from "@/lib/categories";
 import { TAUX_CDF, toCDF, verifierAbonnement } from "@/lib/paiement";
 
 function cleanWa(n: string){ return (n||"").toString().replace(/[^0-9]/g,""); }
 
 function formatPrix(p:any){
-  const usd = Math.round(Number(p.prix||p.prixUSD||0));
+  const usd = Math.round(Number(p.prix||0));
   const cdf = p.prixCDF ? Math.round(Number(p.prixCDF)) : toCDF(usd);
   return `${usd}$ / ${cdf.toLocaleString("fr-FR")} CDF`;
 }
@@ -40,6 +40,9 @@ export default function WenzeBusiness() {
   useEffect(()=> { 
     loadAnnonces(); 
     try{ setAb(verifierAbonnement()); } catch {}
+    const onStorage = ()=> loadAnnonces();
+    window.addEventListener("storage", onStorage);
+    return ()=> window.removeEventListener("storage", onStorage);
   }, []);
 
   const filtered = useMemo(()=>{
@@ -66,18 +69,21 @@ export default function WenzeBusiness() {
       panier.push({ ...a, qty:1 });
       localStorage.setItem("wenze_panier", JSON.stringify(panier));
       showToast(`Ajouté ${a.prix}$ / ${a.prixCDF.toLocaleString()} CDF 🛒`);
-      // refresh panier count
       window.dispatchEvent(new Event("storage"));
     } catch { showToast("Panier erreur"); }
   };
 
   const openProduit = (a:any)=>{
-    // ✅ FIX 404 - On sauve l'annonce pour page produit puis navigue
     try{ localStorage.setItem("wenze_current_produit", JSON.stringify(a)); } catch {}
     router.push(`/produit/${a.id}`);
   };
 
-  // ✅ FIX PRIX MOYEN BUG 15.1666
+  // ✅ VIDEO REDIRECT - Fix pro
+  const openVideoPage = (a:any)=>{
+    try{ localStorage.setItem("wenze_current_produit", JSON.stringify(a)); } catch {}
+    router.push(`/video?id=${a.id}`);
+  };
+
   const prixMoyenUSD = filtered.length ? Math.round(filtered.reduce((s,a)=> s + Number(a.prix||0),0)/filtered.length) : 0;
   const prixMoyenCDF = toCDF(prixMoyenUSD);
 
@@ -87,7 +93,6 @@ export default function WenzeBusiness() {
         <div className="p-4 flex items-center gap-3">
           <div className="w-9 h-9 bg-black rounded-full flex items-center justify-center text-white font-black">W</div>
           <div className="flex-1">
-            {/* ✅ NOM GARDÉ */}
             <h1 className="font-black text-[14px] leading-none">WENZE WENZE BUSINESS - {ab?.isPaye?`✅ ${ab?.label} ${ab?.joursRestants}j`: ab?.isEssai7j?`⏳ Essai ${ab?.joursRestants}j`:`🆓 ${ab?.count||0}/3 vie`}</h1>
             <p className="text-[9px] text-gray-500">Kinshasa • Freemium 3 vie images only • Essai 7j • 5$/10$ • Taux {TAUX_CDF} • 0% comm</p>
           </div>
@@ -134,20 +139,44 @@ export default function WenzeBusiness() {
           ) : filtered.map((a:any)=>{
             const cat = getCategorieById(a.categorieId);
             const pi = getPrixByCategorie(a.categorieId);
+            const isVideo = !!a.isVideo;
             return (
               <div key={a.id} className="bg-white border rounded-2xl overflow-hidden flex flex-col">
-                <button onClick={()=> setSelectedImage(a)} className="h-36 bg-[#FFFBF0] flex items-center justify-center overflow-hidden relative">
-                  {a.isVideo ? <video src={a.photo} className="max-w-full max-h-full object-contain" muted playsInline/> : a.photo ? <img src={a.photo} alt={a.titre} className="max-w-full max-h-full object-contain"/> : <span className="text-3xl">{cat?.icon}</span>}
-                  <span className="absolute top-2 left-2 text-[8px] px-2 py-1 rounded-full font-black bg-[#6C3CE0] text-white">{a.isVideo?"🎥":"🖼️"} {pi.prixUSD}$</span>
+                {/* ✅ FIX VIDEO - Image -> modal, Video -> /video?id */}
+                <button 
+                  onClick={()=> isVideo ? openVideoPage(a) : setSelectedImage(a)} 
+                  className="h-36 bg-[#FFFBF0] flex items-center justify-center overflow-hidden relative group"
+                >
+                  {isVideo ? (
+                    <>
+                      <video src={a.photo} className="max-w-full max-h-full object-contain" muted playsInline preload="metadata"/>
+                      <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
+                        <div className="w-11 h-11 bg-white/90 rounded-full flex items-center justify-center text-[18px] shadow-lg group-active:scale-90 transition">▶️</div>
+                      </div>
+                    </>
+                  ) : a.photo ? (
+                    <img src={a.photo} alt={a.titre} className="max-w-full max-h-full object-contain"/>
+                  ) : (
+                    <span className="text-3xl">{cat?.icon}</span>
+                  )}
+                  <span className={`absolute top-2 left-2 text-[8px] px-2 py-1 rounded-full font-black ${isVideo?"bg-red-600 text-white":"bg-[#6C3CE0] text-white"}`}>{isVideo?"🎥 VIDÉO":"🖼️"} {pi.prixUSD}$</span>
+                  {isVideo && <span className="absolute bottom-1.5 right-1.5 text-[7px] bg-black/80 text-white px-2 py-1 rounded-full">Lire sur Vidéo →</span>}
                   {a.boostUntil && new Date(a.boostUntil).getTime()>Date.now() && <span className="absolute top-2 right-2 text-[7px] bg-[#25D366] text-white px-2 py-1 rounded-full font-black">🚀</span>}
                 </button>
+
                 <div className="p-2.5 flex-1 flex flex-col">
-                  <button onClick={()=> openProduit(a)} className="text-left font-bold text-[12px] leading-tight line-clamp-2 hover:text-[#6C3CE0]">{a.titre}</button>
+                  <button onClick={()=> isVideo ? openVideoPage(a) : openProduit(a)} className="text-left font-bold text-[12px] leading-tight line-clamp-2 hover:text-[#6C3CE0]">
+                    {a.titre} {isVideo?"🎥":""}
+                  </button>
                   <p className="text-[10px] text-gray-500 truncate">{cat?.titreCourt} • {a.commune}</p>
                   <p className="font-black text-[12px] text-[#6C3CE0] mt-1">{Math.round(a.prix)}$ / {Math.round(a.prixCDF).toLocaleString()} CDF</p>
                   <div className="mt-2 grid grid-cols-2 gap-1">
-                    <a href={`https://wa.me/${cleanWa(a.ownerWhatsapp||a.whatsapp||"")}?text=${encodeURIComponent(`Bonjour WENZE WENZE BUSINESS 👋 ${a.titre} - ${a.prix}$ / ${a.prixCDF.toLocaleString()} CDF - ${a.id}`)}`} target="_blank" className="bg-[#25D366] text-white text-center py-2 rounded-full font-bold text-[10px]">WhatsApp</a>
-                    <button onClick={()=> addPanier(a)} className="bg-black text-white py-2 rounded-full font-bold text-[10px]">🛒 Panier</button>
+                    <a href={`https://wa.me/${cleanWa(a.ownerWhatsapp||a.whatsapp||"")}?text=${encodeURIComponent(`Bonjour WENZE WENZE BUSINESS 👋 ${a.titre} - ${a.prix}$ - ${a.id}`)}`} target="_blank" className="bg-[#25D366] text-white text-center py-2 rounded-full font-bold text-[10px]">WhatsApp</a>
+                    {isVideo ? (
+                      <button onClick={()=> openVideoPage(a)} className="bg-red-600 text-white py-2 rounded-full font-bold text-[10px]">▶️ Lire</button>
+                    ) : (
+                      <button onClick={()=> addPanier(a)} className="bg-black text-white py-2 rounded-full font-bold text-[10px]">🛒 Panier</button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -156,15 +185,15 @@ export default function WenzeBusiness() {
         </div>
       </div>
 
-      {/* MODAL - VOIR PRODUIT - TOUT BOUTON FONCTIONNE */}
-      {selectedImage && (
+      {/* ✅ MODAL IMAGE ONLY - Video ne ouvre plus modal */}
+      {selectedImage && !selectedImage.isVideo && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={()=> setSelectedImage(null)}>
           <div className="bg-white rounded-2xl max-w-[380px] w-full overflow-hidden" onClick={e=> e.stopPropagation()}>
-            <div className="h-72 bg-black flex items-center justify-center">
-              {selectedImage.isVideo ? <video src={selectedImage.photo} controls autoPlay className="max-w-full max-h-full"/> : <img src={selectedImage.photo} alt={selectedImage.titre} className="max-w-full max-h-full object-contain bg-[#FFFBF0]"/>}
+            <div className="h-72 bg-[#FFFBF0] flex items-center justify-center">
+              <img src={selectedImage.photo} alt={selectedImage.titre} className="max-w-full max-h-full object-contain"/>
             </div>
             <div className="p-4">
-              <p className="font-black text-[13px]">{selectedImage.titre} {selectedImage.isVideo?"🎥":"🖼️"}</p>
+              <p className="font-black text-[13px]">{selectedImage.titre} 🖼️</p>
               <p className="text-[11px] text-gray-600 mt-1 line-clamp-3">{selectedImage.description}</p>
               <p className="font-black text-[#6C3CE0] mt-2">{formatPrix(selectedImage)} • Boutique {getPrixByCategorie(selectedImage.categorieId).prixUSD}$ • Taux {TAUX_CDF}</p>
               <div className="mt-3 grid grid-cols-2 gap-2">
@@ -180,13 +209,14 @@ export default function WenzeBusiness() {
         </div>
       )}
 
+      {/* ✅ BARRE TÂCHE FIX - Marché supprimé → Vidéo */}
       <nav className="fixed bottom-0 max-w-[430px] w-full bg-white border-t flex justify-around py-2.5 text-[10px] z-30">
         <button onClick={()=> router.push("/")} className="font-bold text-[#6C3CE0] flex flex-col items-center gap-0.5"><span className="text-[18px]">🏠</span>Accueil</button>
-        <button onClick={()=> router.push("/market")} className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏪</span>Marché</button>
+        <button onClick={()=> router.push("/video")} className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🎥</span>Vidéo</button>
         <button onClick={()=> router.push("/publier")} className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">➕</span>Publier</button>
         <button onClick={()=> router.push("/boutiques")} className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏬</span>Boutiques</button>
         <button onClick={()=> router.push("/profil")} className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">👤</span>Profil</button>
       </nav>
     </div>
   );
-      }
+                  }
