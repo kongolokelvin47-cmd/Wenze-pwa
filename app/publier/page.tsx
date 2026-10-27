@@ -2,8 +2,8 @@
 import { useState, useEffect, Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CATEGORIES_WENZE, getCategorieById, getPrixByCategorie, normalizeCategorie } from "@/lib/categories";
-import { TAUX_CDF, toCDF, toCDFString, checkFreemiumLimit, verifierAbonnement, FORMULES } from "@/lib/paiement";
+import { CATEGORIES_WENZE, getCategorieById, getPrixByCategorie, normalizeCategorie, getActiviteById } from "@/lib/categories";
+import { TAUX_CDF, toCDF, toCDFString } from "@/lib/paiement";
 
 export const dynamic = 'force-dynamic';
 
@@ -11,210 +11,225 @@ function cleanWhatsapp(n: string) { return (n || "").toString().replace(/[^0-9]/
 function getCurrentUser() {
   try { const raw = localStorage.getItem("wenze_user"); return raw ? JSON.parse(raw) : null; } catch { return null; }
 }
-async function comprendreImageLocal(media: string) {
-  if (!media) return "Produit WENZE Kinshasa";
-  return `Produit authentique WENZE - qualité vérifiée Kinshasa - Taux ${TAUX_CDF} CDF fixe`;
-}
 
 function PublierContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const isVideoMode = searchParams.get("boost") === "video";
-  const preCat = normalizeCategorie(searchParams.get("categorie") || "");
+  const catFromUrl = normalizeCategorie(searchParams.get("cat") || searchParams.get("categorie") || "");
 
   const [user, setUser] = useState<any>(null);
-  const [count, setCount] = useState(0);
-  const [media, setMedia] = useState("");
-  const [typeMedia, setTypeMedia] = useState<"image" | "video">("image");
-  const [form, setForm] = useState({ titre: "", prix: "", description: "", categorie: preCat, lat: 0, lng: 0 });
-  const [freemiumInfo, setFreemiumInfo] = useState<any>({ peutPublier: true, annoncesRestantes: 3, isPro: false });
-  const [abInfo, setAbInfo] = useState<any>({ actif: false, type: "freemium", expireDans: 0 });
-  const [isPublishing, setIsPublishing] = useState(false);
+  const [loadingUser, setLoadingUser] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<any>(null);
-  const [isFlash, setIsFlash] = useState(false);
-  const [isBoost, setIsBoost] = useState(false);
+  const [photoPreview, setPhotoPreview] = useState<string>("");
 
+  const [form, setForm] = useState({
+    titre: "",
+    description: "",
+    prix: "",
+    categorieId: "commerces-services",
+    activiteId: "",
+    commune: "",
+    ville: "Kinshasa",
+    stock: "1",
+    livraison: "Retrait sur place / Livraison Kinshasa",
+  });
+
+  // Init user + categorie
   useEffect(() => {
     const u = getCurrentUser();
-    setUser(u);
-    if (typeof window !== "undefined") {
-      setFreemiumInfo(checkFreemiumLimit());
-      setAbInfo(verifierAbonnement());
-      try {
-        const list = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
-        const myWa = u ? cleanWhatsapp(u.ownerWhatsapp || u.whatsapp) : "";
-        setCount(list.filter((x:any)=> cleanWhatsapp(x.ownerWhatsapp||x.whatsapp)===myWa).length);
-      } catch {}
-    }
-    if (isVideoMode) setTypeMedia("video");
-    if (typeof window !== "undefined" && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition((p)=> setForm(f=> ({...f, lat: p.coords.latitude, lng: p.coords.longitude})), ()=>{});
-    }
-  }, [isVideoMode]);
+    if(!u){ router.push("/connexion?next=/publier"); return; }
+    const fixedCat = normalizeCategorie(catFromUrl || u.categorieId || u.categorie || "commerces-services");
+    const catObj = getCategorieById(fixedCat);
+    const fullUser = { ...u, categorieId: fixedCat, catObj, prixUSD: catObj ? getPrixByCategorie(catObj.id).prixUSD : 5, prixCDF: catObj ? getPrixByCategorie(catObj.id).prixCDF : 11500 };
+    setUser(fullUser);
+    setForm(f=> ({ 
+      ...f, 
+      categorieId: fixedCat, 
+      activiteId: u.activiteId || catObj?.activites[0]?.id || "", 
+      commune: u.commune || f.commune,
+      ville: u.ville || "Kinshasa"
+    }));
+    setLoadingUser(false);
 
-  function showToast(msg: string, type: string) {
-    setToast({ msg, type });
-    if (type !== "loading") setTimeout(() => setToast(null), 2500);
-  }
-
-  function handleFile(file: File): Promise<string> {
-    return new Promise((resolve) => {
-      if (file.type.startsWith("video/")) {
-        if (file.size > 10 * 1024 * 1024) { showToast("Vidéo max 10MB", "error"); return resolve(""); }
-        setTypeMedia("video");
-        const r = new FileReader(); r.onload = e => resolve((e.target?.result as string)||""); r.readAsDataURL(file); return;
-      }
-      setTypeMedia("image");
-      const r = new FileReader();
-      r.onload = e => {
-        const img = new window.Image();
-        img.onload = () => {
-          const c = document.createElement("canvas"); const MAX=800; let w=img.width,h=img.height;
-          if (w>h){ if(w>MAX){ h=Math.round(h*MAX/w); w=MAX; } } else { if(h>MAX){ w=Math.round(w*MAX/h); h=MAX; } }
-          c.width=w; c.height=h; const ctx=c.getContext("2d"); if(ctx) ctx.drawImage(img,0,0,w,h);
-          resolve(c.toDataURL("image/jpeg",0.65));
-        }; img.src=(e.target?.result as string)||"";
-      }; r.readAsDataURL(file);
-    });
-  }
-
-  async function handlePublish() {
-    if (isPublishing) return;
-    const current = getCurrentUser();
-    if (!current || !cleanWhatsapp(current.whatsapp || current.ownerWhatsapp)) {
-      showToast("Crée ton compte d'abord", "error"); setTimeout(()=> router.push("/inscription"), 800); return;
-    }
-    const whatsappClean = cleanWhatsapp(current.ownerWhatsapp || current.whatsapp);
-    if (!abInfo.actif && !freemiumInfo.peutPublier) { router.push("/abonnement"); return; }
-    if (!form.titre || !form.prix || !media) { showToast("Titre, prix et photo obligatoires", "error"); return; }
-    if (!form.categorie) { showToast("Choisis une catégorie", "error"); return; }
-
-    const catObj = getCategorieById(form.categorie);
-    const prixInfo = getPrixByCategorie(catObj.id);
-
-    setIsPublishing(true);
-    showToast("Publication en cours...", "loading");
-    await new Promise(r=> setTimeout(r, 150));
-
+    // Check abonnement WENZE 2.0 - essai 7j + 30j payé
     try {
-      const annonces = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
-      const prixNum = parseFloat(form.prix) || 0;
-      const nouvelle: any = {
-        id: Date.now().toString(),
-        titre: form.titre.trim(), prix: prixNum, prixCDF: toCDF(prixNum), prixCDFString: toCDFString(prixNum),
-        description: form.description,
-        categorie: catObj.id, categorieId: catObj.id, categorieTitre: catObj.titre, categorieIcon: catObj.icon,
-        activite: catObj.activites[0].slug, activiteId: catObj.activites[0].id, activiteSlug: catObj.activites[0].slug, activiteLabel: catObj.activites[0].label,
-        photo: typeMedia==="image"?media:"", video: typeMedia==="video"?media:"", typeMedia,
-        user: current.nom, whatsapp: whatsappClean, ownerWhatsapp: whatsappClean, nom: current.nom,
-        ville: current.ville||"Kinshasa", type: current.type||"freemium",
-        regime: catObj.regime, prixFormule: prixInfo.prixUSD, estBoutique: true,
-        date: new Date().toISOString(), createdAt: new Date().toISOString(),
-        lat: form.lat, lng: form.lng, flash: isFlash, boost: isBoost, taux: TAUX_CDF,
+      const allAnnonces = JSON.parse(localStorage.getItem("wenze_annonces_list")||"[]");
+      const myWa = cleanWhatsapp(u.ownerWhatsapp || u.whatsapp || "");
+      const mineCount = allAnnonces.filter((a:any)=> cleanWhatsapp(a.ownerWhatsapp||a.whatsapp||"")===myWa).length;
+      
+      const aboDate = u.abonnementDate ? new Date(u.abonnementDate) : null;
+      const created = u.createdAt ? new Date(u.createdAt) : new Date();
+      const now = new Date();
+      let joursRestants = 0;
+      if(aboDate){ 
+        const exp = new Date(aboDate.getTime()+30*24*60*60*1000); 
+        joursRestants = Math.ceil((exp.getTime()-now.getTime())/(24*60*60*1000));
+      } else {
+        const diff = Math.ceil((now.getTime()-created.getTime())/(24*60*60*1000));
+        joursRestants = 7 - diff;
+      }
+      const isPaye = joursRestants>0 || !!u.abonnementPaye;
+      if(!isPaye && mineCount>=3){
+        setToast({ msg: `Limite atteinte ${mineCount}/3 - Paye abonnement ${fullUser.prixUSD}$ / ${fullUser.prixCDF.toLocaleString()} CDF`, type:"error" });
+        setTimeout(()=> router.push(`/abonnement?cat=${fixedCat}`), 1500);
+      }
+    } catch {}
+  }, [router, catFromUrl]);
+
+  const currentCat = useMemo(()=> getCategorieById(form.categorieId), [form.categorieId]);
+  const prixInfo = useMemo(()=> getPrixByCategorie(form.categorieId), [form.categorieId]);
+  const prixNum = Number(form.prix||0);
+  const prixCDF = toCDF(prixNum);
+
+  const showToast = (msg:string, type="success")=> { setToast({msg,type}); setTimeout(()=> setToast(null), 3000); };
+
+  const handlePhoto = (e:any)=>{
+    const file = e.target.files?.[0]; if(!file) return;
+    if(file.size>8*1024*1024){ showToast("Photo max 8Mo","error"); return; }
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const img = new Image();
+      img.onload = ()=>{
+        const canvas = document.createElement("canvas");
+        const max = 800; let w=img.width, h=img.height;
+        if(w>h){ if(w>max){ h*=max/w; w=max; } } else { if(h>max){ w*=max/h; h=max; } }
+        canvas.width=w; canvas.height=h;
+        canvas.getContext("2d")?.drawImage(img,0,0,w,h);
+        const data = canvas.toDataURL("image/jpeg",0.75);
+        setPhotoPreview(data);
       };
-      annonces.push(nouvelle);
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
 
-      setTimeout(()=> {
-        try {
-          localStorage.setItem("wenze_annonces_list", JSON.stringify(annonces));
-          localStorage.setItem("wenze_annonces_count", String(annonces.filter((a:any)=> cleanWhatsapp(a.ownerWhatsapp||a.whatsapp)===whatsappClean).length));
-          const fixedUser = {...current, ownerWhatsapp: whatsappClean, whatsapp: whatsappClean, regime: catObj.regime, estBoutique: true, categorieId: catObj.id, prixFormule: prixInfo.prixUSD };
-          localStorage.setItem("wenze_user", JSON.stringify(fixedUser));
-          const allRaw = localStorage.getItem("wenze_all_users"); const allUsers = allRaw?JSON.parse(allRaw):[];
-          const idx = allUsers.findIndex((j:any)=> cleanWhatsapp(j.ownerWhatsapp||j.whatsapp)===whatsappClean);
-          if(idx>=0) allUsers[idx]={...allUsers[idx], ...fixedUser}; else allUsers.push(fixedUser);
-          localStorage.setItem("wenze_all_users", JSON.stringify(allUsers));
-          window.dispatchEvent(new Event("storage"));
-        } catch {}
-      }, 0);
+  const handlePublish = ()=>{
+    if(!form.titre.trim() || form.titre.trim().length<3){ showToast("Titre min 3 caractères","error"); return; }
+    if(!prixNum || prixNum<=0){ showToast("Prix $ requis","error"); return; }
+    if(!photoPreview){ showToast("Ajoute 1 photo produit","error"); return; }
+    if(!user){ router.push("/connexion"); return; }
 
-      showToast(`✅ ${form.titre} - ${toCDFString(prixNum)} - ${catObj.titreCourt} ${prixInfo.prixUSD}$`, "success");
-      setTimeout(()=> { setIsPublishing(false); router.push("/"); }, 900);
-    } catch { showToast("Erreur publication","error"); setIsPublishing(false); }
-  }
+    setSaving(true);
+    try {
+      const id = `WENZE-${Date.now()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
+      const activiteObj = getActiviteById(form.categorieId, form.activiteId);
 
-  const catActive = useMemo(()=> getCategorieById(form.categorie), [form.categorie]);
-  const prixActif = useMemo(()=> catActive ? getPrixByCategorie(catActive.id) : null, [catActive]);
+      const annonce = {
+        id,
+        titre: form.titre.trim(),
+        description: form.description.trim() || `${form.titre.trim()} - ${currentCat?.titre || form.categorieId} authentique Kinshasa - ${activiteObj?.label || form.activiteId} - Taux ${TAUX_CDF} fixe - 0% commission WENZE`,
+        prix: prixNum,
+        prixCDF,
+        prixCDFString: toCDFString(prixNum),
+        categorieId: normalizeCategorie(form.categorieId),
+        categorie: normalizeCategorie(form.categorieId),
+        activiteId: form.activiteId,
+        activite: activiteObj?.label || form.activiteId,
+        photo: photoPreview,
+        images: [photoPreview],
+        ownerWhatsapp: cleanWhatsapp(user.ownerWhatsapp||user.whatsapp||""),
+        whatsapp: cleanWhatsapp(user.ownerWhatsapp||user.whatsapp||""),
+        ownerName: user.nomEtablissement || user.nom || "Boutique WENZE",
+        userId: user.id || cleanWhatsapp(user.ownerWhatsapp||""),
+        commune: form.commune || user.commune || "Kinshasa",
+        ville: form.ville || "Kinshasa",
+        stock: Number(form.stock||1),
+        livraison: form.livraison,
+        boutiquePrixUSD: prixInfo.prixUSD,
+        boutiquePrixCDF: prixInfo.prixCDF,
+        taux: TAUX_CDF,
+        created_at: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+        statut: "actif",
+      };
 
-  if (!user) return <div className="max-w-[430px] mx-auto p-5 bg-[#FFFBF0] min-h-screen"><div className="animate-pulse">Chargement... Taux {TAUX_CDF}</div><Link href="/inscription" className="text-[#6C3CE0] font-bold ml-2">Créer compte</Link></div>;
+      const list = JSON.parse(localStorage.getItem("wenze_annonces_list")||"[]");
+      list.unshift(annonce);
+      localStorage.setItem("wenze_annonces_list", JSON.stringify(list));
 
-  const blocked = !freemiumInfo.peutPublier && !abInfo.actif;
-  const isPayant = freemiumInfo.isPro || abInfo.actif;
+      // all annonces global
+      try {
+        const all = JSON.parse(localStorage.getItem("wenze_all_annonces")||"[]");
+        all.unshift(annonce);
+        localStorage.setItem("wenze_all_annonces", JSON.stringify(all.slice(0,500)));
+      } catch {}
+
+      showToast(`Publié ${prixNum}$ / ${prixCDF.toLocaleString()} CDF - Boutique ${prixInfo.prixUSD}$`, "success");
+      setTimeout(()=> router.push(`/produit/${id}`), 800);
+    } catch(e){ showToast("Erreur publication","error"); setSaving(false); }
+  };
+
+  if(loadingUser) return <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6"><div className="h-24 bg-white border rounded-2xl animate-pulse"/><p className="text-[10px] text-gray-400 mt-2">WENZE 2.0 Publier... Taux {TAUX_CDF}</p></div>;
+
+  const activites = currentCat?.activites || [];
+  const isGros = form.categorieId==="gros-autres";
 
   return (
-    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-5 pb-28 relative">
-      {toast && <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[100] px-4 py-3 rounded-full text-[11px] font-bold shadow-xl ${toast.type==="loading"?"bg-black text-white":toast.type==="success"?"bg-[#6C3CE0] text-white":"bg-red-600 text-white"}`}>{toast.msg}</div>}
+    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-24">
+      <header className="sticky top-0 bg-white z-20 p-4 border-b flex items-center gap-3">
+        <Link href="/" className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
+        <div className="flex-1"><h1 className="font-black text-[15px]">Publier - WENZE 2.0</h1><p className="text-[10px] text-gray-500">{currentCat?.icon} {currentCat?.titre} • {prixInfo.prixUSD}$/{prixInfo.prixCDF.toLocaleString()} CDF • Taux {TAUX_CDF} • 0% comm</p></div>
+        <span className={`text-[9px] px-2 py-1 rounded-full font-black ${isGros?"bg-black text-white":"bg-[#6C3CE0] text-white"}`}>{prixInfo.prixUSD}$</span>
+      </header>
 
-      <Link href="/" className="text-xs text-[#6C3CE0] font-bold">← Accueil - Taux {TAUX_CDF}</Link>
-      <h1 className="text-xl font-black mt-2">Publier - WENZE 2.0 • 2 catégories</h1>
-      <p className="text-[11px] text-gray-500">🛍️ Petites activités 5$ • 🏭 Gros & autres 10$ • Taux {TAUX_CDF} fixe</p>
+      <div className="p-4 space-y-3">
+        {toast && <div className={`p-3 rounded-xl text-[12px] font-bold ${toast.type==="error"?"bg-red-50 text-red-700 border border-red-200":"bg-green-50 text-green-700 border border-green-200"}`}>{toast.msg}</div>}
 
-      <div className="p-2.5 rounded-xl mt-3 text-[10px] flex justify-between bg-black text-white">
-        <span>{user.nom} - {abInfo.actif?abInfo.type:"Freemium"}</span><span className={blocked?"text-red-400 font-bold":""}>{blocked?"BLOQUE":count+"/3"}</span>
-      </div>
-
-      {blocked ? (
-        <div className="bg-white border p-6 rounded-2xl mt-4 text-center">
-          <p className="font-bold text-[14px]">Limite atteinte • Taux {TAUX_CDF}</p>
-          <Link href="/abonnement" className="mt-4 block bg-[#6C3CE0] text-white p-4 rounded-full font-black text-[12px]">👑 Passer Pro - 5$ / 10$</Link>
+        <div className="bg-white border-2 rounded-2xl p-3">
+          <p className="font-black text-[11px]">Photo produit - compress 800px JPEG 75%</p>
+          <input type="file" accept="image/*" onChange={handlePhoto} className="mt-2 w-full text-[11px]"/>
+          {photoPreview ? <img src={photoPreview} alt="preview" className="mt-3 w-full h-52 object-contain bg-[#FFFBF0] rounded-xl border"/> : <div className="mt-3 w-full h-32 bg-[#FFFBF0] border-2 border-dashed rounded-xl flex items-center justify-center text-[11px] text-gray-400">Ajoute photo - max 8Mo</div>}
         </div>
-      ) : (
-        <div className="mt-4 space-y-3">
-          <input placeholder="Titre ex: Vente Sacs Gombe" value={form.titre} onChange={e=> setForm({...form, titre: e.target.value})} className="w-full border-2 p-3.5 rounded-xl text-[13px] bg-white outline-none focus:border-[#6C3CE0]" />
-          <div className="flex gap-2">
-            <input placeholder="Prix USD ex: 15" type="number" value={form.prix} onChange={e=> setForm({...form, prix: e.target.value})} className="flex-1 border-2 p-3.5 rounded-xl text-[13px] bg-white" />
-            <div className="bg-black text-white border rounded-xl px-3 flex items-center text-[11px] font-black min-w-[110px] justify-center">{form.prix?toCDF(parseFloat(form.prix)).toLocaleString()+" CDF":toCDFString(0)}</div>
+
+        <div className="bg-white border-2 rounded-2xl p-3 space-y-3">
+          <input value={form.titre} onChange={e=> setForm({...form, titre: e.target.value})} placeholder="Titre ex: Réparation électricité Gombe..." className="w-full border-2 p-3 rounded-xl text-[13px] font-bold"/>
+          <textarea value={form.description} onChange={e=> setForm({...form, description: e.target.value})} placeholder="Description qualité Kinshasa, garantie..." rows={3} className="w-full border-2 p-3 rounded-xl text-[12px]"/>
+          
+          <div className="grid grid-cols-2 gap-2">
+            <div><p className="text-[10px] font-black">Prix USD $</p><input type="number" inputMode="decimal" value={form.prix} onChange={e=> setForm({...form, prix: e.target.value})} placeholder="ex: 25" className="w-full border-2 p-3 rounded-xl text-[13px] font-black text-[#6C3CE0]"/></div>
+            <div><p className="text-[10px] font-black">Prix CDF auto Taux {TAUX_CDF}</p><div className="w-full border-2 p-3 rounded-xl text-[13px] font-black bg-[#FFFBF0]">{prixCDF.toLocaleString()} CDF<br/><span className="text-[9px] text-gray-500">{toCDFString(prixNum)}</span></div></div>
           </div>
 
-          {/* ✅ 2 CATEGORIES MODERNES - PLUS DE SOUS METIER VISIBLE */}
-          <div className="space-y-2">
-            <p className="text-[11px] font-black">📁 Choisis ta catégorie - Boutique directe</p>
-            <div className="grid grid-cols-1 gap-2.5">
-              {CATEGORIES_WENZE.map((c:any)=> (
-                <button key={c.id} type="button" onClick={()=> setForm({...form, categorie: c.id})}
-                  className={`p-4 rounded-2xl border-2 text-left flex justify-between items-center transition-all ${form.categorie===c.id ? "border-black bg-black text-white shadow-lg scale-[1.02]" : "border-gray-200 bg-white hover:border-black"}`}>
-                  <div>
-                    <div className="font-black text-[13px]">{c.icon} {c.titre}</div>
-                    <div className={`text-[10px] mt-0.5 ${form.categorie===c.id?"text-white/70":"text-gray-500"}`}>{c.description}</div>
-                  </div>
-                  <div className={`ml-3 px-3 py-1 rounded-full font-black text-[12px] ${form.categorie===c.id?"bg-white text-black":"bg-black text-white"}`}>{c.prixUSD}$</div>
-                </button>
+          <div>
+            <p className="text-[10px] font-black">Catégorie - 2 prix WENZE 2.0</p>
+            <div className="mt-1 grid gap-1">
+              {CATEGORIES_WENZE.map(c=> (
+                <button key={c.id} type="button" onClick={()=> setForm({...form, categorieId: c.id, activiteId: c.activites[0]?.id || ""})} className={`text-left p-2.5 rounded-xl border-2 text-[11px] font-bold ${form.categorieId===c.id ? (c.id==="gros-autres"?"bg-black text-white border-black":"bg-[#6C3CE0] text-white border-[#6C3CE0]") : "bg-white"}`}>{c.icon} {c.titre} - {c.prixUSD}$/{c.prixCDF.toLocaleString()} CDF - {c.id==="commerces-services"?"Électricité, maçon, soudure, coiffure même régime 5$":"Gros, import, prod 10$"}</button>
               ))}
             </div>
           </div>
 
-          {/* OPTIONS */}
-          <div className="bg-white border-2 rounded-xl p-3 space-y-2">
-            <label className="flex justify-between items-center bg-red-50 border p-3 rounded-xl cursor-pointer">
-              <span className="text-[12px] font-bold">🔥 Flash 24h</span><input type="checkbox" checked={isFlash} onChange={e=> setIsFlash(e.target.checked)} className="w-5 h-5" />
-            </label>
-            <label className={`flex justify-between items-center p-3 rounded-xl border-2 ${isPayant?"bg-purple-50 border-purple-200":"bg-gray-50 opacity-60"}`}>
-              <span className="text-[12px] font-bold">🚀 Boost Top 5j {isPayant?"• Inclus":""}</span><input type="checkbox" checked={isBoost} onChange={e=> setIsBoost(e.target.checked)} disabled={!isPayant} className="w-5 h-5" />
-            </label>
+          <div>
+            <p className="text-[10px] font-black">Activité précise - {currentCat?.titreCourt}</p>
+            <div className="mt-1 flex flex-wrap gap-1 max-h-28 overflow-y-auto">
+              {activites.map((a:any)=> <button key={a.id} type="button" onClick={()=> setForm({...form, activiteId: a.id})} className={`text-[10px] px-2.5 py-1.5 rounded-full font-bold border ${form.activiteId===a.id?"bg-black text-white border-black":"bg-[#FFFBF0]"}`}>{a.label}</button>)}
+            </div>
           </div>
 
-          <div className="bg-white border-2 rounded-xl p-3">
-            <input type="file" accept={isVideoMode?"video/*":"image/*,video/*"} onChange={async e=>{ const f=e.target.files?.[0]; if(f){ showToast("Compression...","loading"); const r=await handleFile(f); if(r){ setMedia(r); showToast("Image prête","success"); } } }} className="w-full text-[11px] file:mr-3 file:bg-[#6C3CE0] file:text-white file:border-0 file:rounded-full file:px-4 file:py-2 file:font-bold" />
+          <div className="grid grid-cols-2 gap-2">
+            <input value={form.commune} onChange={e=> setForm({...form, commune: e.target.value})} placeholder="Commune ex: Gombe" className="border-2 p-3 rounded-xl text-[12px]"/>
+            <input value={form.stock} onChange={e=> setForm({...form, stock: e.target.value})} type="number" placeholder="Stock" className="border-2 p-3 rounded-xl text-[12px]"/>
+          </div>
+          <input value={form.livraison} onChange={e=> setForm({...form, livraison: e.target.value})} placeholder="Livraison ex: Retrait Gombe / Livraison..." className="w-full border-2 p-3 rounded-xl text-[11px]"/>
+
+          <div className="bg-black text-white rounded-xl p-3 text-[10px]">
+            <p className="font-black">Boutique {currentCat?.icon} {currentCat?.titreCourt} - {prixInfo.prixUSD}$ / {prixInfo.prixCDF.toLocaleString()} CDF - Taux fixe {TAUX_CDF}</p>
+            <p className="opacity-70 mt-1">Ton annonce: {prixNum||0}$ / {prixCDF.toLocaleString()} CDF • WhatsApp {cleanWhatsapp(user?.ownerWhatsapp||"")} • 0% commission • {currentCat?.description}</p>
           </div>
 
-          <div className="w-full aspect-[4/3] bg-white rounded-2xl border-2 border-dashed flex items-center justify-center overflow-hidden relative">
-            {media ? (typeMedia==="video"?<video src={media} controls className="max-w-full max-h-full"/>:<img src={media} className="max-w-full max-h-full object-contain" alt="preview"/>) : <div className="text-center"><span className="text-4xl">📸</span><p className="text-[10px] text-gray-400 mt-2">Photo 800px • Taux {TAUX_CDF}</p></div>}
-            {media && <button onClick={()=> setMedia("")} className="absolute top-2 right-2 bg-black/70 text-white w-8 h-8 rounded-full">✕</button>}
-          </div>
-
-          <textarea placeholder="Description..." value={form.description} onChange={e=> setForm({...form, description: e.target.value})} className="w-full border-2 p-3.5 rounded-xl text-[12px] h-20 bg-white" />
-
-          {catActive && prixActif && <div className="bg-black text-white rounded-xl p-3 text-[11px] flex justify-between"><span>{catActive.icon} {catActive.titre} • {catActive.activites[0].label}</span><span className="font-black">{prixActif.prixUSD}$ / {prixActif.prixCDF.toLocaleString()} CDF</span></div>}
-
-          <button onClick={handlePublish} disabled={isPublishing} className={`w-full p-4 rounded-full font-black text-[13px] shadow-lg ${isPublishing?"bg-gray-300 text-gray-500":"bg-[#6C3CE0] text-white"}`}>
-            {isPublishing?"⏳ Publication...":`📢 Publier - ${form.prix?toCDFString(parseFloat(form.prix)):toCDFString(0)} - ${prixActif?prixActif.prixUSD+"$":""}`}
-          </button>
+          <button onClick={handlePublish} disabled={saving} className={`w-full py-4 rounded-full font-black text-[13px] disabled:opacity-50 ${isGros?"bg-black text-white":"bg-[#6C3CE0] text-white"}`}>{saving?"Publication...":`Publier ${prixNum||0}$ / ${prixCDF.toLocaleString()} CDF • ${prixInfo.prixUSD}$ boutique`}</button>
+          <Link href="/" className="block text-center text-[11px] text-gray-500 py-2">Annuler - Retour marché</Link>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
-export default function PublierPage() {
-  return <Suspense fallback={<div className="max-w-[430px] mx-auto p-10 text-center bg-[#FFFBF0] min-h-screen">Chargement WENZE 2.0... Taux {TAUX_CDF}</div>}><PublierContent/></Suspense>;
-                                                         }
+export default function PagePublier(){
+  return (
+    <Suspense fallback={<div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6"><div className="h-24 bg-white border rounded-2xl animate-pulse"/><p className="text-[10px] text-gray-400 mt-2">WENZE 2.0 Chargement... Taux {TAUX_CDF}</p></div>}>
+      <PublierContent/>
+    </Suspense>
+  );
+        }
