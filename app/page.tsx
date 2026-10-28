@@ -21,17 +21,21 @@ export default function WenzeBusiness() {
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [toast, setToast] = useState("");
   const [ab, setAb] = useState<any>(null);
+  const [notifCount, setNotifCount] = useState(0);
 
   const loadAnnonces = ()=>{
     try{
       const list = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
       const fixed = list.map((a:any)=> ({
         ...a,
-        categorieId: normalizeCategorie(a.categorieId || a.categorie || "commerces-services"),
+        categorieId: normalizeCategorie(a.categorieId || a.categorie || (a.typeVente==="occasionnelle" ? "client" : "commerces-services")),
         prix: Math.round(Number(a.prix||0)),
         prixCDF: a.prixCDF ? Math.round(Number(a.prixCDF)) : toCDF(Math.round(Number(a.prix||0))),
         isVideo: !!a.isVideo,
         media: a.isVideo ? "images-videos" : "image-only",
+        isOccasionnel: a.typeVente==="occasionnelle" || a.categorieId==="client",
+        isBoosted: a.boostUntil && new Date(a.boostUntil).getTime()>Date.now(),
+        isBoutiquePayante: (a.boutiquePrixUSD||0)>=5 || !!a.boostUntil,
       }));
       setAnnonces(fixed);
     } catch { setAnnonces([]); }
@@ -40,6 +44,26 @@ export default function WenzeBusiness() {
   useEffect(()=> { 
     loadAnnonces(); 
     try{ setAb(verifierAbonnement()); } catch {}
+    
+    // ✅ NOTIF INTELLIGENTE + RAPPELS J-5 J-1
+    const initNotifs = async ()=>{
+      try{
+        const { getUnreadCount, checkAndNotifyExpirations } = await import("@/lib/notifications");
+        const user = JSON.parse(localStorage.getItem("wenze_user")||"{}");
+        checkAndNotifyExpirations();
+        const updateBadge = ()=>{
+          const count = getUnreadCount(user.id || user.ownerWhatsapp || user.whatsapp);
+          setNotifCount(count);
+        };
+        updateBadge();
+        window.addEventListener("wenze-notif", updateBadge);
+        const it = setInterval(()=> { checkAndNotifyExpirations(); updateBadge(); loadAnnonces(); }, 60*60*1000);
+        const it2 = setInterval(updateBadge, 3000);
+        return ()=> { clearInterval(it); clearInterval(it2); };
+      } catch{}
+    };
+    initNotifs();
+
     const onStorage = ()=> loadAnnonces();
     window.addEventListener("storage", onStorage);
     return ()=> window.removeEventListener("storage", onStorage);
@@ -50,12 +74,15 @@ export default function WenzeBusiness() {
     if(selectedCat!=="all") list = list.filter(a=> a.categorieId===selectedCat);
     if(search.trim()){
       const s = search.toLowerCase();
-      list = list.filter(a=> (a.titre||"").toLowerCase().includes(s) || (a.description||"").toLowerCase().includes(s) || (a.commune||"").toLowerCase().includes(s));
+      list = list.filter(a=> (a.titre||"").toLowerCase().includes(s) || (a.description||"").toLowerCase().includes(s) || (a.commune||"").toLowerCase().includes(s) || (a.typeVente||"").toLowerCase().includes(s));
     }
     return list.sort((a,b)=> {
-      const boostA = a.boostUntil && new Date(a.boostUntil).getTime()>Date.now() ? 1 : 0;
-      const boostB = b.boostUntil && new Date(b.boostUntil).getTime()>Date.now() ? 1 : 0;
+      const boostA = a.isBoosted ? 1 : 0;
+      const boostB = b.isBoosted ? 1 : 0;
       if(boostA!==boostB) return boostB-boostA;
+      const payA = a.isBoutiquePayante ? 1 : 0;
+      const payB = b.isBoutiquePayante ? 1 : 0;
+      if(payA!==payB) return payB-payA;
       return new Date(b.created_at||b.createdAt||0).getTime() - new Date(a.created_at||a.createdAt||0).getTime();
     });
   }, [annonces, search, selectedCat]);
@@ -78,7 +105,6 @@ export default function WenzeBusiness() {
     router.push(`/produit/${a.id}`);
   };
 
-  // ✅ VIDEO REDIRECT - Fix pro
   const openVideoPage = (a:any)=>{
     try{ localStorage.setItem("wenze_current_produit", JSON.stringify(a)); } catch {}
     router.push(`/video?id=${a.id}`);
@@ -86,6 +112,8 @@ export default function WenzeBusiness() {
 
   const prixMoyenUSD = filtered.length ? Math.round(filtered.reduce((s,a)=> s + Number(a.prix||0),0)/filtered.length) : 0;
   const prixMoyenCDF = toCDF(prixMoyenUSD);
+  const boostedCount = filtered.filter(a=> a.isBoosted).length;
+  const occasionnelCount = filtered.filter(a=> a.isOccasionnel).length;
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-24">
@@ -93,19 +121,26 @@ export default function WenzeBusiness() {
         <div className="p-4 flex items-center gap-3">
           <div className="w-9 h-9 bg-black rounded-full flex items-center justify-center text-white font-black">W</div>
           <div className="flex-1">
-            <h1 className="font-black text-[14px] leading-none">WENZE WENZE BUSINESS - {ab?.isPaye?`✅ ${ab?.label} ${ab?.joursRestants}j`: ab?.isEssai7j?`⏳ Essai ${ab?.joursRestants}j`:`🆓 ${ab?.count||0}/3 vie`}</h1>
-            <p className="text-[9px] text-gray-500">Kinshasa • Freemium 3 vie images only • Essai 7j • 5$/10$ • Taux {TAUX_CDF} • 0% comm</p>
+            <h1 className="font-black text-[12px] leading-none">WENZE WENZE BUSINESS - {ab?.isPaye?`✅ ${ab?.label} ${ab?.joursRestants}j`: ab?.isEssai7j?`⏳ Essai ${ab?.joursRestants}j`:`🆓 ${ab?.count||0}/3 vie`}</h1>
+            <p className="text-[8px] text-gray-500">Kinshasa • {boostedCount>0?`🚀 ${boostedCount} boosts TOP • `:``}{occasionnelCount>0?`📦 ${occasionnelCount} occasionnels • `:``}Taux {TAUX_CDF} • 0% comm</p>
           </div>
+          {/* ✅ CLOCHE NOTIF INTELLIGENTE */}
+          <Link href="/notifications" className="relative w-9 h-9 bg-[#FFFBF0] border rounded-full flex items-center justify-center">
+            🔔
+            {notifCount>0 && <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] min-w-[18px] h-[18px] rounded-full flex items-center justify-center font-black px-1">{notifCount>99?"99+":notifCount}</span>}
+          </Link>
           <Link href="/panier" className="w-9 h-9 bg-[#FFFBF0] border rounded-full flex items-center justify-center">🛒</Link>
           <Link href="/profil" className="w-9 h-9 bg-[#6C3CE0] text-white rounded-full flex items-center justify-center">👤</Link>
         </div>
         <div className="px-4 pb-3 flex gap-2">
-          <input value={search} onChange={e=> setSearch(e.target.value)} placeholder="Recherche sacs, électricité, maçon..." className="flex-1 border-2 p-3 rounded-full text-[13px] bg-[#FFFBF0] outline-none focus:border-[#6C3CE0]"/>
+          <input value={search} onChange={e=> setSearch(e.target.value)} placeholder="Recherche sacs, iPhone occasion, électricité..." className="flex-1 border-2 p-3 rounded-full text-[13px] bg-[#FFFBF0] outline-none focus:border-[#6C3CE0]"/>
           <button onClick={()=> router.push("/publier")} className="bg-[#6C3CE0] text-white px-5 rounded-full font-black text-[12px]">+ Publier</button>
         </div>
         <div className="px-4 pb-3 flex gap-2 overflow-x-auto scrollbar-none">
-          <button onClick={()=> setSelectedCat("all")} className={`px-3 py-2 rounded-full text-[11px] font-black border-2 whitespace-nowrap ${selectedCat==="all"?"bg-black text-white border-black":"bg-white"}`}>Tout • {annonces.length}</button>
-          {CATEGORIES_WENZE.map(c=> {
+          <button onClick={()=> setSelectedCat("all")} className={`px-3 py-2 rounded-full text-[11px] font-black border-2 whitespace-nowrap ${selectedCat==="all"?"bg-black text-white border-black":"bg-white"}`}>Tout • {annonces.length} {boostedCount>0?`🚀${boostedCount}`:""}</button>
+          {/* ✅ CLIENT OCCASIONNEL = SEPARE */}
+          <button onClick={()=> setSelectedCat("client")} className={`px-3 py-2 rounded-full text-[11px] font-black border-2 whitespace-nowrap ${selectedCat==="client"?"bg-orange-500 text-white border-orange-500":"bg-orange-50 border-orange-200"}`}>📦 Occasionnel • {annonces.filter(a=> a.categorieId==="client").length}</button>
+          {CATEGORIES_WENZE.filter(c=> c.id!=="client").map(c=> {
             const count = annonces.filter(a=> a.categorieId===c.id).length;
             return <button key={c.id} onClick={()=> setSelectedCat(c.id)} className={`px-3 py-2 rounded-full text-[11px] font-black border-2 whitespace-nowrap ${selectedCat===c.id?"bg-[#6C3CE0] text-white border-[#6C3CE0]":"bg-white"}`}>{c.icon} {c.titreCourt} • {count}</button>
           })}
@@ -115,34 +150,46 @@ export default function WenzeBusiness() {
       <div className="p-4 space-y-3">
         {toast && <div className="bg-black text-white p-3 rounded-xl text-[12px] font-bold text-center animate-pulse">{toast}</div>}
 
+        {/* ✅ BANDEAU NOTIF SI RAPPEL */}
+        {notifCount>0 && (
+          <button onClick={()=> router.push("/notifications")} className="w-full bg-[#6C3CE0] text-white rounded-2xl p-3 flex justify-between items-center">
+            <p className="font-black text-[11px] text-left">🔔 {notifCount} notifications - {ab?.isPaye?`Rappel abonnement?`:`Passe boutique 5$ pour notifier clients`}</p>
+            <span className="bg-white text-black px-3 py-1 rounded-full text-[10px] font-black">Voir →</span>
+          </button>
+        )}
+
         <div className="bg-black text-white rounded-2xl p-4">
           <div className="flex justify-between items-start gap-2">
             <div className="flex-1">
-              <p className="font-black text-[12px]">WENZE WENZE BUSINESS - 2 Boutiques + Freemium</p>
-              <p className="text-[10px] opacity-70 mt-1">🛍️ Commerces & Services 5$ / 11 500 CDF • Électricité, maçon, coiffure même régime 5$ • 🏭 Gros 10$ / 23 000 CDF • Taux fixe {TAUX_CDF} • Freemium 3 vie images only</p>
+              <p className="font-black text-[12px]">WENZE WENZE BUSINESS - 3 Régimes clairs</p>
+              <p className="text-[10px] opacity-70 mt-1">
+                🛍️ <b>Commerces 5$</b> • 11 500 CDF • Notif clients auto • Vidéo<br/>
+                🏭 <b>Gros 10$</b> • 23 000 CDF • Illimité + boost<br/>
+                📦 <b>Occasionnel 0$/1$/3$/5$</b> • Client perso • Boost = notif clients • Taux {TAUX_CDF}
+              </p>
             </div>
             <button onClick={()=> router.push("/boutiques")} className="bg-white text-black px-3 py-2 rounded-full font-black text-[10px]">Boutiques</button>
           </div>
         </div>
 
         <div className="flex justify-between items-center">
-          <p className="font-black text-[11px]">{filtered.length} annonces • {prixMoyenUSD}$ / {prixMoyenCDF.toLocaleString()} CDF moyen • Taux {TAUX_CDF}</p>
+          <p className="font-black text-[11px]">{filtered.length} annonces {boostedCount>0?`• 🚀 ${boostedCount} boostés TOP`:""} • {prixMoyenUSD}$ / {prixMoyenCDF.toLocaleString()} CDF moyen</p>
           <button onClick={()=> router.push("/categories")} className="text-[10px] text-[#6C3CE0] font-bold">Catégories →</button>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           {filtered.length===0 ? (
             <div className="col-span-2 text-center py-12 bg-white border-2 border-dashed rounded-2xl">
-              <p className="text-3xl">📦</p><p className="text-[12px] font-bold mt-2">Aucune annonce</p>
-              <button onClick={()=> router.push(`/publier?cat=${selectedCat==="all"?"commerces-services":selectedCat}`)} className="mt-3 bg-[#6C3CE0] text-white px-4 py-2 rounded-full font-black text-[11px]">+ Publier</button>
+              <p className="text-3xl">📦</p><p className="text-[12px] font-bold mt-2">Aucune annonce dans {selectedCat}</p>
+              <p className="text-[10px] text-gray-500 mt-1">{selectedCat==="client"?"Aucune vente occasionnelle - Sois premier!":"Aucune annonce boutique - Publie ta première"}</p>
+              <button onClick={()=> router.push(`/publier?cat=${selectedCat==="all"?"commerces-services":selectedCat}${selectedCat==="client"?"&mode=occasionnel":""}`)} className="mt-3 bg-[#6C3CE0] text-white px-4 py-2 rounded-full font-black text-[11px]">+ Publier {selectedCat==="client"?"occasionnel":""}</button>
             </div>
           ) : filtered.map((a:any)=>{
             const cat = getCategorieById(a.categorieId);
             const pi = getPrixByCategorie(a.categorieId);
             const isVideo = !!a.isVideo;
             return (
-              <div key={a.id} className="bg-white border rounded-2xl overflow-hidden flex flex-col">
-                {/* ✅ FIX VIDEO - Image -> modal, Video -> /video?id */}
+              <div key={a.id} className={`bg-white border rounded-2xl overflow-hidden flex flex-col ${a.isBoosted?"border-2 border-[#25D366] shadow-lg":""} ${a.isOccasionnel?"border-orange-200":""}`}>
                 <button 
                   onClick={()=> isVideo ? openVideoPage(a) : setSelectedImage(a)} 
                   className="h-36 bg-[#FFFBF0] flex items-center justify-center overflow-hidden relative group"
@@ -157,21 +204,24 @@ export default function WenzeBusiness() {
                   ) : a.photo ? (
                     <img src={a.photo} alt={a.titre} className="max-w-full max-h-full object-contain"/>
                   ) : (
-                    <span className="text-3xl">{cat?.icon}</span>
+                    <span className="text-3xl">{cat?.icon || (a.isOccasionnel?"📦":"🏬")}</span>
                   )}
-                  <span className={`absolute top-2 left-2 text-[8px] px-2 py-1 rounded-full font-black ${isVideo?"bg-red-600 text-white":"bg-[#6C3CE0] text-white"}`}>{isVideo?"🎥 VIDÉO":"🖼️"} {pi.prixUSD}$</span>
-                  {isVideo && <span className="absolute bottom-1.5 right-1.5 text-[7px] bg-black/80 text-white px-2 py-1 rounded-full">Lire sur Vidéo →</span>}
-                  {a.boostUntil && new Date(a.boostUntil).getTime()>Date.now() && <span className="absolute top-2 right-2 text-[7px] bg-[#25D366] text-white px-2 py-1 rounded-full font-black">🚀</span>}
+                  <span className={`absolute top-2 left-2 text-[8px] px-2 py-1 rounded-full font-black ${a.isOccasionnel?"bg-orange-500 text-white": isVideo?"bg-red-600 text-white":"bg-[#6C3CE0] text-white"}`}>{a.isOccasionnel?"📦 OCCAS": isVideo?"🎥 VIDÉO":"🖼️"} {a.isOccasionnel?`${a.boostPrixUSD||0}$ boost`: `${pi.prixUSD}$`}</span>
+                  {a.isBoosted && <span className="absolute top-2 right-2 text-[7px] bg-[#25D366] text-white px-2 py-1 rounded-full font-black animate-pulse">🚀 TOP</span>}
+                  {!a.isBoosted && a.isBoutiquePayante && <span className="absolute top-2 right-2 text-[7px] bg-black text-white px-2 py-1 rounded-full font-black">🔔 Notif</span>}
+                  {a.isOccasionnel && !a.isBoosted && <span className="absolute bottom-1.5 right-1.5 text-[7px] bg-white/90 text-black px-2 py-1 rounded-full font-bold">Sans notif</span>}
+                  {isVideo && <span className="absolute bottom-1.5 left-1.5 text-[7px] bg-black/80 text-white px-2 py-1 rounded-full">Vidéo → /video</span>}
                 </button>
 
                 <div className="p-2.5 flex-1 flex flex-col">
                   <button onClick={()=> isVideo ? openVideoPage(a) : openProduit(a)} className="text-left font-bold text-[12px] leading-tight line-clamp-2 hover:text-[#6C3CE0]">
-                    {a.titre} {isVideo?"🎥":""}
+                    {a.titre} {isVideo?"🎥":""} {a.isOccasionnel?"📦":""}
                   </button>
-                  <p className="text-[10px] text-gray-500 truncate">{cat?.titreCourt} • {a.commune}</p>
+                  <p className="text-[10px] text-gray-500 truncate">{a.isOccasionnel?`📦 Occasionnel • ${a.activiteId||"Autre"} • ${a.commune}`:`${cat?.titreCourt} • ${a.commune} • ${a.isBoutiquePayante?"🔔 Notif clients":""}`}</p>
                   <p className="font-black text-[12px] text-[#6C3CE0] mt-1">{Math.round(a.prix)}$ / {Math.round(a.prixCDF).toLocaleString()} CDF</p>
+                  {a.isOccasionnel && a.boostType && <p className="text-[9px] text-orange-600 font-bold">Boost {a.boostType} {a.boostPrixUSD}$ - {a.isBoosted?"🔔 Notif clients":""}</p>}
                   <div className="mt-2 grid grid-cols-2 gap-1">
-                    <a href={`https://wa.me/${cleanWa(a.ownerWhatsapp||a.whatsapp||"")}?text=${encodeURIComponent(`Bonjour WENZE WENZE BUSINESS 👋 ${a.titre} - ${a.prix}$ - ${a.id}`)}`} target="_blank" className="bg-[#25D366] text-white text-center py-2 rounded-full font-bold text-[10px]">WhatsApp</a>
+                    <a href={`https://wa.me/${cleanWa(a.ownerWhatsapp||a.whatsapp||"")}?text=${encodeURIComponent(`Bonjour WENZE WENZE BUSINESS 👋 ${a.titre} - ${a.prix}$ - ${a.id} - ${a.isOccasionnel?"Occasionnel":"Boutique"} - Taux ${TAUX_CDF}`)}`} target="_blank" className="bg-[#25D366] text-white text-center py-2 rounded-full font-bold text-[10px]">WhatsApp</a>
                     {isVideo ? (
                       <button onClick={()=> openVideoPage(a)} className="bg-red-600 text-white py-2 rounded-full font-bold text-[10px]">▶️ Lire</button>
                     ) : (
@@ -185,7 +235,6 @@ export default function WenzeBusiness() {
         </div>
       </div>
 
-      {/* ✅ MODAL IMAGE ONLY - Video ne ouvre plus modal */}
       {selectedImage && !selectedImage.isVideo && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={()=> setSelectedImage(null)}>
           <div className="bg-white rounded-2xl max-w-[380px] w-full overflow-hidden" onClick={e=> e.stopPropagation()}>
@@ -193,9 +242,9 @@ export default function WenzeBusiness() {
               <img src={selectedImage.photo} alt={selectedImage.titre} className="max-w-full max-h-full object-contain"/>
             </div>
             <div className="p-4">
-              <p className="font-black text-[13px]">{selectedImage.titre} 🖼️</p>
+              <p className="font-black text-[13px]">{selectedImage.titre} {selectedImage.isOccasionnel?"📦 Occasionnel":"🖼️"} {selectedImage.isBoosted?"🚀 TOP":""}</p>
               <p className="text-[11px] text-gray-600 mt-1 line-clamp-3">{selectedImage.description}</p>
-              <p className="font-black text-[#6C3CE0] mt-2">{formatPrix(selectedImage)} • Boutique {getPrixByCategorie(selectedImage.categorieId).prixUSD}$ • Taux {TAUX_CDF}</p>
+              <p className="font-black text-[#6C3CE0] mt-2">{formatPrix(selectedImage)} • {selectedImage.isOccasionnel?`Occasionnel Boost ${selectedImage.boostPrixUSD||0}$ • ${selectedImage.isBoosted?"🔔 Notif clients":"Sans notif"}`:`Boutique ${getPrixByCategorie(selectedImage.categorieId).prixUSD}$ • ${selectedImage.isBoutiquePayante?"🔔 Notif clients":"Sans notif"}`} • Taux {TAUX_CDF}</p>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button onClick={()=> { setSelectedImage(null); openProduit(selectedImage); }} className="bg-black text-white py-3 rounded-full font-bold text-[12px]">Voir produit</button>
                 <button onClick={()=> setSelectedImage(null)} className="bg-white border py-3 rounded-full font-bold text-[12px]">Fermer</button>
@@ -209,14 +258,13 @@ export default function WenzeBusiness() {
         </div>
       )}
 
-      {/* ✅ BARRE TÂCHE FIX - Marché supprimé → Vidéo */}
       <nav className="fixed bottom-0 max-w-[430px] w-full bg-white border-t flex justify-around py-2.5 text-[10px] z-30">
         <button onClick={()=> router.push("/")} className="font-bold text-[#6C3CE0] flex flex-col items-center gap-0.5"><span className="text-[18px]">🏠</span>Accueil</button>
         <button onClick={()=> router.push("/video")} className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🎥</span>Vidéo</button>
-        <button onClick={()=> router.push("/publier")} className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">➕</span>Publier</button>
+        <button onClick={()=> router.push("/publier")} className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[22px]">➕</span>Publier</button>
         <button onClick={()=> router.push("/boutiques")} className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏬</span>Boutiques</button>
-        <button onClick={()=> router.push("/profil")} className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">👤</span>Profil</button>
+        <button onClick={()=> router.push("/profil")} className="flex flex-col items-center gap-0.5 text-gray-500 relative"><span className="text-[18px]">👤</span>Profil {notifCount>0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-600 rounded-full"></span>}</button>
       </nav>
     </div>
   );
-                  }
+}
