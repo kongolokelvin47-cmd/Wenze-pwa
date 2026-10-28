@@ -5,26 +5,24 @@ import { useRouter } from "next/navigation";
 import { CATEGORIES_WENZE, getCategorieById, normalizeCategorie, getPrixByCategorie, getActiviteById } from "@/lib/categories";
 import { TAUX_CDF, toCDF } from "@/lib/paiement";
 
-function cleanWhatsapp(n: string) { return (n || "").toString().replace(/[^0-9]/g, ""); }
+export const dynamic = 'force-dynamic';
 
-function isOwner(ann: any, cur: any){
-  if(!cur || !ann) return false;
-  const c = cleanWhatsapp(cur.ownerWhatsapp || cur.whatsapp || "");
-  const a = cleanWhatsapp(ann.ownerWhatsapp || ann.whatsapp || "");
-  if(c && a) return c===a;
-  return String(cur.id||cur.nom) === String(ann.userId||ann.user);
-}
+function cleanWa(n:any){ return (n||"").toString().replace(/[^0-9]/g,""); }
+function getCurrentUser(){ try{ const r=localStorage.getItem("wenze_user"); return r?JSON.parse(r):null; }catch{ return null; } }
 
 export default function ProfilPage() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [annonces, setAnnonces] = useState<any[]>([]);
-  const [abonnement, setAbonnement] = useState<any>({ paye: false, expire: null, joursRestants: 0 });
+  const [abonnement, setAbonnement] = useState<any>({ paye:false, expire:null, joursRestants:0 });
   const [solde, setSolde] = useState(0);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<any>(null);
-  const [editForm, setEditForm] = useState({ nom: "", whatsapp: "", commune: "", ville: "Kinshasa", nomEtablissement: "", categorieId: "commerces-services", activiteId: "", bio: "", photo: "" });
+  const [invits, setInvits] = useState<any[]>([]);
+  const [inviteForm, setInviteForm] = useState({ wa:"", name:"" });
+  const [inviteLink, setInviteLink] = useState<any>(null);
+  const [editForm, setEditForm] = useState({ nom:"", commune:"", ville:"Kinshasa", nomEtablissement:"", categorieId:"commerces-services", activiteId:"", bio:"", photo:"" });
 
   useEffect(() => {
     try {
@@ -34,57 +32,72 @@ export default function ProfilPage() {
       const fixedCat = normalizeCategorie(u.categorieId || u.categorie || "commerces-services");
       const catObj = getCategorieById(fixedCat);
       const prixInfo = catObj ? getPrixByCategorie(catObj.id) : { prixUSD: 5, prixCDF: 11500 };
-      
       const fullUser = { ...u, categorieId: fixedCat, catObj, prixUSD: prixInfo.prixUSD, prixCDF: prixInfo.prixCDF };
       setUser(fullUser);
 
       setEditForm({
         nom: u.nom || "",
-        whatsapp: u.ownerWhatsapp || u.whatsapp || "",
         commune: u.commune || "",
         ville: u.ville || "Kinshasa",
-        nomEtablissement: u.nomEtablissement || "",
+        nomEtablissement: u.nomEtablissement || u.nom || "",
         categorieId: fixedCat,
         activiteId: u.activiteId || u.activite || catObj?.activites[0]?.id || "",
         bio: u.bio || "",
         photo: u.photo || "",
       });
 
-      // Annonces
       const allAnnonces = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
-      const myWa = cleanWhatsapp(u.ownerWhatsapp || u.whatsapp || "");
-      const mine = allAnnonces.filter((a:any)=> cleanWhatsapp(a.ownerWhatsapp || a.whatsapp || "") === myWa || isOwner(a,u));
-      const fixedMine = mine.map((a:any)=> ({ ...a, categorieId: normalizeCategorie(a.categorieId || a.categorie || fixedCat) }));
-      setAnnonces(fixedMine);
+      const myWa = cleanWa(u.ownerWhatsapp || u.whatsapp || "");
+      const mine = allAnnonces.filter((a:any)=> cleanWa(a.ownerWhatsapp || a.whatsapp || a.userId || "")===myWa);
+      mine.sort((a:any,b:any)=> new Date(b.createdAt||b.created_at||0).getTime() - new Date(a.createdAt||a.created_at||0).getTime());
+      setAnnonces(mine);
 
-      // Solde depuis commandes
       const cmds = JSON.parse(localStorage.getItem("wenze_commandes_list") || "[]");
-      const mySales = cmds.filter((c:any)=> cleanWhatsapp(c.vendeur_whatsapp || "")===myWa);
+      const mySales = cmds.filter((c:any)=> cleanWa(c.vendeur_whatsapp || "")===myWa);
       const total = mySales.reduce((s:any,c:any)=> s + Number(c.total||0), 0);
       setSolde(total);
 
-      // Abonnement WENZE 2.0
       const aboDate = u.abonnementDate ? new Date(u.abonnementDate) : null;
       const now = new Date();
       let paye = !!u.abonnementPaye;
       let expire = null;
       let jours = 0;
       if(aboDate){
-        expire = new Date(aboDate.getTime() + 30*24*60*60*1000);
-        jours = Math.ceil((expire.getTime() - now.getTime())/(24*60*60*1000));
+        expire = new Date(aboDate.getTime() + 30*86400000);
+        jours = Math.ceil((expire.getTime() - now.getTime())/86400000);
         paye = jours>0;
       } else if(u.createdAt){
         const created = new Date(u.createdAt);
-        const diffDays = Math.ceil((now.getTime()-created.getTime())/(24*60*60*1000));
-        jours = 7 - diffDays; // 7 jours essai gratuit WENZE 2.0
+        const diffDays = Math.ceil((now.getTime()-created.getTime())/86400000);
+        jours = 7 - diffDays;
         if(jours>0) paye = true;
       }
       setAbonnement({ paye, expire, joursRestants: jours, date: aboDate });
 
-    } catch(e){ router.push("/connexion"); }
+      // Invitations
+      try{
+        const { getMyInvitations } = require("@/lib/invitations");
+        setInvits(getMyInvitations());
+      }catch{}
+
+      // Notif bienvenue profil
+      const keyBienvenueProfil = `wenze_bienvenue_profil_${myWa}`;
+      if(!localStorage.getItem(keyBienvenueProfil)){
+        import("@/lib/notifications").then(({ addNotification })=>{
+          addNotification({
+            type:"publication_approved" as any,
+            title:`🎉 Bienvenue ${u.nomEtablissement||u.nom} dans WENZE WENZE BUSINESS - Profil validé!`,
+            message:`WENZE WENZE BUSINESS: Ton profil est validé - Taux fixe ${TAUX_CDF} CDF - 0% commission - ${mine.length} annonces - Boutique ${prixInfo.prixUSD}$ active - 🔔 notif clients à chaque pub payante - Boost 1$/3$/5$ - Pub vidéo 1$/3$/15$ - Rappel J-5 J-1 auto - Règles strictes: chacun son profil, personne ne modifie pour autrui - Expérience forte!`,
+            boutiqueId: myWa, forUserId: myWa, actionUrl:"/profil", priority:"high", data:{}
+          } as any);
+        });
+        localStorage.setItem(keyBienvenueProfil,"1");
+      }
+
+    } catch{ router.push("/connexion"); }
   }, [router]);
 
-  const showToast = (msg:string, type="success") => { setToast({ msg, type }); setTimeout(()=> setToast(null), 3000); }
+  const showToast = (msg:string, type="success") => { setToast({ msg, type }); setTimeout(()=> setToast(null), 4000); }
 
   const handlePhoto = (e:any) => {
     const file = e.target.files?.[0]; if(!file) return;
@@ -106,9 +119,12 @@ export default function ProfilPage() {
   };
 
   const handleSave = () => {
-    if(!editForm.nom.trim() || !cleanWhatsapp(editForm.whatsapp)){ showToast("Nom + WhatsApp requis","error"); return; }
+    if(!editForm.nom.trim()){ showToast("Nom requis","error"); return; }
     setSaving(true);
     try {
+      const { assertCanEditProfile } = require("@/lib/auth");
+      assertCanEditProfile(user.ownerWhatsapp||user.whatsapp||user.id, user);
+
       const fixedCat = normalizeCategorie(editForm.categorieId);
       const catObj = getCategorieById(fixedCat);
       const prixInfo = catObj ? getPrixByCategorie(catObj.id) : { prixUSD:5, prixCDF:11500 };
@@ -117,11 +133,10 @@ export default function ProfilPage() {
       const updated = {
         ...user,
         nom: editForm.nom.trim(),
-        ownerWhatsapp: cleanWhatsapp(editForm.whatsapp),
-        whatsapp: cleanWhatsapp(editForm.whatsapp),
+        // WhatsApp NON MODIFIABLE - règle stricte
         commune: editForm.commune,
         ville: editForm.ville,
-        nomEtablissement: editForm.nomEtablissement,
+        nomEtablissement: editForm.nomEtablissement || editForm.nom,
         categorieId: fixedCat,
         categorie: fixedCat,
         activiteId: editForm.activiteId,
@@ -134,18 +149,56 @@ export default function ProfilPage() {
       };
       localStorage.setItem("wenze_user", JSON.stringify(updated));
       
-      // update all_users
       try {
         const all = JSON.parse(localStorage.getItem("wenze_all_users")||"[]");
-        const idx = all.findIndex((x:any)=> cleanWhatsapp(x.ownerWhatsapp||x.whatsapp||"")===cleanWhatsapp(user.ownerWhatsapp||""));
-        if(idx>=0){ all[idx]=updated; localStorage.setItem("wenze_all_users", JSON.stringify(all)); }
+        const wa = cleanWa(user.ownerWhatsapp||user.whatsapp);
+        const idx = all.findIndex((x:any)=> cleanWa(x.ownerWhatsapp||x.whatsapp||"")===wa);
+        if(idx>=0){ all[idx]= {...all[idx], ...updated}; } else { all.push(updated); }
+        localStorage.setItem("wenze_all_users", JSON.stringify(all));
       } catch {}
 
       setUser(updated);
       setEditing(false);
-      showToast(`Profil sauvé ${prixInfo.prixUSD}$ / ${prixInfo.prixCDF.toLocaleString()} CDF - Taux ${TAUX_CDF}`);
-    } catch { showToast("Erreur sauvegarde","error"); }
+      showToast(`✅ Profil sauvé - ${prixInfo.prixUSD}$ / ${prixInfo.prixCDF.toLocaleString()} CDF - Taux ${TAUX_CDF} - Règle stricte respectée: chacun son profil`);
+    } catch(e:any){ showToast(e.message||"Erreur sauvegarde","error"); }
     finally { setSaving(false); }
+  };
+
+  const handleInvite = ()=>{
+    try{
+      const { createInvitation } = require("@/lib/invitations");
+      const { link, waLink, inv } = createInvitation(inviteForm.wa, inviteForm.name);
+      setInviteLink({ link, waLink, inv });
+      const { getMyInvitations } = require("@/lib/invitations");
+      setInvits(getMyInvitations());
+      showToast(`✅ Invitation créée pour ${inviteForm.name} - En attente confirmation WhatsApp + MDP côté autrui - Lien valide 48h`);
+      setInviteForm({ wa:"", name:"" });
+    }catch(e:any){ showToast(e.message,"error"); }
+  };
+
+  const handleEditAnnonce = (a:any)=>{
+    try{
+      const { assertCanEdit } = require("@/lib/auth");
+      assertCanEdit(a, user);
+      const remaining = a.boostUntil ? Math.ceil((new Date(a.boostUntil).getTime()-Date.now())/86400000) : null;
+      localStorage.setItem("wenze_edit_annonce", JSON.stringify({...a, _originalCreatedAt: a.createdAt||a.created_at, _originalBoostUntil: a.boostUntil, _originalExpireAt: a.expireAt||a.boostUntil, _isEdit:true, _remainingDays: remaining }));
+      localStorage.setItem("wenze_edit_keep_dates", JSON.stringify({ createdAt: a.createdAt||a.created_at, boostUntil: a.boostUntil, expireAt: a.expireAt||a.boostUntil }));
+      router.push(`/publier?edit=${a.id}`);
+    }catch(e:any){ showToast(e.message,"error"); }
+  };
+
+  const handleDeleteAnnonce = (annonceId:string)=>{
+    try{
+      const { assertCanDelete } = require("@/lib/auth");
+      const list = JSON.parse(localStorage.getItem("wenze_annonces_list")||"[]");
+      const annonce = list.find((x:any)=> x.id===annonceId);
+      assertCanDelete(annonce, user);
+      if(!confirm("Supprimer cette annonce? Compteur pub conservé (règle stricte).")) return;
+      const filtered = list.filter((a:any)=> a.id!==annonceId);
+      localStorage.setItem("wenze_annonces_list", JSON.stringify(filtered));
+      setAnnonces(prev=> prev.filter(a=> a.id!==annonceId));
+      showToast("✅ Annonce supprimée - Délai conservé");
+    }catch(e:any){ showToast(e.message,"error"); }
   };
 
   const stats = useMemo(()=> ({ annonces: annonces.length, ventes: annonces.filter((a:any)=> a.prix>0).length, solde }), [annonces, solde]);
@@ -160,45 +213,58 @@ export default function ProfilPage() {
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-24">
       <header className="sticky top-0 bg-white z-20 p-4 border-b flex items-center gap-3">
         <Link href="/" className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
-        <div className="flex-1"><h1 className="font-black text-[16px]">Profil</h1><p className="text-[10px] text-gray-500">{cat?.icon} {cat?.titre} • {user.prixUSD}$ / {user.prixCDF?.toLocaleString()} CDF • Taux {TAUX_CDF} • 0% comm</p></div>
+        <div className="flex-1"><h1 className="font-black text-[16px]">Profil - Règles strictes</h1><p className="text-[10px] text-gray-500">{cat?.icon} {cat?.titre} • {user.prixUSD}$ / {user.prixCDF?.toLocaleString()} CDF • Taux {TAUX_CDF} • 0% comm • Toi seul peux modifier</p></div>
         <span className={`text-[9px] px-2 py-1 rounded-full font-black ${isGros?"bg-black text-white":"bg-[#6C3CE0] text-white"}`}>{user.prixUSD}$</span>
       </header>
 
       <div className="p-4 space-y-4">
         {toast && <div className={`p-3 rounded-xl text-[12px] font-bold ${toast.type==="error"?"bg-red-50 text-red-700 border border-red-200":"bg-green-50 text-green-700 border border-green-200"}`}>{toast.msg}</div>}
 
+        {/* REGLES STRICTES */}
+        <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-3">
+          <p className="font-black text-[11px]">⛔ RÈGLES STRICTES WENZE WENZE BUSINESS</p>
+          <ul className="text-[10px] mt-1 list-disc ml-4 space-y-1 text-gray-700">
+            <li>Personne ne peut modifier, changer, publier pour autrui</li>
+            <li>Chacun publie, modifie son propre profil/annonces - WhatsApp = ID unique non modifiable</li>
+            <li>Modif annonce garde compteur: 5j pub - 3j consommé = reste 2j, ne repart pas à zéro</li>
+            <li>Invitation amis = tu crées lien, mais compte validé côté autrui par WhatsApp + MDP</li>
+          </ul>
+        </div>
+
         {/* CARTE PROFIL */}
         <div className="bg-white border-2 rounded-2xl p-4">
           <div className="flex gap-4">
             <div className="w-16 h-16 rounded-full bg-[#FFFBF0] border-2 flex items-center justify-center overflow-hidden text-2xl">{user.photo ? <img src={user.photo} alt={user.nom} className="w-full h-full object-cover"/> : cat?.icon || "👤"}</div>
             <div className="flex-1">
-              <p className="font-black text-[14px]">{user.nomEtablissement || user.nom}</p>
-              <p className="text-[11px] text-gray-600">{user.nomEtablissement ? user.nom : ""} • {user.commune} • {user.ville}</p>
-              <p className="text-[10px] text-gray-400 mt-1">{cat?.icon} {cat?.titreCourt} • {user.activite || user.activiteId} • WhatsApp {cleanWhatsapp(user.ownerWhatsapp||"")}</p>
+              <p className="font-black text-[14px]">{user.nomEtablissement || user.nom} <span className="text-[9px] bg-green-500 text-white px-2 py-0.5 rounded-full">TOI - PROPRIO</span></p>
+              <p className="text-[11px] text-gray-600">{user.commune} • {user.ville} • WhatsApp {cleanWa(user.ownerWhatsapp||"")} (non modifiable)</p>
+              <p className="text-[10px] text-gray-400 mt-1">{cat?.icon} {cat?.titre} • {user.activite || user.activiteId}</p>
               <div className="mt-2 flex gap-2">
                 <Link href="/portefeuille" className="text-[10px] bg-black text-white px-3 py-1.5 rounded-full font-bold">{solde}$ / {toCDF(solde).toLocaleString()} CDF</Link>
-                <span className={`text-[10px] px-3 py-1.5 rounded-full font-bold ${abonnement.payé || abonnement.paye ? "bg-green-500 text-white" : "bg-orange-400 text-white"}`}>{abonnement.paye ? `Actif ${abonnement.joursRestants}j` : "Essai 7j"}</span>
+                <span className={`text-[10px] px-3 py-1.5 rounded-full font-bold ${abonnement.paye ? "bg-green-500 text-white" : "bg-orange-400 text-white"}`}>{abonnement.paye ? `Actif ${abonnement.joursRestants}j` : `Essai ${abonnement.joursRestants}j`}</span>
               </div>
             </div>
           </div>
 
           {!editing ? (
-            <button onClick={()=> setEditing(true)} className="mt-4 w-full bg-[#6C3CE0] text-white py-3 rounded-full font-black text-[12px]">✏️ Modifier profil - {user.prixUSD}$ / {user.prixCDF?.toLocaleString()} CDF</button>
+            <button onClick={()=> setEditing(true)} className="mt-4 w-full bg-[#6C3CE0] text-white py-3 rounded-full font-black text-[12px]">✏️ Modifier mon profil - Toi seul - {user.prixUSD}$</button>
           ) : (
             <div className="mt-4 space-y-3 border-t pt-4">
-              <p className="font-black text-[12px]">Édition PRO - 2 catégories WENZE 2.0</p>
+              <p className="font-black text-[12px]">Édition PRO - Toi seul peux modifier</p>
               <input value={editForm.nom} onChange={e=> setEditForm({...editForm, nom: e.target.value})} placeholder="Nom complet" className="w-full border-2 p-3 rounded-xl text-[13px]"/>
               <input value={editForm.nomEtablissement} onChange={e=> setEditForm({...editForm, nomEtablissement: e.target.value})} placeholder="Nom boutique" className="w-full border-2 p-3 rounded-xl text-[13px]"/>
+              <div className="w-full border-2 p-3 rounded-xl text-[13px] bg-gray-100 text-gray-500">WhatsApp: {cleanWa(user.ownerWhatsapp||user.whatsapp)} (non modifiable - ID unique - règle stricte)</div>
+              <p className="text-[9px] text-gray-500">WhatsApp = ton ID unique - Non modifiable pour sécurité. Pour changer, crée nouveau compte via invitation.</p>
               <div className="grid grid-cols-2 gap-2">
-                <input value={editForm.whatsapp} onChange={e=> setEditForm({...editForm, whatsapp: e.target.value})} placeholder="WhatsApp 243..." className="border-2 p-3 rounded-xl text-[13px]"/>
                 <input value={editForm.commune} onChange={e=> setEditForm({...editForm, commune: e.target.value})} placeholder="Commune Gombe..." className="border-2 p-3 rounded-xl text-[13px]"/>
+                <input value={editForm.ville} onChange={e=> setEditForm({...editForm, ville: e.target.value})} placeholder="Ville" className="border-2 p-3 rounded-xl text-[13px]"/>
               </div>
               <textarea value={editForm.bio} onChange={e=> setEditForm({...editForm, bio: e.target.value})} placeholder="Bio boutique Kinshasa..." rows={2} className="w-full border-2 p-3 rounded-xl text-[13px]"/>
               <div>
-                <p className="text-[11px] font-black">Catégorie - 2 prix</p>
+                <p className="text-[11px] font-black">Catégorie - 2 prix - Toi seul</p>
                 <div className="mt-1 grid gap-1">
                   {CATEGORIES_WENZE.map(c=> (
-                    <button key={c.id} type="button" onClick={()=> setEditForm({...editForm, categorieId: c.id, activiteId: c.activites[0]?.id || ""})} className={`text-left p-2.5 rounded-xl border-2 text-[11px] font-bold ${editForm.categorieId===c.id ? (c.id==="gros-autres"?"bg-black text-white border-black":"bg-[#6C3CE0] text-white border-[#6C3CE0]") : "bg-white"}`}>{c.icon} {c.titre} - {c.prixUSD}$/{c.prixCDF.toLocaleString()} CDF - {c.id==="commerces-services"?"Électricité, maçon, coiffure même régime":"Gros"}</button>
+                    <button key={c.id} type="button" onClick={()=> setEditForm({...editForm, categorieId: c.id, activiteId: c.activites[0]?.id || ""})} className={`text-left p-2.5 rounded-xl border-2 text-[11px] font-bold ${editForm.categorieId===c.id ? (c.id==="gros-autres"?"bg-black text-white border-black":"bg-[#6C3CE0] text-white border-[#6C3CE0]") : "bg-white"}`}>{c.icon} {c.titre} - {c.prixUSD}$/{c.prixCDF.toLocaleString()} CDF</button>
                   ))}
                 </div>
               </div>
@@ -209,66 +275,35 @@ export default function ProfilPage() {
                 </div>
               </div>
               <div><p className="text-[11px] font-black">Photo profil (400px)</p><input type="file" accept="image/*" onChange={handlePhoto} className="mt-1 text-[11px]"/><>{editForm.photo && <img src={editForm.photo} alt="preview" className="mt-2 w-20 h-20 rounded-full object-cover border"/>}</></div>
-              <div className="grid grid-cols-2 gap-2"><button onClick={()=> setEditing(false)} className="bg-white border-2 p-3 rounded-xl font-bold text-[12px]">Annuler</button><button onClick={handleSave} disabled={saving} className="bg-black text-white p-3 rounded-xl font-bold text-[12px] disabled:opacity-50">{saving?"Sauvegarde...":`Sauver ${getPrixByCategorie(normalizeCategorie(editForm.categorieId)).prixUSD}$`}</button></div>
+              <div className="grid grid-cols-2 gap-2"><button onClick={()=> setEditing(false)} className="bg-white border-2 p-3 rounded-xl font-bold text-[12px]">Annuler</button><button onClick={handleSave} disabled={saving} className="bg-black text-white p-3 rounded-xl font-bold text-[12px] disabled:opacity-50">{saving?"Sauvegarde...":`Sauver ${getPrixByCategorie(normalizeCategorie(editForm.categorieId)).prixUSD}$ - Toi seul`}</button></div>
             </div>
           )}
         </div>
 
-        {/* ABONNEMENT */}
-        <div className="bg-black text-white rounded-2xl p-4 flex justify-between items-center">
-          <div><p className="font-black text-[12px]">Abonnement {cat?.icon} {cat?.titreCourt} - {user.prixUSD}$ / {user.prixCDF?.toLocaleString()} CDF</p><p className="text-[10px] opacity-70">{abonnement.payé || abonnement.paye ? `Actif - expire ${abonnement.expire ? new Date(abonnement.expire).toLocaleDateString("fr-FR") : ""} (${abonnement.joursRestants}j restants)` : `Essai gratuit ${abonnement.joursRestants}j - Taux ${TAUX_CDF}`}</p></div>
-          <Link href={`/abonnement?cat=${user.categorieId}`} className="bg-white text-black px-4 py-2 rounded-full font-black text-[11px]">Payer {user.prixUSD}$</Link>
-        </div>
-
-        {/* STATS */}
-        <div className="grid grid-cols-3 gap-2">
-          <div className="bg-white border rounded-xl p-3 text-center"><p className="font-black text-[16px]">{stats.annonces}</p><p className="text-[9px] text-gray-500">Annonces</p></div>
-          <Link href="/portefeuille" className="bg-white border rounded-xl p-3 text-center"><p className="font-black text-[16px]">{stats.solde}$</p><p className="text-[9px] text-gray-500">{toCDF(stats.solde).toLocaleString()} CDF</p></Link>
-          <Link href="/boutiques" className="bg-white border rounded-xl p-3 text-center"><p className="font-black text-[16px]">{cat?.icon}</p><p className="text-[9px] text-gray-500">{user.prixUSD}$ boutique</p></Link>
-        </div>
-
-        {/* MES ANNONCES */}
-        <div className="bg-white border rounded-2xl p-3">
-          <div className="flex justify-between items-center"><p className="font-black text-[12px]">Mes annonces • {annonces.length} • 0% commission</p><Link href="/publier" className="bg-[#6C3CE0] text-white text-[10px] px-3 py-1.5 rounded-full font-bold">+ Publier</Link></div>
-          <div className="mt-3 grid gap-2">
-            {annonces.length===0 ? (
-              <div className="text-center py-8 border-2 border-dashed rounded-xl"><p className="text-2xl">📦</p><p className="text-[11px] text-gray-500 mt-2">Aucune annonce - Publie ton 1er article {cat?.titre} {user.prixUSD}$</p></div>
-            ) : annonces.map((a:any)=> {
-              const aCat = getCategorieById(a.categorieId);
-              const pInfo = aCat ? getPrixByCategorie(aCat.id) : { prixUSD:5, prixCDF:11500 };
-              return (
-                <div key={a.id} className="flex gap-2.5 border rounded-xl p-2">
-                  <div className="w-14 h-14 bg-[#FFFBF0] rounded-lg flex items-center justify-center overflow-hidden">{a.photo ? <img src={a.photo} alt={a.titre} className="max-w-full max-h-full object-contain"/> : <span className="text-xl">{aCat?.icon || "📦"}</span>}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-[12px] truncate">{a.titre}</p>
-                    <p className="text-[11px] text-[#6C3CE0] font-black">{Number(a.prix||0)}$ / {toCDF(Number(a.prix||0)).toLocaleString()} CDF</p>
-                    <p className="text-[9px] text-gray-400">{aCat?.icon} {aCat?.titreCourt} • Boutique {pInfo.prixUSD}$</p>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <Link href={`/modifier/${a.id}`} className="bg-black text-white text-[10px] px-3 py-1.5 rounded-full font-bold text-center">Modifier</Link>
-                    <Link href={`/produit/${a.id}`} className="bg-white border text-[10px] px-3 py-1.5 rounded-full font-bold text-center">Voir</Link>
-                  </div>
-                </div>
-              )
-            })}
+        {/* INVITATION AMIS */}
+        <div className="bg-[#6C3CE0] text-white rounded-2xl p-4">
+          <p className="font-black text-[12px]">🤝 Inviter un ami - Créer compte pour autrui (validé côté autrui)</p>
+          <p className="text-[10px] mt-1 opacity-90">Tu crées invitation avec son WhatsApp. Il doit confirmer avec SON numéro + SON MDP pour être validé. Tu ne peux pas créer compte sans lui - règle stricte.</p>
+          <div className="mt-3 space-y-2">
+            <input value={inviteForm.name} onChange={e=>setInviteForm({...inviteForm, name:e.target.value})} placeholder="Nom ami ex: Jacques" className="w-full border-2 p-3 rounded-xl text-[12px] text-black"/>
+            <input value={inviteForm.wa} onChange={e=>setInviteForm({...inviteForm, wa:e.target.value})} placeholder="WhatsApp ami 243970000000" className="w-full border-2 p-3 rounded-xl text-[12px] text-black"/>
+            <button onClick={handleInvite} className="w-full bg-white text-[#6C3CE0] py-3 rounded-full font-black text-[11px]">Créer invitation + lien WhatsApp - 48h</button>
           </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <Link href="/portefeuille" className="bg-white border p-3 rounded-xl text-center font-bold text-[12px]">💼 Portefeuille</Link>
-          <Link href="/messages" className="bg-white border p-3 rounded-xl text-center font-bold text-[12px]">💬 Messages</Link>
-          <button onClick={()=> { if(confirm("Déconnexion?")){ localStorage.removeItem("wenze_user"); router.push("/"); } }} className="col-span-2 bg-red-50 border border-red-200 text-red-600 p-3 rounded-xl font-bold text-[12px]">🚪 Déconnexion</button>
-        </div>
-      </div>
-
-      <nav className="fixed bottom-0 max-w-[430px] w-full bg-white border-t flex justify-around py-2.5 text-[10px] z-30">
-        <Link href="/" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏠</span>Accueil</Link>
-        <Link href="/market" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏪</span>Marché</Link>
-        <Link href="/panier" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🛒</span>Panier</Link>
-        <Link href="/boutiques" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏬</span>Boutiques</Link>
-        <Link href="/profil" className="font-bold text-[#6C3CE0] flex flex-col items-center gap-0.5"><span className="text-[18px]">👤</span>Profil</Link>
-      </nav>
-    </div>
-  )
-}
-export const dynamic = 'force-dynamic';
+          {inviteLink && (
+            <div className="mt-3 bg-white text-black rounded-xl p-3">
+              <p className="font-black text-[11px]">✅ Invitation {inviteLink.inv.token} créée!</p>
+              <p className="text-[10px] mt-1 break-all">Lien: {inviteLink.link}</p>
+              <div className="flex gap-2 mt-2">
+                <a href={inviteLink.waLink} target="_blank" className="flex-1 bg-[#25D366] text-white py-2 rounded-full text-[10px] font-black text-center">📲 WhatsApp</a>
+                <button onClick={()=>{ navigator.clipboard.writeText(inviteLink.link); showToast("Lien copié"); }} className="flex-1 bg-black text-white py-2 rounded-full text-[10px] font-black">Copier</button>
+              </div>
+              <p className="text-[9px] text-gray-500 mt-2">Expire 48h - Il doit entrer SON WhatsApp + SON MDP pour valider - Sans lui, pas de compte.</p>
+            </div>
+          )}
+          <div className="mt-4">
+            <p className="font-black text-[11px]">Mes invitations ({invits.length}) - Parrainage</p>
+            <div className="mt-2 space-y-2 max-h-32 overflow-y-auto">
+              {invits.length===0 ? <p className="text-[10px] opacity-70">Aucune invitation - Invite tes amis Kinshasa!</p> : invits.map((i:any)=>(
+                <div key={i.id} className="bg-white/20 rounded-xl p-2 flex justify-between">
+                  <div><p className="font-bold text-[11px]">{i.toName} - {i.toWa}</p><p className="text-[9px] opacity-80">{i.token} • {i.status} • {new Date(i.createdAt).toLocaleDateString()}</p></div>
+                  <span className={`text-[9px] px-2 py-1 rounded-full font-black h-fit ${i.st
