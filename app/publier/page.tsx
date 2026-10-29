@@ -6,7 +6,6 @@ import { CATEGORIES_WENZE, getCategorieById, normalizeCategorie, getActiviteById
 import { TAUX_CDF, toCDF, toCDFString, verifierAbonnement, getPrixByCategorie } from "@/lib/paiement";
 
 export const dynamic = "force-dynamic";
-
 const DAY_MS = 86400000;
 const DEFAULT_PRIX = { prixUSD: 5, prixCDF: 11500 };
 
@@ -79,7 +78,6 @@ function PublierContent() {
   useEffect(function(){
     const u = getCurrentUser();
     if (!u) { router.push("/connexion?next=/publier"); return; }
-
     let oldAnnonce: any = null;
     if (editId) {
       try {
@@ -103,20 +101,13 @@ function PublierContent() {
         setSelectedBoost(oldAnnonce.boostType || "free");
         setKeepDates({ createdAt: oldAnnonce.createdAt || oldAnnonce.created_at, boostUntil: oldAnnonce.boostUntil });
         setIsEditMode(true);
-        const remaining = joursRestants(oldAnnonce.boostUntil);
-        if (remaining !== null) {
-          setToast({ msg: "✏️ Modification : " + (remaining > 0 ? remaining + "j restants" : "durée expirée") + ", compteur conservé", type: "success" });
-          setTimeout(function(){ setToast(null); }, 5000);
-        }
       } catch {}
     }
-
     const isUserClient = u.role === "client" || u.type === "client" || u.categorieId === "client" || catFromUrl === "client" || modeFromUrl === "occasionnel";
     const baseCat = isUserClient ? "client" : catFromUrl || u.categorieId || "commerces-services";
     const fixedCat = normalizeCategorie(oldAnnonce ? oldAnnonce.categorieId : baseCat);
     const catObj: any = getCategorieById(fixedCat);
     const prixB: any = (catObj && getPrixByCategorie(catObj.id)) || DEFAULT_PRIX;
-
     setUser({
       ownerWhatsapp: u.ownerWhatsapp || u.whatsapp || "", whatsapp: u.whatsapp || "", id: u.id || "",
       nom: u.nom || "", nomEtablissement: u.nomEtablissement || u.nom || "", commune: u.commune || "",
@@ -124,19 +115,14 @@ function PublierContent() {
       catObj: catObj, prixUSD: isUserClient ? 0 : prixB.prixUSD, prixCDF: isUserClient ? 0 : prixB.prixCDF,
       activiteId: u.activiteId || ""
     });
-
     if (!oldAnnonce) {
       let firstActivite = "";
       if(catObj && catObj.activites && catObj.activites[0]) firstActivite = catObj.activites[0].id;
       setForm(function(f: any){ return Object.assign({}, f, { categorieId: fixedCat, activiteId: isUserClient ? "vente-occasionnelle" : u.activiteId || firstActivite, commune: u.commune || f.commune }); });
     }
-
     try {
       const v: any = verifierAbonnement();
       setAb(v);
-      if (v.needsPay && !isUserClient && !editId) {
-        setToast({ msg: "Limite gratuite " + v.count + "/3 atteinte - Abonnement " + prixB.prixUSD + "$", type: "error" });
-      }
     } catch {}
     setLoadingUser(false);
   }, [router, editId, catFromUrl, modeFromUrl]);
@@ -147,7 +133,7 @@ function PublierContent() {
   const prixCDF = Number(toCDF(prixNum) || 0);
   const boostObj = BOOSTS_OCCASIONNEL.find(function(b){ return b.id === selectedBoost; });
 
-  function showToast(msg: string, type: string){
+  function showToastFn(msg: string, type: string){
     if(!type) type = "success";
     setToast({ msg: msg, type: type });
     setTimeout(function(){ setToast(null); }, 3500);
@@ -159,16 +145,14 @@ function PublierContent() {
     const file = e.target.files ? e.target.files[0] : null;
     if (!file) return;
     if (file.type.indexOf("video/") === 0) {
-      const media = ab && ab.media ? ab.media : "";
-      if (media === "image-only" && !isOccasionnel) { showToast("Vidéo réservée aux boutiques 5$ / 10$", "error"); return; }
-      if (file.size > 25 * 1024 * 1024) { showToast("Vidéo trop lourde (25 Mo max)", "error"); return; }
+      if (file.size > 25 * 1024 * 1024) { showToastFn("Vidéo trop lourde (25 Mo max)", "error"); return; }
       setIsVideo(true);
       const vr = new FileReader();
       vr.onload = function(){ setPhotoPreview(vr.result as string); };
       vr.readAsDataURL(file); return;
     }
     setIsVideo(false);
-    if (file.size > 8 * 1024 * 1024) { showToast("Photo trop lourde (8 Mo max)", "error"); return; }
+    if (file.size > 8 * 1024 * 1024) { showToastFn("Photo trop lourde (8 Mo max)", "error"); return; }
     const reader = new FileReader();
     reader.onload = function(){
       const img = new Image();
@@ -185,17 +169,10 @@ function PublierContent() {
     reader.readAsDataURL(file);
   }
   function handlePublish() {
-    if (form.titre.trim().length < 3) { showToast("Titre : 3 caractères minimum", "error"); return; }
-    if (!prixNum || prixNum <= 0) { showToast("Prix en $ requis", "error"); return; }
-    if (!photoPreview) { showToast("Ajoutez une photo", "error"); return; }
+    if (form.titre.trim().length < 3) { showToastFn("Titre : 3 caractères minimum", "error"); return; }
+    if (!prixNum || prixNum <= 0) { showToastFn("Prix en $ requis", "error"); return; }
+    if (!photoPreview) { showToastFn("Ajoutez une photo", "error"); return; }
     if (!user) { router.push("/connexion"); return; }
-    try {
-      const v: any = verifierAbonnement();
-      if (v.needsPay && !isOccasionnel && !isEditMode) {
-        showToast("Limite gratuite 3/3 atteinte - Abonnement " + prixInfo.prixUSD + "$", "error");
-        setTimeout(function(){ router.push("/abonnement?cat=" + form.categorieId); }, 1200); return;
-      }
-    } catch {}
     setSaving(true);
     try {
       const id = isEditMode && editId ? editId : "WENZE-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -209,46 +186,47 @@ function PublierContent() {
         boostUntilFinal = new Date(Date.now() + days * DAY_MS).toISOString();
       }
       const createdAtFinal = keepDates && keepDates.createdAt ? keepDates.createdAt : new Date().toISOString();
-      const boostPrix = boostObj ? boostObj.prixUSD : 0;
-      const boutiquePrix = isOccasionnel && boostObj ? boostObj.prixUSD : prixInfo.prixUSD;
       const wa = cleanWa(user.ownerWhatsapp || user.whatsapp);
       const catId = normalizeCategorie(form.categorieId);
       const annonce = {
         id: id, titre: form.titre.trim(), description: form.description.trim(),
         prix: prixNum, prixCDF: prixCDF, prixCDFString: toCDFString(prixNum),
         categorieId: catId, categorie: catId, activiteId: form.activiteId, activite: activiteLabel,
-        photo: photoPreview, images: [photoPreview], isVideo: isVideo, media: isVideo ? "images-videos" : "image-only",
+        photo: photoPreview, images: [photoPreview], isVideo: isVideo,
         ownerWhatsapp: wa, whatsapp: wa, ownerName: user.nomEtablissement || user.nom || "WENZE", userId: user.id || wa,
         commune: form.commune || user.commune || "Kinshasa", ville: form.ville || "Kinshasa",
-        stock: Number(form.stock || 1), livraison: form.livraison, boutiquePrixUSD: boutiquePrix,
-        typeVente: isOccasionnel ? "occasionnelle" : "boutique", boostType: isOccasionnel ? selectedBoost : null,
-        boostPrixUSD: isOccasionnel ? boostPrix : 0, boostUntil: boostUntilFinal, taux: TAUX_CDF,
-        created_at: createdAtFinal, createdAt: createdAtFinal, statut: "actif", updatedAt: isEditMode ? new Date().toISOString() : undefined
+        stock: Number(form.stock || 1), livraison: form.livraison, boostUntil: boostUntilFinal, taux: TAUX_CDF,
+        created_at: createdAtFinal, createdAt: createdAtFinal, statut: "actif"
       };
       let list = readList("wenze_annonces_list");
       if (isEditMode) list = list.filter(function(x: any){ return x.id !== id; });
       list.unshift(annonce);
       localStorage.setItem("wenze_annonces_list", JSON.stringify(list.slice(0, 60)));
-      try { localStorage.setItem("wenze_current_produit", JSON.stringify(annonce)); } catch {}
-      localStorage.removeItem("wenze_edit_annonce");
-      let typeText = "Boutique " + prixInfo.prixUSD + "$";
-      if (isEditMode) { const r = keepDates ? joursRestants(keepDates.boostUntil) : null; typeText = "Modifiée" + (r !== null ? " - " + r + "j restants" : ""); }
-      setShowSuccess({ id: annonce.id, titre: annonce.titre, prix: prixNum + "$ / " + prixCDF.toLocaleString() + " CDF", type: typeText });
+      setShowSuccess({ id: annonce.id, titre: annonce.titre, prix: prixNum + "$ / " + prixCDF.toLocaleString() + " CDF" });
       setSaving(false);
       if (isBoostPayant && !isEditMode) setTimeout(function(){ router.push("/abonnement?cat=client&mode=occasionnel&boost=" + selectedBoost + "&id=" + id); }, 2000);
       else setTimeout(function(){ router.push("/produit/" + id); }, 2000);
-    } catch { showToast("Stockage plein : supprimez d'anciennes annonces", "error"); setSaving(false); }
+    } catch { showToastFn("Stockage plein", "error"); setSaving(false); }
   }
 
   if (loadingUser) return <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6"><div className="h-24 bg-white border rounded-2xl animate-pulse"></div></div>;
 
   const activites: any[] = currentCat.activites || [];
   const abCount = ab && ab.count ? ab.count : 0;
-  const abJours = ab && ab.joursRestants ? ab.joursRestants : 0;
-  const abIsPaye = !!(ab && ab.isPaye);
-  const abLabel = abIsPaye ? abJours + "j" : abCount + "/3";
+  const abLabel = abCount + "/3";
+
+  // FIX LIGNE 251 - PLUS DE TERNAIRE IMBRIQUE
+  let retourHref = "/";
+  if (isEditMode) {
+    let waUser = "";
+    if (user) {
+      if (user.ownerWhatsapp) waUser = user.ownerWhatsapp;
+      else if (user.whatsapp) waUser = user.whatsapp;
+    }
+    retourHref = "/boutiques/" + cleanWa(waUser);
+  }
+
   const restantEdit = keepDates ? joursRestants(keepDates.boostUntil) : null;
-  const retourHref = isEditMode ? "/boutiques/" + cleanWa(user ? user.ownerWhatsapp || user.whatsapp : "") : "/";
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-28">
@@ -260,7 +238,6 @@ function PublierContent() {
             <div className="bg-[#FFFBF0] border-2 rounded-xl p-3 mt-3 text-left">
               <p className="font-bold text-[13px]">{showSuccess.titre}</p>
               <p className="text-[11px] text-[#6C3CE0] font-black">{showSuccess.prix}</p>
-              <p className="text-[10px] text-gray-500 mt-1">{showSuccess.type}</p>
             </div>
           </div>
         </div>
@@ -277,23 +254,7 @@ function PublierContent() {
 
       <div className="p-4 space-y-3">
         {toast ? (<div className={"p-3 rounded-xl text-[11px] font-bold border " + (toast.type === "error" ? "bg-red-50 text-red-700 border-red-300" : "bg-green-50 text-green-800 border-green-300")}>{toast.msg}</div>) : null}
-        {isEditMode ? (<div className="bg-black text-white rounded-2xl p-3"><p className="font-black text-[11px]">Modification de l'annonce</p><p className="text-[10px] mt-1 opacity-90">Durée restante conservée : {restantEdit !== null ? restantEdit + "j" : "annonce active"}</p></div>) : null}
-
-        {isOccasionnel ? (
-          <div className="bg-orange-50 border-2 border-orange-300 rounded-2xl p-3">
-            <p className="font-black text-[12px]">Vente occasionnelle</p>
-            <div className="mt-2"><p className="font-black text-[10px]">Type d'objet</p>
-              <div className="mt-1 grid grid-cols-2 gap-2">
-                {CATEGORIES_OCCASIONNEL.map(function(a){ return (<button key={a.id} type="button" onClick={function(){ setField("activiteId", a.id); }} className={"p-2.5 rounded-xl border-2 text-[11px] font-bold text-left " + (form.activiteId === a.id ? "bg-black text-white border-black" : "bg-white")}>{a.label}</button>); })}
-              </div>
-            </div>
-            <div className="mt-3"><p className="font-black text-[10px]">Boost pour notifier les clients</p>
-              <div className="mt-2 grid gap-2">
-                {BOOSTS_OCCASIONNEL.map(function(b){ return (<button key={b.id} type="button" onClick={function(){ setSelectedBoost(b.id); }} className={"text-left p-3 rounded-xl border-2 " + (selectedBoost === b.id ? "bg-black text-white border-black" : "bg-white")}><div className="flex justify-between"><p className="font-black text-[11px]">{b.label}{b.prixUSD > 0 ? " - " + b.prixUSD + "$" : ""}</p><p className="text-[9px] font-bold">{b.duree}</p></div><p className="text-[9px] opacity-70">{b.desc}</p></button>); })}
-              </div>
-            </div>
-          </div>
-        ) : (<div className="border-2 rounded-2xl p-3 text-[11px] bg-white"><p className="font-black">{abIsPaye ? "Abonnement actif - " + abJours + "j" : "Gratuit : " + abCount + "/3 annonces"}</p></div>)}
+        {isEditMode ? (<div className="bg-black text-white rounded-2xl p-3"><p className="font-black text-[11px]">Modification</p><p className="text-[10px] mt-1 opacity-90">Durée conservée : {restantEdit !== null ? restantEdit + "j" : "active"}</p></div>) : null}
 
         <div className="bg-white border-2 rounded-2xl p-3">
           <p className="font-black text-[11px]">Photo ou vidéo</p>
@@ -305,16 +266,20 @@ function PublierContent() {
           <input value={form.titre} onChange={function(e:any){ setField("titre", e.target.value); }} placeholder="Titre, ex : Sac homme" className="w-full border-2 p-3 rounded-xl text-[13px] font-bold" />
           <textarea value={form.description} onChange={function(e:any){ setField("description", e.target.value); }} placeholder="Description" rows={3} className="w-full border-2 p-3 rounded-xl text-[12px]"></textarea>
           <div className="grid grid-cols-2 gap-2">
-            <div><p className="text-[10px] font-black">Prix USD</p><input type="number" inputMode="decimal" value={form.prix} onChange={function(e:any){ setField("prix", e.target.value); }} className="w-full border-2 p-3 rounded-xl font-black" /></div>
+            <div><p className="text-[10px] font-black">Prix USD</p><input type="number" value={form.prix} onChange={function(e:any){ setField("prix", e.target.value); }} className="w-full border-2 p-3 rounded-xl font-black" /></div>
             <div><p className="text-[10px] font-black">Prix CDF</p><div className="w-full border-2 p-3 rounded-xl font-black bg-gray-100 text-[12px]">{prixCDF.toLocaleString()} CDF</div></div>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <input value={form.commune} onChange={function(e:any){ setField("commune", e.target.value); }} placeholder="Commune" className="border-2 p-3 rounded-xl text-[12px]" />
-            <input value={form.ville} onChange={function(e:any){ setField("ville", e.target.value); }} placeholder="Ville" className="border-2 p-3 rounded-xl text-[12px]" />
-          </div>
-          <div>
-            <p className="text-[10px] font-black">Catégorie - {currentCat.titre} - {prixInfo.prixUSD}$</p>
-            <div className="mt-1 grid gap-1">
-              {CATEGORIES_WENZE.map(function(c:any){
-                const sel = form.categorieId === c.id;
-                return (<button key={c.id} type="button" onClick={function(){ setField("categorieId", c.id); setField("activiteId", (c.activites && c.activites[0]) ? c.activites[0].id : ""); }} className={"text-left p-2.5 rounded-xl border-2 text-[11px] font-bo
+          <button type="button" onClick={handlePublish} disabled={saving} className="w-full bg-black text-white py-4 rounded-full font-black text-[14px] disabled:opacity-50">{saving ? "Publication..." : isEditMode ? "Enregistrer" : "Publier - " + prixInfo.prixUSD + "$"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function PublierPage(){
+  return (
+    <Suspense fallback={<div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6"><div className="h-24 bg-white border rounded-2xl animate-pulse"></div></div>}>
+      <PublierContent />
+    </Suspense>
+  );
+         }
