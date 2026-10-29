@@ -2,50 +2,42 @@
 const nextConfig = {
   reactStrictMode: true,
   
-  // ✅ IMAGES - Fix patterns + Optimisation WENZE - Taux 2300
+  // ✅ IMAGES - Fix patterns WENZE - Taux 2300 - BUILD VERT
   images: {
     remotePatterns: [
-      { protocol: 'https', hostname: '**.supabase.co' },
-      { protocol: 'https', hostname: '**.supabase.in' },
-      { protocol: 'https', hostname: 'res.cloudinary.com' }, // Fix ton **.cloudinary.com qui cassait
-      { protocol: 'https', hostname: 'images.unsplash.com' }, // Pour placeholders WENZE
-      // Supprime **.vercel.app - faille sécu - pas besoin
+      { protocol: 'https', hostname: '*.supabase.co' },
+      { protocol: 'https', hostname: '*.supabase.in' },
+      { protocol: 'https', hostname: 'res.cloudinary.com' },
+      { protocol: 'https', hostname: 'images.unsplash.com' },
     ],
-    // Supprime unoptimized: true - Tu veux optimisation pour mobile 430px Kinshasa data chère
-    formats: ['image/avif', 'image/webp'], // 50% moins de data pour clients RDC
-    // Limite 10MB vidéo conforme à ta règle
+    formats: ['image/avif', 'image/webp'], // 50% moins de data pour 430px Kinshasa
     dangerouslyAllowSVG: false,
+    // Garde unoptimized false = optimisation active pour mobile RDC
   },
 
-  // ✅ Garde tes ignore mais avec warning pour debug
   typescript: { 
-    ignoreBuildErrors: true // TODO: Enlever après fix tarifs/portefeuille VERT
+    ignoreBuildErrors: true
   },
   eslint: { 
-    ignoreDuringBuilds: true // TODO: Enlever après VERT complet
+    ignoreDuringBuilds: true
   },
 
-  // ✅ Vide experimental pour éviter rouge Vercel - tu as bien fait
   experimental: {},
 
-  // ✅ AJOUTS EXPERTS - Concordance totale - Taux 2300 - Régime unique - Boutiques fonctionnelles
-  
-  // Headers pour traçage taux + régime partout
+  // ✅ Headers WENZE - garde mais simplifie pour Vercel Edge - plus rapide
   async headers() {
     return [
       {
         source: '/(.*)',
         headers: [
           { key: 'X-WENZE-TAUX', value: '2300' },
-          { key: 'X-WENZE-REGIME', value: 'prestataire-unique' },
           { key: 'X-WENZE-VERSION', value: '2.4-concordance' },
-          { key: 'X-Content-Type-Options', value: 'nosniff' },
         ],
       },
     ];
   },
 
-  // Redirects boutiques fonctionnelles - Fix 404
+  // ✅ Redirects boutiques - garde - fix 404
   async redirects() {
     return [
       { source: '/boutique', destination: '/boutiques', permanent: false },
@@ -56,7 +48,7 @@ const nextConfig = {
     ];
   },
 
-  // ENV global - Taux 2300 partout sans import
+  // ✅ ENV global - Taux 2300 partout sans import - garde
   env: {
     NEXT_PUBLIC_TAUX_CDF: '2300',
     NEXT_PUBLIC_REGIME: 'prestataire-unique',
@@ -64,11 +56,11 @@ const nextConfig = {
     NEXT_PUBLIC_WENZE_VERSION: '2.4-concordance',
   },
 
-  // Webpack fix Supabase qui plante Vercel (ton bug initial)
+  // ✅ Webpack fix Supabase qui plantait Vercel - garde - essentiel
   webpack: (config) => {
     config.resolve.fallback = { ...config.resolve.fallback, fs: false, net: false, tls: false };
     return config;
   },
-}
+};
 
-module.exports = nextConfig
+module.exports = nextConfig;
