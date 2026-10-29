@@ -25,7 +25,7 @@ export default function ProfilPage(){
   const [inviteLink,setInviteLink] = useState<any>(null);
   const [editForm,setEditForm] = useState({nom:"",commune:"",ville:"Kinshasa",nomEtablissement:"",categorieId:"commerces-services",activiteId:"",bio:"",photo:""});
 
-  useEffect(()=>{
+  useEffect(function(){
     try{
       const raw = localStorage.getItem("wenze_user");
       if(!raw){
@@ -210,7 +210,6 @@ export default function ProfilPage(){
 
   const cat = user.catObj ? user.catObj : getCategorieById(user.categorieId);
   const activites = cat && cat.activites ? cat.activites : [];
-  const isGros = user.categorieId === "gros-autres";
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-28">
@@ -352,4 +351,4 @@ export default function ProfilPage(){
               <p className="font-black text-[11px]">✅ Invitation {inviteLink.inv.token} creee!</p>
               <p className="text-[10px] mt-1 break-all">Lien: {inviteLink.link}</p>
               <div className="flex gap-2 mt-2">
-                <a href={inviteLink.waLink} target="_blank" className="flex-1 bg-[#25D366] text-white py-2 rou
+                <a href={inviteLink.waLink} target="_blank" className="flex-1 bg-[#25D366] text-white py-2 rounded-full text-[10px] font-black text-center">W
