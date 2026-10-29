@@ -3,45 +3,71 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CATEGORIES_WENZE, getCategorieById, normalizeCategorie, getPrixByCategorie, getActiviteById } from "@/lib/categories";
-import { TAUX_CDF, toCDF } from "@/lib/paiement";
+import { TAUX_CDF } from "@/lib/paiement";
 
-export const dynamic = 'force-dynamic';
+const DAY_MS = 86400000;
+const DEFAULT_PRIX = { prixUSD: 5, prixCDF: 11500 };
 
-function cleanWa(n:any){
-  return (n || "").toString().replace(/[^0-9]/g,"");
+function cleanWa(n: any): string {
+  return (n || "").toString().replace(/[^0-9]/g, "");
 }
 
-export default function ProfilPage(){
-  const router = useRouter();
-  const [user,setUser] = useState<any>(null);
-  const [annonces,setAnnonces] = useState<any[]>([]);
-  const [abonnement,setAbonnement] = useState<any>({paye:false,joursRestants:0});
-  const [solde,setSolde] = useState(0);
-  const [editing,setEditing] = useState(false);
-  const [saving,setSaving] = useState(false);
-  const [toast,setToast] = useState<any>(null);
-  const [invits,setInvits] = useState<any[]>([]);
-  const [inviteForm,setInviteForm] = useState({wa:"",name:""});
-  const [inviteLink,setInviteLink] = useState<any>(null);
-  const [editForm,setEditForm] = useState({nom:"",commune:"",ville:"Kinshasa",nomEtablissement:"",categorieId:"commerces-services",activiteId:"",bio:"",photo:""});
+function readList(key: string): any[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(v) ? v : [];
+  } catch {
+    return [];
+  }
+}
 
-  useEffect(function(){
-    try{
+function prixDe(catId: string): any {
+  const cat: any = getCategorieById(catId);
+  return cat ? getPrixByCategorie(cat.id) : DEFAULT_PRIX;
+}
+
+function createdTime(a: any): number {
+  return new Date(a.createdAt || a.created_at || 0).getTime();
+}
+
+export default function ProfilPage() {
+  const router = useRouter();
+  const [user, setUser] = useState<any>(null);
+  const [annonces, setAnnonces] = useState<any[]>([]);
+  const [abonnement, setAbonnement] = useState<any>({ paye: false, joursRestants: 0 });
+  const [solde, setSolde] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<any>(null);
+  const [invits, setInvits] = useState<any[]>([]);
+  const [inviteForm, setInviteForm] = useState({ wa: "", name: "" });
+  const [inviteLink, setInviteLink] = useState<any>(null);
+  const [editForm, setEditForm] = useState({
+    nom: "",
+    commune: "",
+    ville: "Kinshasa",
+    nomEtablissement: "",
+    categorieId: "commerces-services",
+    activiteId: "",
+    bio: "",
+    photo: ""
+  });
+
+  useEffect(() => {
+    try {
       const raw = localStorage.getItem("wenze_user");
-      if(!raw){
+      if (!raw) {
         router.push("/connexion?next=/profil");
         return;
       }
       const u = JSON.parse(raw);
       const fixedCat = normalizeCategorie(u.categorieId || u.categorie || "commerces-services");
-      const catObj = getCategorieById(fixedCat);
-      const prixInfo = catObj ? getPrixByCategorie(catObj.id) : {prixUSD:5,prixCDF:11500};
-      setUser(Object.assign({}, u, {categorieId:fixedCat, catObj:catObj, prixUSD:prixInfo.prixUSD, prixCDF:prixInfo.prixCDF}));
-      
-      let firstAct = "";
-      if(catObj && catObj.activites && catObj.activites.length > 0){
-        firstAct = catObj.activites[0].id;
-      }
+      const catObj: any = getCategorieById(fixedCat);
+      const prix = prixDe(fixedCat);
+
+      setUser({ ...u, categorieId: fixedCat, catObj: catObj, prixUSD: prix.prixUSD, prixCDF: prix.prixCDF });
+
+      const firstAct = catObj?.activites?.[0]?.id || "";
       setEditForm({
         nom: u.nom || "",
         commune: u.commune || "",
@@ -53,90 +79,99 @@ export default function ProfilPage(){
         photo: u.photo || ""
       });
 
-      const allAnnonces = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
-      const myWa = cleanWa(u.ownerWhatsapp || u.whatsapp || "");
-      const mine = allAnnonces.filter(function(a:any){
-        return cleanWa(a.ownerWhatsapp || a.whatsapp || a.userId || "") === myWa;
-      });
-      mine.sort(function(a:any,b:any){
-        return new Date(b.createdAt || b.created_at || 0).getTime() - new Date(a.createdAt || a.created_at || 0).getTime();
-      });
+      const myWa = cleanWa(u.ownerWhatsapp || u.whatsapp);
+
+      const mine = readList("wenze_annonces_list")
+        .filter((a: any) => cleanWa(a.ownerWhatsapp || a.whatsapp || a.userId) === myWa)
+        .sort((a: any, b: any) => createdTime(b) - createdTime(a));
       setAnnonces(mine);
 
-      const cmds = JSON.parse(localStorage.getItem("wenze_commandes_list") || "[]");
-      const mySales = cmds.filter(function(c:any){
-        return cleanWa(c.vendeur_whatsapp || "") === myWa;
-      });
-      let total = 0;
-      for(let i=0;i<mySales.length;i++){ total += Number(mySales[i].total || 0); }
+      const total = readList("wenze_commandes_list")
+        .filter((c: any) => cleanWa(c.vendeur_whatsapp) === myWa)
+        .reduce((sum: number, c: any) => sum + Number(c.total || 0), 0);
       setSolde(total);
 
-      const aboDate = u.abonnementDate ? new Date(u.abonnementDate) : null;
       const now = new Date();
       let paye = !!u.abonnementPaye;
       let jours = 0;
-      if(aboDate){
-        const exp = new Date(aboDate.getTime() + 30*86400000);
-        jours = Math.ceil((exp.getTime() - now.getTime())/86400000);
+      if (u.abonnementDate) {
+        const exp = new Date(new Date(u.abonnementDate).getTime() + 30 * DAY_MS);
+        jours = Math.ceil((exp.getTime() - now.getTime()) / DAY_MS);
         paye = jours > 0;
-      } else if(u.createdAt){
-        const created = new Date(u.createdAt);
-        const diff = Math.ceil((now.getTime()-created.getTime())/86400000);
+      } else if (u.createdAt) {
+        const diff = Math.ceil((now.getTime() - new Date(u.createdAt).getTime()) / DAY_MS);
         jours = 7 - diff;
-        if(jours>0) paye = true;
+        if (jours > 0) paye = true;
       }
-      setAbonnement({paye:paye, joursRestants:jours});
+      setAbonnement({ paye: paye, joursRestants: jours });
 
-      try{
+      try {
         const mod = require("@/lib/invitations");
-        if(mod.cleanupExpired) mod.cleanupExpired();
-        if(mod.getMyInvitations) setInvits(mod.getMyInvitations());
-      }catch{}
-
-    }catch{
+        if (mod.cleanupExpired) mod.cleanupExpired();
+        if (mod.getMyInvitations) setInvits(mod.getMyInvitations());
+      } catch {}
+    } catch {
       router.push("/connexion");
     }
-  },[router]);
+  }, [router]);
 
-  function showToast(msg:string, type:string){
-    setToast({msg:msg, type:type});
-    setTimeout(function(){ setToast(null); }, 3500);
+  const stats = useMemo(() => ({ annonces: annonces.length, solde: solde }), [annonces, solde]);
+
+  function showToast(msg: string, type: string = "success") {
+    setToast({ msg: msg, type: type });
+    setTimeout(() => setToast(null), 3500);
   }
 
-  function handlePhoto(e:any){
+  function setField(key: string, value: string) {
+    setEditForm((f: any) => ({ ...f, [key]: value }));
+  }
+
+  function handlePhoto(e: any) {
     const file = e.target.files ? e.target.files[0] : null;
-    if(!file) return;
-    if(file.size > 5*1024*1024){ showToast("Photo max 5Mo","error"); return; }
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      showToast("Photo trop lourde (5 Mo max)", "error");
+      return;
+    }
     const reader = new FileReader();
-    reader.onload = function(){
+    reader.onload = () => {
       const img = new Image();
-      img.onload = function(){
-        const canvas = document.createElement("canvas");
+      img.onload = () => {
         const max = 400;
         let w = img.width;
         let h = img.height;
-        if(w > h){ if(w > max){ h = h * max / w; w = max; } }
-        else { if(h > max){ w = w * max / h; h = max; } }
+        if (w > h && w > max) {
+          h = (h * max) / w;
+          w = max;
+        } else if (h >= w && h > max) {
+          w = (w * max) / h;
+          h = max;
+        }
+        const canvas = document.createElement("canvas");
         canvas.width = w;
         canvas.height = h;
         const ctx = canvas.getContext("2d");
-        if(ctx) ctx.drawImage(img,0,0,w,h);
-        setEditForm(function(f:any){ return Object.assign({}, f, {photo: canvas.toDataURL("image/jpeg",0.7)}); });
+        if (ctx) ctx.drawImage(img, 0, 0, w, h);
+        setField("photo", canvas.toDataURL("image/jpeg", 0.7));
       };
       img.src = reader.result as string;
     };
     reader.readAsDataURL(file);
   }
 
-  function handleSave(){
-    if(!editForm.nom.trim()){ showToast("Nom requis","error"); return; }
+  function handleSave() {
+    if (!user) return;
+    if (!editForm.nom.trim()) {
+      showToast("Le nom est obligatoire", "error");
+      return;
+    }
     setSaving(true);
-    try{
+    try {
       const fixedCat = normalizeCategorie(editForm.categorieId);
-      const catObj = getCategorieById(fixedCat);
-      const prixInfo = catObj ? getPrixByCategorie(catObj.id) : {prixUSD:5,prixCDF:11500};
-      const activiteObj = getActiviteById(fixedCat, editForm.activiteId);
-      const updated = Object.assign({}, user, {
+      const prix = prixDe(fixedCat);
+      const activiteObj: any = getActiviteById(fixedCat, editForm.activiteId);
+      const updated = {
+        ...user,
         nom: editForm.nom.trim(),
         commune: editForm.commune,
         ville: editForm.ville,
@@ -147,60 +182,78 @@ export default function ProfilPage(){
         activite: activiteObj ? activiteObj.label : editForm.activiteId,
         bio: editForm.bio,
         photo: editForm.photo,
-        prixUSD: prixInfo.prixUSD,
-        prixCDF: prixInfo.prixCDF,
+        prixUSD: prix.prixUSD,
+        prixCDF: prix.prixCDF,
+        catObj: getCategorieById(fixedCat),
         updatedAt: new Date().toISOString()
-      });
+      };
       localStorage.setItem("wenze_user", JSON.stringify(updated));
-      try{
-        const all = JSON.parse(localStorage.getItem("wenze_all_users") || "[]");
+
+      try {
+        const all = readList("wenze_all_users");
         const wa = cleanWa(user.ownerWhatsapp || user.whatsapp);
-        let idx = -1;
-        for(let i=0;i<all.length;i++){ if(cleanWa(all[i].ownerWhatsapp || all[i].whatsapp || "")===wa){ idx=i; break; } }
-        if(idx>=0) all[idx]=Object.assign({}, all[idx], updated); else all.push(updated);
+        const idx = all.findIndex((x: any) => cleanWa(x.ownerWhatsapp || x.whatsapp) === wa);
+        if (idx >= 0) all[idx] = { ...all[idx], ...updated };
+        else all.push(updated);
         localStorage.setItem("wenze_all_users", JSON.stringify(all));
-      }catch{}
+      } catch {}
+
       setUser(updated);
       setEditing(false);
-      showToast("Profil sauve - "+prixInfo.prixUSD+"$ - Taux "+TAUX_CDF, "success");
-    }catch(e:any){
-      showToast(e.message || "Erreur","error");
+      showToast("Profil enregistré");
+    } catch (e: any) {
+      showToast(e?.message || "Erreur lors de l'enregistrement", "error");
     }
     setSaving(false);
   }
 
-  function handleInvite(){
-    try{
+  function handleInvite() {
+    if (!inviteForm.name.trim() || !cleanWa(inviteForm.wa)) {
+      showToast("Nom et numéro WhatsApp requis", "error");
+      return;
+    }
+    try {
       const mod = require("@/lib/invitations");
       const res = mod.createInvitation(inviteForm.wa, inviteForm.name);
       setInviteLink(res);
       setInvits(mod.getMyInvitations());
-      showToast("Invitation creee pour "+inviteForm.name, "success");
-      setInviteForm({wa:"",name:""});
-    }catch(e:any){
-      showToast(e.message,"error");
+      showToast("Invitation créée pour " + inviteForm.name);
+      setInviteForm({ wa: "", name: "" });
+    } catch (e: any) {
+      showToast(e?.message || "Impossible de créer l'invitation", "error");
     }
   }
 
-  function handleEditAnnonce(a:any){
-    const remaining = a.boostUntil ? Math.ceil((new Date(a.boostUntil).getTime()-Date.now())/86400000) : null;
-    localStorage.setItem("wenze_edit_annonce", JSON.stringify(Object.assign({}, a, {_remainingDays:remaining})));
-    localStorage.setItem("wenze_edit_keep_dates", JSON.stringify({createdAt:a.createdAt || a.created_at, boostUntil:a.boostUntil}));
-    router.push("/publier?edit="+a.id);
+  function copyInviteLink() {
+    try {
+      navigator.clipboard
+        .writeText(inviteLink.link)
+        .then(() => showToast("Lien copié"))
+        .catch(() => showToast("Copie impossible", "error"));
+    } catch {
+      showToast("Copie impossible", "error");
+    }
   }
 
-  function handleDeleteAnnonce(id:string){
-    if(!confirm("Supprimer cette annonce? Compteur conserve.")) return;
-    const list = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
-    const filtered = list.filter(function(a:any){ return a.id !== id; });
+  function handleEditAnnonce(a: any) {
+    const remaining = a.boostUntil ? Math.ceil((new Date(a.boostUntil).getTime() - Date.now()) / DAY_MS) : null;
+    localStorage.setItem("wenze_edit_annonce", JSON.stringify({ ...a, _remainingDays: remaining }));
+    localStorage.setItem(
+      "wenze_edit_keep_dates",
+      JSON.stringify({ createdAt: a.createdAt || a.created_at, boostUntil: a.boostUntil })
+    );
+    router.push("/publier?edit=" + a.id);
+  }
+
+  function handleDeleteAnnonce(id: string) {
+    if (!confirm("Supprimer cette annonce ?")) return;
+    const filtered = readList("wenze_annonces_list").filter((a: any) => a.id !== id);
     localStorage.setItem("wenze_annonces_list", JSON.stringify(filtered));
-    setAnnonces(function(prev:any){ return prev.filter(function(a:any){ return a.id !== id; }); });
-    showToast("Annonce supprimee","success");
+    setAnnonces((prev: any[]) => prev.filter((a: any) => a.id !== id));
+    showToast("Annonce supprimée");
   }
 
-  const stats = useMemo(function(){ return {annonces:annonces.length, solde:solde}; },[annonces,solde]);
-
-  if(!user){
+  if (!user) {
     return (
       <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6">
         <div className="h-24 bg-white border rounded-2xl animate-pulse"></div>
@@ -208,103 +261,144 @@ export default function ProfilPage(){
     );
   }
 
-  const cat = user.catObj ? user.catObj : getCategorieById(user.categorieId);
-  const activites = cat && cat.activites ? cat.activites : [];
+  const cat: any = user.catObj || getCategorieById(user.categorieId) || CATEGORIES_WENZE[0] || {};
+  const formCat: any = getCategorieById(editForm.categorieId);
+  const activites: any[] = formCat?.activites || [];
+  const abonnementLabel = (abonnement.paye ? "Actif " : "Essai ") + abonnement.joursRestants + "j";
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-28">
       <header className="sticky top-0 bg-white z-20 p-4 border-b flex items-center gap-3">
         <Link href="/" className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
         <div className="flex-1">
-          <h1 className="font-black text-[16px]">Profil - Mon compte</h1>
+          <h1 className="font-black text-[16px]">Mon compte</h1>
           <p className="text-[10px] text-gray-500">{cat.icon} {cat.titre} - {user.prixUSD}$ - Taux {TAUX_CDF}</p>
         </div>
         <span className="text-[9px] px-2 py-1 rounded-full font-black bg-[#6C3CE0] text-white">{user.prixUSD}$</span>
       </header>
 
       <div className="p-4 space-y-4">
-        {toast ? <div className="p-3 rounded-xl text-[12px] font-bold bg-green-50 border">{toast.msg}</div> : null}
-
-        <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-3">
-          <p className="font-black text-[11px]">⛔ REGLES STRICTES</p>
-          <p className="text-[10px] mt-1 text-gray-700">Chacun modifie son profil. WhatsApp = ID non modifiable. Garde compteur 5j-3j=2j. Invitation validee cote autrui.</p>
-        </div>
+        {toast ? (
+          <div className={"p-3 rounded-xl text-[12px] font-bold border " + (toast.type === "error" ? "bg-red-50 border-red-300" : "bg-green-50 border-green-300")}>
+            {toast.msg}
+          </div>
+        ) : null}
 
         <div className="bg-white border-2 rounded-2xl p-4">
           <div className="flex gap-4">
             <div className="w-16 h-16 rounded-full bg-[#FFFBF0] border-2 flex items-center justify-center overflow-hidden text-2xl">
-              {user.photo ? <img src={user.photo} alt={user.nom} className="w-full h-full object-cover"/> : <span>{cat.icon}</span>}
+              {user.photo ? <img src={user.photo} alt={user.nom} className="w-full h-full object-cover" /> : <span>{cat.icon}</span>}
             </div>
             <div className="flex-1">
-              <p className="font-black text-[14px]">{user.nomEtablissement || user.nom} <span className="text-[8px] bg-green-500 text-white px-2 py-0.5 rounded-full">TOI</span></p>
-              <p className="text-[11px] text-gray-600">{user.commune} - {user.ville} - WhatsApp {cleanWa(user.ownerWhatsapp || "")}</p>
+              <p className="font-black text-[14px]">
+                {user.nomEtablissement || user.nom}{" "}
+                <span className="text-[8px] bg-green-500 text-white px-2 py-0.5 rounded-full">MOI</span>
+              </p>
+              <p className="text-[11px] text-gray-600">{user.commune} - {user.ville}</p>
+              <p className="text-[11px] text-gray-600">WhatsApp {cleanWa(user.ownerWhatsapp || user.whatsapp)}</p>
               <p className="text-[10px] text-gray-400 mt-1">{cat.icon} {cat.titre}</p>
               <div className="mt-2 flex gap-2">
                 <Link href="/portefeuille" className="text-[10px] bg-black text-white px-3 py-1.5 rounded-full font-bold">{solde}$</Link>
-                <span className="text-[10px] px-3 py-1.5 rounded-full font-bold bg-green-500 text-white">{abonnement.paye ? "Actif "+abonnement.joursRestants+"j" : "Essai "+abonnement.joursRestants+"j"}</span>
+                <span className="text-[10px] px-3 py-1.5 rounded-full font-bold bg-green-500 text-white">{abonnementLabel}</span>
               </div>
             </div>
           </div>
 
           {editing ? (
             <div className="mt-4 space-y-3 border-t pt-4">
-              <input value={editForm.nom} onChange={function(e:any){ setEditForm(Object.assign({}, editForm, {nom:e.target.value})); }} placeholder="Nom complet" className="w-full border-2 p-3 rounded-xl text-[13px]"/>
-              <input value={editForm.nomEtablissement} onChange={function(e:any){ setEditForm(Object.assign({}, editForm, {nomEtablissement:e.target.value})); }} placeholder="Nom boutique" className="w-full border-2 p-3 rounded-xl text-[13px]"/>
-              <div className="w-full border-2 p-3 rounded-xl text-[13px] bg-gray-100">WhatsApp: {cleanWa(user.ownerWhatsapp || user.whatsapp)} (non modifiable)</div>
+              <input value={editForm.nom} onChange={(e: any) => setField("nom", e.target.value)} placeholder="Nom complet" className="w-full border-2 p-3 rounded-xl text-[13px]" />
+              <input value={editForm.nomEtablissement} onChange={(e: any) => setField("nomEtablissement", e.target.value)} placeholder="Nom de la boutique" className="w-full border-2 p-3 rounded-xl text-[13px]" />
+              <div className="w-full border-2 p-3 rounded-xl text-[13px] bg-gray-100">
+                WhatsApp : {cleanWa(user.ownerWhatsapp || user.whatsapp)} (non modifiable)
+              </div>
               <div className="grid grid-cols-2 gap-2">
-                <input value={editForm.commune} onChange={function(e:any){ setEditForm(Object.assign({}, editForm, {commune:e.target.value})); }} placeholder="Commune" className="border-2 p-3 rounded-xl text-[13px]"/>
-                <input value={editForm.ville} onChange={function(e:any){ setEditForm(Object.assign({}, editForm, {ville:e.target.value})); }} placeholder="Ville" className="border-2 p-3 rounded-xl text-[13px]"/>
+                <input value={editForm.commune} onChange={(e: any) => setField("commune", e.target.value)} placeholder="Commune" className="border-2 p-3 rounded-xl text-[13px]" />
+                <input value={editForm.ville} onChange={(e: any) => setField("ville", e.target.value)} placeholder="Ville" className="border-2 p-3 rounded-xl text-[13px]" />
               </div>
-              <textarea value={editForm.bio} onChange={function(e:any){ setEditForm(Object.assign({}, editForm, {bio:e.target.value})); }} placeholder="Bio" rows={2} className="w-full border-2 p-3 rounded-xl text-[13px]"></textarea>
+              <textarea value={editForm.bio} onChange={(e: any) => setField("bio", e.target.value)} placeholder="Bio" rows={2} className="w-full border-2 p-3 rounded-xl text-[13px]"></textarea>
+
               <div>
-                <p className="text-[11px] font-black">Categorie</p>
+                <p className="text-[11px] font-black">Catégorie</p>
                 <div className="mt-1 grid gap-1">
-                  {CATEGORIES_WENZE.map(function(c:any){
-                    let firstId = "";
-                    if(c.activites && c.activites.length > 0){ firstId = c.activites[0].id; }
+                  {CATEGORIES_WENZE.map((c: any) => {
+                    const firstId = c.activites?.[0]?.id || "";
+                    const selected = editForm.categorieId === c.id;
                     return (
-                      <button key={c.id} type="button" onClick={function(){ setEditForm(Object.assign({}, editForm, {categorieId:c.id, activiteId:firstId})); }} className="text-left p-2.5 rounded-xl border-2 text-[11px] font-bold bg-white">{c.icon} {c.titre} - {c.prixUSD}$</button>
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => setEditForm((f: any) => ({ ...f, categorieId: c.id, activiteId: firstId }))}
+                        className={"text-left p-2.5 rounded-xl border-2 text-[11px] font-bold " + (selected ? "bg-black text-white border-black" : "bg-white")}
+                      >
+                        {c.icon} {c.titre} - {c.prixUSD}$
+                      </button>
                     );
                   })}
                 </div>
               </div>
+
               <div>
-                <p className="text-[11px] font-black">Activite</p>
+                <p className="text-[11px] font-black">Activité</p>
                 <div className="mt-1 flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-                  {activites.map(function(a:any){
+                  {activites.map((a: any) => {
+                    const selected = editForm.activiteId === a.id;
                     return (
-                      <button key={a.id} type="button" onClick={function(){ setEditForm(Object.assign({}, editForm, {activiteId:a.id})); }} className="text-[10px] px-2.5 py-1.5 rounded-full font-bold border bg-[#FFFBF0]">{a.label}</button>
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => setField("activiteId", a.id)}
+                        className={"text-[10px] px-2.5 py-1.5 rounded-full font-bold border " + (selected ? "bg-[#6C3CE0] text-white border-[#6C3CE0]" : "bg-[#FFFBF0]")}
+                      >
+                        {a.label}
+                      </button>
                     );
                   })}
                 </div>
               </div>
+
               <div>
                 <p className="text-[11px] font-black">Photo</p>
-                <input type="file" accept="image/*" onChange={handlePhoto} className="mt-1 text-[11px]"/>
-                {editForm.photo ? <img src={editForm.photo} alt="preview" className="mt-2 w-20 h-20 rounded-full object-cover border"/> : null}
+                <input type="file" accept="image/*" onChange={handlePhoto} className="mt-1 text-[11px]" />
+                {editForm.photo ? <img src={editForm.photo} alt="Aperçu" className="mt-2 w-20 h-20 rounded-full object-cover border" /> : null}
               </div>
+
               <div className="grid grid-cols-2 gap-2">
-                <button onClick={function(){ setEditing(false); }} className="bg-white border-2 p-3 rounded-xl font-bold text-[12px]">Annuler</button>
-                <button onClick={handleSave} disabled={saving} className="bg-black text-white p-3 rounded-xl font-bold text-[12px]">{saving ? "Sauve..." : "Sauver"}</button>
+                <button type="button" onClick={() => setEditing(false)} className="bg-white border-2 p-3 rounded-xl font-bold text-[12px]">Annuler</button>
+                <button type="button" onClick={handleSave} disabled={saving} className="bg-black text-white p-3 rounded-xl font-bold text-[12px] disabled:opacity-50">
+                  {saving ? "Enregistrement..." : "Enregistrer"}
+                </button>
               </div>
             </div>
           ) : (
-            <button onClick={function(){ setEditing(true); }} className="mt-4 w-full bg-[#6C3CE0] text-white py-3 rounded-full font-black text-[12px]">Modifier mon profil - Toi seul</button>
+            <button type="button" onClick={() => setEditing(true)} className="mt-4 w-full bg-[#6C3CE0] text-white py-3 rounded-full font-black text-[12px]">
+              Modifier mon profil
+            </button>
           )}
         </div>
 
         <div className="bg-black text-white rounded-2xl p-4 flex justify-between items-center">
           <div>
             <p className="font-black text-[12px]">Abonnement {cat.icon} {cat.titre} - {user.prixUSD}$</p>
-            <p className="text-[10px] opacity-70">{abonnement.paye ? "Actif "+abonnement.joursRestants+"j - Taux "+TAUX_CDF : "Essai "+abonnement.joursRestants+"j - Taux "+TAUX_CDF}</p>
+            <p className="text-[10px] opacity-70">{abonnementLabel} - Taux {TAUX_CDF}</p>
           </div>
-          <Link href={"/abonnement?cat="+user.categorieId} className="bg-white text-black px-4 py-2 rounded-full font-black text-[11px]">Payer {user.prixUSD}$</Link>
+          <Link href={"/abonnement?cat=" + user.categorieId} className="bg-white text-black px-4 py-2 rounded-full font-black text-[11px]">
+            Payer {user.prixUSD}$
+          </Link>
         </div>
 
         <div className="grid grid-cols-3 gap-2">
-          <div className="bg-white border-2 rounded-xl p-3 text-center"><p className="font-black text-[16px]">{stats.annonces}</p><p className="text-[9px] text-gray-500">Annonces</p></div>
-          <Link href="/portefeuille" className="bg-white border-2 rounded-xl p-3 text-center"><p className="font-black text-[16px]">{stats.solde}$</p><p className="text-[9px] text-gray-500">CDF</p></Link>
-          <Link href="/boutiques" className="bg-white border-2 rounded-xl p-3 text-center"><p className="font-black text-[16px]">{cat.icon}</p><p className="text-[9px] text-gray-500">{user.prixUSD}$</p></Link>
+          <div className="bg-white border-2 rounded-xl p-3 text-center">
+            <p className="font-black text-[16px]">{stats.annonces}</p>
+            <p className="text-[9px] text-gray-500">Annonces</p>
+          </div>
+          <Link href="/portefeuille" className="bg-white border-2 rounded-xl p-3 text-center">
+            <p className="font-black text-[16px]">{stats.solde}$</p>
+            <p className="text-[9px] text-gray-500">Solde</p>
+          </Link>
+          <Link href="/boutiques" className="bg-white border-2 rounded-xl p-3 text-center">
+            <p className="font-black text-[16px]">{cat.icon}</p>
+            <p className="text-[9px] text-gray-500">Boutiques</p>
+          </Link>
         </div>
 
         <div className="bg-white border-2 rounded-2xl p-3">
@@ -314,21 +408,27 @@ export default function ProfilPage(){
           </div>
           <div className="mt-3 grid gap-2">
             {annonces.length === 0 ? (
-              <div className="text-center py-8 border-2 border-dashed rounded-xl"><p className="text-[11px] text-gray-500">Aucune annonce</p></div>
+              <div className="text-center py-8 border-2 border-dashed rounded-xl">
+                <p className="text-[11px] text-gray-500">Aucune annonce</p>
+              </div>
             ) : (
-              annonces.map(function(a:any){
-                const remaining = a.boostUntil ? Math.ceil((new Date(a.boostUntil).getTime()-Date.now())/86400000) : null;
+              annonces.map((a: any) => {
+                const remaining = a.boostUntil ? Math.ceil((new Date(a.boostUntil).getTime() - Date.now()) / DAY_MS) : null;
                 return (
                   <div key={a.id} className="flex gap-2.5 border-2 rounded-xl p-2.5 relative">
-                    <span className="absolute top-1 right-1 text-[7px] bg-black text-white px-2 py-0.5 rounded-full font-bold">{remaining !== null ? remaining+"j restant" : "Actif"}</span>
-                    <div className="w-16 h-16 bg-[#FFFBF0] rounded-lg flex items-center justify-center overflow-hidden border">{a.photo ? <img src={a.photo} alt={a.titre} className="w-full h-full object-cover"/> : <span>📦</span>}</div>
+                    <span className="absolute top-1 right-1 text-[7px] bg-black text-white px-2 py-0.5 rounded-full font-bold">
+                      {remaining !== null ? remaining + "j restants" : "Actif"}
+                    </span>
+                    <div className="w-16 h-16 bg-[#FFFBF0] rounded-lg flex items-center justify-center overflow-hidden border">
+                      {a.photo ? <img src={a.photo} alt={a.titre} className="w-full h-full object-cover" /> : <span>📦</span>}
+                    </div>
                     <div className="flex-1">
                       <p className="font-bold text-[12px]">{a.titre}</p>
                       <p className="text-[11px] text-[#6C3CE0] font-black">{Number(a.prix || 0)}$</p>
                       <div className="flex gap-1 mt-2">
-                        <button onClick={function(){ handleEditAnnonce(a); }} className="flex-1 bg-black text-white text-[9px] px-2 py-1.5 rounded-full font-bold">Modifier - Garde compteur</button>
-                        <Link href={"/produit/"+a.id} className="flex-1 bg-white border-2 text-[9px] px-2 py-1.5 rounded-full font-bold text-center">Voir</Link>
-                        <button onClick={function(){ handleDeleteAnnonce(a.id); }} className="bg-white border border-red-200 text-red-600 text-[9px] px-2 py-1.5 rounded-full font-bold">X</button>
+                        <button type="button" onClick={() => handleEditAnnonce(a)} className="flex-1 bg-black text-white text-[9px] px-2 py-1.5 rounded-full font-bold">Modifier</button>
+                        <Link href={"/produit/" + a.id} className="flex-1 bg-white border-2 text-[9px] px-2 py-1.5 rounded-full font-bold text-center">Voir</Link>
+                        <button type="button" onClick={() => handleDeleteAnnonce(a.id)} className="bg-white border border-red-200 text-red-600 text-[9px] px-2 py-1.5 rounded-full font-bold">X</button>
                       </div>
                     </div>
                   </div>
@@ -339,16 +439,9 @@ export default function ProfilPage(){
         </div>
 
         <div className="bg-[#6C3CE0] text-white rounded-2xl p-4 border-2 border-[#6C3CE0]">
-          <p className="font-black text-[13px]">🤝 Inviter un ami - En bas de mon compte</p>
-          <p className="text-[11px] mt-1 opacity-90">Tu es dans ton profil / compte - Ici tu invites tes amis Kinshasa. Tu crees invitation avec son WhatsApp. Il doit confirmer avec SON numero + SON MDP.</p>
+          <p className="font-black text-[13px]">🤝 Inviter un ami</p>
+          <p className="text-[11px] mt-1 opacity-90">
+            Créez une invitation avec le numéro WhatsApp de votre ami. Il devra la confirmer avec son propre numéro et son mot de passe. Le lien est valable 48h.
+          </p>
           <div className="mt-3 space-y-2">
-            <input value={inviteForm.name} onChange={function(e:any){ setInviteForm(Object.assign({}, inviteForm, {name:e.target.value})); }} placeholder="Nom ami ex: Jacques" className="w-full border-2 p-3 rounded-xl text-[12px] text-black"/>
-            <input value={inviteForm.wa} onChange={function(e:any){ setInviteForm(Object.assign({}, inviteForm, {wa:e.target.value})); }} placeholder="WhatsApp ami 243970000000" className="w-full border-2 p-3 rounded-xl text-[12px] text-black"/>
-            <button onClick={handleInvite} className="w-full bg-white text-[#6C3CE0] py-3 rounded-full font-black text-[11px]">Creer invitation + lien WhatsApp - 48h</button>
-          </div>
-          {inviteLink ? (
-            <div className="mt-3 bg-white text-black rounded-xl p-3">
-              <p className="font-black text-[11px]">✅ Invitation {inviteLink.inv.token} creee!</p>
-              <p className="text-[10px] mt-1 break-all">Lien: {inviteLink.link}</p>
-              <div className="flex gap-2 mt-2">
-                <a href={inviteLink.waLink} target="_blank" className="flex-1 bg-[#25D366] text-white py-2 rounded-full text-[10px] font-black text-center">W
+            <input value={inviteForm.name} onChange={(e: any) => setInviteForm((f) => ({ ...f, name: e.target.value }))} placeholder="Nom de l'ami, ex : Jacques" className="w-full
