@@ -238,10 +238,8 @@ function PublierContent(){
       }
       let activiteLabel = form.activiteId;
       if(activiteObj && activiteObj.label){ activiteLabel = activiteObj.label; }
-
       let createdAtFinal = new Date().toISOString();
       if(keepDates && keepDates.createdAt){ createdAtFinal = keepDates.createdAt; }
-
       let boostPrix = 0;
       if(boostObj){ boostPrix = boostObj.prixUSD; }
       let boutiquePrix = prixInfo.prixUSD;
@@ -328,7 +326,6 @@ function PublierContent(){
   const abCount = ab && ab.count ? ab.count : 0;
   const abJours = ab && ab.joursRestants ? ab.joursRestants : 0;
   const abIsPaye = ab && ab.isPaye ? true : false;
-  const abNeedsPay = ab && ab.needsPay ? true : false;
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-24">
@@ -361,9 +358,7 @@ function PublierContent(){
         {isEditMode ? (
           <div className="bg-black text-white rounded-2xl p-3 border-2">
             <p className="font-black text-[11px]">Mode Modification - Regle stricte</p>
-            <p className="text-[10px] mt-1 opacity-90">
-              Compteur conserve: {keepDates && keepDates.boostUntil ? Math.ceil((new Date(keepDates.boostUntil).getTime()-Date.now())/86400000)+"j restant" : "Actif"} - Ne repart pas a zero
-            </p>
+            <p className="text-[10px] mt-1 opacity-90">Compteur conserve: {keepDates && keepDates.boostUntil ? Math.ceil((new Date(keepDates.boostUntil).getTime()-Date.now())/86400000)+"j restant" : "Actif"} - Ne repart pas a zero</p>
           </div>
         ) : null}
 
@@ -427,9 +422,12 @@ function PublierContent(){
             </div>
           </div>
 
-          <div>
-            <p className="text-[10px] font-black">Activite - {activites.length} options</p>
-            <div className="mt-1 flex flex-wrap gap-1">
-              {activites.map(function(a:any){
-                return (
-                  <button key={a.id} type="button" onClick={function(){ setForm(Object.assign({}, form, {activiteId:a.id})); }} className="text-[10px] px-2 py-1 rounded-full border bg-[#FFFBF0]">{
+          {!isOccasionnel ? (
+            <div>
+              <p className="text-[10px] font-black">Categorie</p>
+              <div className="mt-1 grid gap-1">
+                {CATEGORIES_WENZE.filter(function(c:any){ return c.id !== "client"; }).map(function(c:any){
+                  let firstId = "";
+                  if(c.activites && c.activites[0]){ firstId = c.activites[0].id; }
+                  return (
+                    <button key={c.id} type="button" onClick={function(){ setForm(Object.assign({},
