@@ -3,7 +3,7 @@ import { useState, useEffect, Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { getCategorieById, normalizeCategorie, getActiviteById, CATEGORIES_WENZE } from "@/lib/categories";
-import { FREEMIUM, PALIERS, TAUX_CDF, toCDFString, verifierAbonnement, consommerPlace, libererPlace } from "@/lib/paiement";
+import { FREEMIUM, PALIERS, TAUX_CDF, toCDFString, verifierAbonnement, consommerPlace, libererPlace, isCompteCache } from "@/lib/paiement";
 
 export const dynamic = "force-dynamic";
 const cleanWa = (n:any)=> (n||"").toString().replace(/[^0-9]/g,"").replace(/^0+/,"");
@@ -33,6 +33,7 @@ function PublierContent(){
     const u=getUser();
     if(!u){ router.push("/connexion?next=/publier"); return; }
     const waU=cleanWa(u.ownerWhatsapp||u.whatsapp||u.id);
+
     let abCheck:any=null;
     try{
       abCheck=verifierAbonnement();
@@ -42,13 +43,14 @@ function PublierContent(){
         if(avecPlace) setSelectedTicketId(avecPlace.ticketId);
       }
     }catch{}
+
     let old:any=null;
     if(editId){
       try{
         old=readList("wenze_annonces_list").find((x:any)=>String(x.id)===String(editId))||null;
         if(!old){ setToast({msg:"Annonce introuvable",type:"error"}); setTimeout(()=>router.push("/boutiques"),1500); return; }
         const waA=cleanWa(old.ownerWhatsapp||old.whatsapp||old.userId);
-        if(waU!==waA && u.id!==old.userId){ setToast({msg:"Pas ton annonce - isOwner WA",type:"error"}); setTimeout(()=>router.push("/"),2000); return; }
+        if(waU!==waA && u.id!==old.userId){ setToast({msg:"⛔ Pas ton annonce - isOwner WA",type:"error"}); setTimeout(()=>router.push("/"),2000); return; }
         setForm({ titre:old.titre||"", description:old.description||"", prix:String(old.prixUSD||old.prix||""), categorieId:normalizeCategorie(old.categorieId||"commerces-services"), activiteId:old.activiteId||"", commune:old.commune||"", ville:old.ville||"Kinshasa", stock:String(old.stock||1), livraison:old.livraison||"Retrait / Livraison Kin" });
         setPhotos(old.images?.length?old.images.slice(0,4): old.photo?[old.photo]:[]);
         setKeepDates({ createdAt:old.createdAt, boostUntil:old.boostUntil, ticketId:old.ticketId });
@@ -56,6 +58,7 @@ function PublierContent(){
         setIsEditMode(true);
       }catch{}
     }
+
     const baseCat=catFromUrl||u.categorieId||"commerces-services";
     const fixedCat=normalizeCategorie(baseCat);
     const catObj:any=getCategorieById(fixedCat);
@@ -80,11 +83,11 @@ function PublierContent(){
     if(!files.length) return;
     const maxAdd=selectedTicket?selectedTicket.imagesMax-selectedTicket.imagesUsed+(isEditMode?1:0):(ab?.isFreemium?ab.imagesRestantes:4);
     if(photos.length+files.length>maxAdd){
-      showToastFn(`Limite stricte: ${selectedTicket?`Ticket ${selectedTicket.palierId} ${selectedTicket.imagesUsed}/${selectedTicket.imagesMax} - Reste ${maxAdd-photos.length}`:`Freemium ${ab?.count||0}/${FREEMIUM.maxImages} - Reste ${ab?.imagesRestantes||0}`}, "error");
+      showToastFn(`Limite stricte atteinte: ${selectedTicket?`Ticket ${selectedTicket.palierId} ${selectedTicket.imagesUsed}/${selectedTicket.imagesMax} - Reste ${maxAdd-photos.length}`:`Freemium ${ab?.count||0}/${FREEMIUM.maxImages} à vie - Reste ${ab?.imagesRestantes||0}`}, "error");
       return;
     }
     files.slice(0,4-photos.length).forEach((file:File)=>{
-      if(file.size>5*1024*1024){ showToastFn("Photo 5Mo max (V6 leger)", "error"); return; }
+      if(file.size>5*1024*1024){ showToastFn("Photo 5Mo max (V6 léger)", "error"); return; }
       const reader=new FileReader();
       reader.onload=()=>{
         const img=new Image();
@@ -103,11 +106,11 @@ function PublierContent(){
   };
 
   const handlePublish=()=>{
-    if(!ab){ showToastFn("Verification abonnement V6...", "error"); return; }
+    if(!ab){ showToastFn("Vérification abonnement V6...", "error"); return; }
     if(ab.isCache){ router.push("/abonnement?msg=cache"); return; }
-    if(!ab.peutPublier){ showToastFn(ab.isFreemium?`Freemium 3/3 a vie atteint - Achete ticket 5$ (${toCDFString(5)})`:`Plus de places libres - Achete nouveau ticket meme prix - Max 50`, "error"); return; }
-    if(!isEditMode&&ab.isPaye&&!selectedTicketId){ showToastFn("V6 Strict: Choisis le ticket ou publier - 1 ticket = X places strictes", "error"); return; }
-    if(form.titre.trim().length<3){ showToastFn("Titre 3 caracteres min", "error"); return; }
+    if(!ab.peutPublier){ showToastFn(ab.isFreemium?`Freemium 3/3 à vie atteint - Achète ticket 5$ (${toCDFString(5)})`:`Plus de places libres - Achète nouveau ticket même prix - Max 50`, "error"); return; }
+    if(!isEditMode&&ab.isPaye&&!selectedTicketId){ showToastFn("V6 Strict: Choisis le ticket où publier - 1 ticket = X places strictes", "error"); return; }
+    if(form.titre.trim().length<3){ showToastFn("Titre 3 caractères min", "error"); return; }
     if(!prixNum){ showToastFn("Prix $ requis - Taux "+TAUX_CDF, "error"); return; }
     if(!photos.length){ showToastFn("1 photo minimum", "error"); return; }
     setSaving(true);
@@ -119,7 +122,7 @@ function PublierContent(){
       const catId=normalizeCategorie(form.categorieId);
       if(!isEditMode&&selectedTicketId){
         const ok=consommerPlace(selectedTicketId, id);
-        if(!ok){ showToastFn(`Ticket ${selectedTicket?.palierId} plein ${selectedTicket?.imagesUsed}/${selectedTicket?.imagesMax} strictes ou expire`, "error"); setSaving(false); return; }
+        if(!ok){ showToastFn(`Ticket ${selectedTicket?.palierId} plein ${selectedTicket?.imagesUsed}/${selectedTicket?.imagesMax} strictes ou expiré`, "error"); setSaving(false); return; }
       }
       const annonce={
         id, titre:form.titre.trim(), description:form.description.trim(), prix:prixNum, prixUSD:prixNum, prixCDF:0, prixCDFString:toCDFString(prixNum),
@@ -148,7 +151,7 @@ function PublierContent(){
   if(loading){
     return (
       <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6 flex items-center justify-center">
-        <div><div className="h-24 bg-white border rounded-2xl animate-pulse"/><p className="text-[11px] text-gray-400 mt-2">V6 Chargement - Meme ticket - Taux {TAUX_CDF}...</p></div>
+        <div><div className="h-24 bg-white border rounded-2xl animate-pulse"/><p className="text-[11px] text-gray-400 mt-2">V6 Chargement - Même ticket - Taux {TAUX_CDF}...</p></div>
       </div>
     );
   }
@@ -159,11 +162,11 @@ function PublierContent(){
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[28px] max-w-[360px] w-full p-6 text-center border-2 border-black shadow-2xl">
             <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto text-white text-3xl">✓</div>
-            <h2 className="font-black text-[18px] mt-4">{isEditMode?"Modification OK - Place conservee V6":"Publie avec succes V6!"}</h2>
+            <h2 className="font-black text-[18px] mt-4">{isEditMode?"Modification OK - Place conservée V6":"Publié avec succès V6!"}</h2>
             <div className="bg-[#FFFBF0] border-2 rounded-2xl p-4 mt-4 text-left">
               <p className="font-black text-[13px]">{showSuccess.titre}</p>
               <p className="text-[12px] font-black text-orange-600 mt-1">{showSuccess.prix}</p>
-              <p className="text-[10px] mt-2 bg-black text-white inline-block px-2.5 py-1 rounded-full">{showSuccess.ticket?`Ticket ${showSuccess.ticket.palierId} ${showSuccess.ticket.imagesUsed+1}/${showSuccess.ticket.imagesMax} strictes`:`Freemium ${ab?.count||0}/${FREEMIUM.maxImages} a vie - 30j visible`}</p>
+              <p className="text-[10px] mt-2 bg-black text-white inline-block px-2.5 py-1 rounded-full">{showSuccess.ticket?`🎫 ${showSuccess.ticket.palierId} ${showSuccess.ticket.imagesUsed+1}/${showSuccess.ticket.imagesMax} strictes`:`🆓 Freemium ${ab?.count||0}/${FREEMIUM.maxImages} à vie - 30j visible`}</p>
             </div>
             <p className="text-[10px] text-gray-500 mt-3">Redirection vers produit...</p>
           </div>
@@ -173,8 +176,8 @@ function PublierContent(){
       <header className="sticky top-0 bg-white/95 backdrop-blur z-20 p-4 border-b flex items-center gap-3">
         <Link href={isEditMode?`/produit/${editId}`:"/"} className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
         <div className="flex-1 min-w-0">
-          <h1 className="font-black text-[13px] truncate">WENZE V6 - {isEditMode?"Modifier":"Publier"} - {ab?(ab.isCache?"CACHE":ab.isPaye?`${ab.ticketsActifs?.length||0} tickets ${ab.placesRestantes||0} libres/50 max`:`${ab.count}/${FREEMIUM.maxImages} Freemium`):"..."}</h1>
-          <p className="text-[9px] text-gray-500 truncate">{currentCat.icon||"📦"} {currentCat.titre||form.categorieId} - Strict: 1 ticket = X places sur Y jours - 0% comm - Taux {TAUX_CDF}</p>
+          <h1 className="font-black text-[13px] truncate">WENZE V6 - {isEditMode?"Modifier":"Publier"} - {ab?(ab.isCache?"🔒 CACHÉ":ab.isPaye?`${ab.ticketsActifs?.length||0} tickets ${ab.placesRestantes||0} libres/50 max`:`🆓 ${ab.count}/${FREEMIUM.maxImages} Freemium`):"..."}</h1>
+          <p className="text-[9px] text-gray-500 truncate">{currentCat.icon||"📦"} {currentCat.titre||form.categorieId} - Strict: 1 ticket = X places sur Y jours - Même prix - 0% comm - Taux {TAUX_CDF}</p>
         </div>
         <span className={`text-[10px] px-2.5 py-1 rounded-full font-black text-white ${ab?.isCache?"bg-red-600":ab?.isPaye?"bg-black":"bg-orange-500"}`}>{ab?.badge||"..."}</span>
       </header>
@@ -184,16 +187,24 @@ function PublierContent(){
 
         {ab?.isCache&&(
           <div className="bg-red-600 text-white rounded-2xl p-4 border-2 border-black shadow">
-            <p className="font-black text-[13px]">Compte cache V6 - 30j Freemium expires</p>
-            <p className="text-[11px] mt-1.5 opacity-90">Tes annonces non visibles. Achete ticket pour reapparaitre immediatement.</p>
-            <Link href="/abonnement" className="mt-3 block w-full bg-white text-black text-center py-3 rounded-full font-black text-[12px]">Payer 5$ / {toCDFString(5)} - Reapparaitre</Link>
+            <p className="font-black text-[13px]">🔒 Compte caché V6 - 30j Freemium expirés</p>
+            <p className="text-[11px] mt-1.5 opacity-90">Tes annonces non visibles dans Marché. Achète ticket pour réapparaître immédiatement - Même prix pour tous.</p>
+            <Link href="/abonnement" className="mt-3 block w-full bg-white text-black text-center py-3 rounded-full font-black text-[12px]">🎫 Payer 5$ / {toCDFString(5)} - Réapparaître</Link>
+          </div>
+        )}
+
+        {ab?.isFreemium&&ab.imagesRestantes===0&&(
+          <div className="bg-yellow-100 border-2 border-yellow-400 rounded-2xl p-4">
+            <p className="font-black text-[12px]">🆓 Freemium 3/3 à vie atteint - Strict V6</p>
+            <p className="text-[10px] mt-1">Achète ⭐ STANDARD 5$ ({toCDFString(5)}) = 4 places strictes sur 7j - Cumulable - Max 50 - 0% comm</p>
+            <Link href="/abonnement" className="mt-3 block w-full bg-black text-white text-center py-2.5 rounded-full font-black text-[11px]">Voir tickets 5$/10$/20$ - Même prix pour tous</Link>
           </div>
         )}
 
         {ab?.isPaye&&(
           <div className="bg-white border-2 border-black rounded-2xl p-4 shadow-sm">
-            <p className="font-black text-[13px]">Choisis le ticket ou publier - V6 Strict</p>
-            <p className="text-[9px] text-gray-600 mt-1">1 ticket 4 places/7j = tu peux poster 1/j pendant 4j jusqu a 4/4, pas 4/j. Suppression libere place.</p>
+            <p className="font-black text-[13px]">🎫 Choisis le ticket où publier - V6 Strict</p>
+            <p className="text-[9px] text-gray-600 mt-1">1 ticket 4 places/7j = tu peux poster 1/j pendant 4j jusqu'à 4/4, pas 4/j. Suppression libère place.</p>
             <div className="mt-3 space-y-2 max-h-[220px] overflow-y-auto">
               {(ab.ticketsActifs||[]).map((t:any)=>(
                 <button key={t.ticketId} onClick={()=>setSelectedTicketId(t.ticketId)} className={`w-full border-2 rounded-xl p-3 text-left transition ${selectedTicketId===t.ticketId?"border-black bg-black text-white":"border-gray-200 bg-white hover:border-black"}`}>
@@ -205,13 +216,13 @@ function PublierContent(){
                 </button>
               ))}
             </div>
-            {selectedTicket&&<p className="text-[10px] mt-3 font-bold bg-[#FFFBF0] border rounded-xl p-2.5">Ticket choisi: {selectedTicket.palierId} - Reste {placesTicket} places strictes sur {selectedTicket.jours}j</p>}
+            {selectedTicket&&<p className="text-[10px] mt-3 font-bold bg-[#FFFBF0] border rounded-xl p-2.5">✅ Ticket choisi: {selectedTicket.palierId} - Reste {placesTicket} places strictes sur {selectedTicket.jours}j</p>}
           </div>
         )}
 
         <div className="bg-white border rounded-2xl p-4 shadow-sm">
           <div className="flex justify-between items-center">
-            <p className="font-black text-[12px]">Photos V6 - 4 max - Leger 800px JPEG 65%</p>
+            <p className="font-black text-[12px]">Photos V6 - 4 max - Léger 800px JPEG 65%</p>
             <p className="text-[10px] bg-black text-white px-2.5 py-1 rounded-full font-bold">{photos.length} / {selectedTicket?selectedTicket.imagesMax-selectedTicket.imagesUsed+(isEditMode?1:0):ab?.isFreemium?ab.imagesRestantes:4}</p>
           </div>
           <input type="file" accept="image/*" multiple onChange={handlePhotos} className="mt-3 w-full text-[11px] border border-dashed rounded-xl p-3 bg-gray-50" disabled={!peutPublier||ab?.isCache||(ab?.isPaye&&!selectedTicketId)} />
@@ -228,9 +239,9 @@ function PublierContent(){
         </div>
 
         <div className="bg-white border rounded-2xl p-4 space-y-3 shadow-sm">
-          <p className="font-black text-[13px]">Details produit - Meme ticket pour tous - 0% comm</p>
+          <p className="font-black text-[13px]">Détails produit - Même ticket pour tous - 0% comm</p>
           <input value={form.titre} onChange={e=>setField("titre",e.target.value)} placeholder="Titre * Ex: Sac de riz 25kg" className="w-full border rounded-xl p-3.5 text-[13px] focus:ring-2 focus:ring-black outline-none" />
-          <textarea value={form.description} onChange={e=>setField("description",e.target.value)} placeholder="Description - Details, etat, origine..." rows={4} className="w-full border rounded-xl p-3.5 text-[13px] focus:ring-2 focus:ring-black outline-none resize-none"></textarea>
+          <textarea value={form.description} onChange={e=>setField("description",e.target.value)} placeholder="Description - Détails, état, origine..." rows={4} className="w-full border rounded-xl p-3.5 text-[13px] focus:ring-2 focus:ring-black outline-none resize-none"></textarea>
           <div className="grid grid-cols-2 gap-3">
             <div><label className="text-[10px] font-bold">Prix USD * - Taux {TAUX_CDF}</label><input value={form.prix} onChange={e=>setField("prix",e.target.value.replace(/[^0-9.]/g,""))} placeholder="Ex: 25" inputMode="numeric" className="w-full mt-1 border rounded-xl p-3.5 text-[13px] font-black focus:ring-2 focus:ring-black outline-none" /><p className="text-[10px] text-gray-500 mt-1">{prixNum?`${prixNum}$ / ${toCDFString(prixNum)}`:""} CDF</p></div>
             <div><label className="text-[10px] font-bold">Stock</label><input value={form.stock} onChange={e=>setField("stock",e.target.value.replace(/[^0-9]/g,""))} placeholder="1" inputMode="numeric" className="w-full mt-1 border rounded-xl p-3.5 text-[13px] focus:ring-2 focus:ring-black outline-none" /></div>
@@ -240,7 +251,7 @@ function PublierContent(){
             <div><label className="text-[10px] font-bold">Ville</label><input value={form.ville} onChange={e=>setField("ville",e.target.value)} placeholder="Kinshasa" className="w-full mt-1 border rounded-xl p-3.5 text-[13px] focus:ring-2 focus:ring-black outline-none" /></div>
           </div>
           <div>
-            <label className="text-[10px] font-bold">Categorie - Meme ticket pour tous</label>
+            <label className="text-[10px] font-bold">Catégorie - Même ticket pour tous</label>
             <div className="mt-2 grid grid-cols-2 gap-2">
               {CATEGORIES_WENZE.map((c:any)=>{
                 const sel=form.categorieId===c.id;
@@ -249,13 +260,20 @@ function PublierContent(){
             </div>
           </div>
           <div>
-            <label className="text-[10px] font-bold">Activite</label>
+            <label className="text-[10px] font-bold">Activité</label>
             <div className="mt-2 flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
-              {(currentCat.activites||[]).map((a:any)=>{
-                const sel=form.activiteId===a.id;
-                return <button key={a.id} type="button" onClick={()=>setField("activiteId",a.id)} className={`px-3 py-2 rounded-full text-[10px] font-bold border ${sel?"bg-black text-white border-black":"bg-white"}`}>{a.titre||a.label}</button>;
-              })}
+              {(getCategorieById(form.categorieId) as any)?.activites?.map((a:any)=>{ const sel=form.activiteId===a.id; return <button key={a.id} type="button" onClick={()=>setField("activiteId",a.id)} className={`text-[10px] px-3 py-1.5 rounded-full font-bold border ${sel?"bg-black text-white border-black":"bg-gray-50 border-gray-200"}`}>{a.titre||a.label}</button>; })}
             </div>
           </div>
-          <div><label className="text-[10px] font-bold">Livraison</label><input value={form.livraison} onChange={e=>setField("livraison",e.target.value)} className="w-full mt-1 border rounded-xl p-3.5 text-[13px]" /></div>
-          <button onClick={handlePublish} disabled={saving} className="w-full bg-black 
+          <div><label className="text-[10px] font-bold">Livraison</label><input value={form.livraison} onChange={e=>setField("livraison",e.target.value)} placeholder="Retrait / Livraison Kinshasa" className="w-full mt-1 border rounded-xl p-3.5 text-[13px] focus:ring-2 focus:ring-black outline-none" /></div>
+          <button onClick={handlePublish} disabled={saving||!peutPublier} className="w-full bg-black text-white py-4 rounded-full font-black text-[13px] disabled:opacity-50 mt-2">{saving?"Publication...":isEditMode?`💾 Modifier - Place conservée - ${prixNum}$ / ${toCDFString(prixNum)}`:`🚀 Publier - ${prixNum?`${prixNum}$ / ${toCDFString(prixNum)}`:`Choisis prix`} - ${ab?.isFreemium?`${ab.count||0}/${FREEMIUM.maxImages} Freemium`:`Ticket ${selectedTicket?.palierId||""} ${placesTicket} libres`}`}</button>
+          <p className="text-[9px] text-gray-400 text-center">V6 Strict: 1 ticket = X places strictes sur Y jours (pas X/j) - Suppression libère place immédiatement - Max 50 - Taux {TAUX_CDF} - 0% comm - isOwner WA</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function PublierPage(){
+  return <Suspense fallback={<div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6"><div className="h-24 bg-white border rounded-2xl animate-pulse"/><p className="text-[11px] mt-2">Chargement publier V6...</p></div>}><PublierContent/></Suspense>;
+}
