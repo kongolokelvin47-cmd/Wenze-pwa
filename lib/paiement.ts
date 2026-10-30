@@ -37,13 +37,11 @@ export const PALIERS: Record<PalierId, PalierConfig> = {
   PREMIUM:{ id:"PREMIUM", nom:"PREMIUM - Gros Vendeur", places:30, imagesMax:30, jours:30, prixUSD:20, prixCDF:toCDF(20), badge:"👑", limiteActives:50, videoCount:2, videoDuree:"60s", description:"👑 PREMIUM 20$ (46 000 CDF) = 30 places strictes sur 30j + 2 vidéos - Max 50" },
 };
 
-// Compat ancien code qui attend PALIERS[id].prix["30j"] et jours["30j"]
+// Compat ancien code qui attend PALIERS[id].prix["30j"]
+// (jours reste un nombre : le remplacer par un objet casse l'affichage et acheterTicket)
 (PALIERS as any).STANDARD.prix = {"1j":0.5,"7j":5,"15j":7,"30j":5};
-(PALIERS as any).STANDARD.jours = {"1j":1,"7j":7,"15j":7,"30j":7};
 (PALIERS as any).PRO.prix = {"1j":1,"7j":10,"15j":10,"30j":10};
-(PALIERS as any).PRO.jours = {"1j":1,"7j":15,"15j":15,"30j":15};
 (PALIERS as any).PREMIUM.prix = {"1j":1.5,"7j":20,"15j":20,"30j":20};
-(PALIERS as any).PREMIUM.jours = {"1j":1,"7j":30,"15j":30,"30j":30};
 
 // ========== 3. OCCASIONNEL - Client qui vend 1 fois ==========
 export const OCCASIONNEL = {
@@ -280,3 +278,4 @@ export function getPrixByCategorie(cat:string){ return { prixUSD:5, prixCDF:1150
 export function getSoldeWPay(){ return 0; }
 export const MESSAGE_REGIME = `🆓 3 images à vie 30j visibles puis 🔒 caché - ⭐ STANDARD 5$ / ${toCDFString(5)} 4 places strictes / 7j - 🚀 PRO 10$ / ${toCDFString(10)} 10 places / 15j - 👑 PREMIUM 20$ / ${toCDFString(20)} 30 places / 30j - 1 ticket = X places strictes sur Y jours (pas X/j) - Cumulable - Max 50 - Suppression libère place - 0% comm - Taux ${TAUX_CDF}`;
 export const REGLE_LEGALE = "WENZE plateforme main à main 0% commission. Un ticket = X places strictes sur Y jours (pas X/j). Cumulable, renouvelable, suppression libère place. Max 50 actives. Freemium 3 images à vie visibles 30j puis compte caché si 0 ticket. Même ticket pour tous secteurs.";
+  
