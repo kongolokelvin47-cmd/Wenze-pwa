@@ -2,147 +2,158 @@
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useState, useEffect, useMemo } from "react";
-import { getCategorieById, getActiviteById, normalizeCategorie, getPrixByCategorie, CATEGORIES_WENZE } from "@/lib/categories";
-import { TAUX_CDF, toCDF } from "@/lib/paiement";
+import { getCategorieById, getActiviteById, normalizeCategorie, getPrixByCategorie, CATEGORIES_WENZE, normalizeActivite } from "@/lib/categories";
+import { TAUX_CDF, toCDF, toCDFString } from "@/lib/paiement";
 
 const cleanWhatsapp = (n: string) => (n || "").toString().replace(/[^0-9]/g, "");
 function formatPrix(p:any){
-  const usd = Number(p.prix) || 0;
-  return `${usd}$ / ${toCDF(usd).toLocaleString("fr-FR")} CDF`;
+  const usd = Number(p.prixUSD || p.prix || 0);
+  if(usd===0) return "Prix sur demande";
+  return `${usd}$ / ${toCDFString(usd)}`;
 }
 
 export default function ActivitePage() {
   const params = useParams();
   const rawCatId = (params.slug as string)?.toLowerCase();
-  const actSlug = (params.activite as string)?.toLowerCase();
+  const rawActSlug = (params.activite as string)?.toLowerCase();
   
-  // ✅ WENZE 2.0 - normalise ancien technique/commerce/beaute → commerces-services / gros-autres
   const catId = normalizeCategorie(rawCatId);
-  const cat = getCategorieById(catId);
-  const act = cat ? getActiviteById(cat.id, actSlug) : null;
+  const actSlug = (normalizeActivite as any)?.(rawActSlug) || rawActSlug?.toLowerCase().replace(/[^a-z0-9-]/g,"-");
+  
+  const cat = getCategorieById(catId) || getCategorieById(rawCatId) || { id: catId, titre: catId, icone: "📦", groupe: "commerces-services" } as any;
+  const act = cat ? (getActiviteById(cat.id, actSlug) || getActiviteById(cat.id, rawActSlug) || { id: actSlug, titre: actSlug, icone: "🔧" }) : null;
   
   const [allAnnonces, setAllAnnonces] = useState<any[]>([]);
-  const [tri, setTri] = useState<"recent"|"prix">("recent");
   const [search, setSearch] = useState("");
 
   useEffect(()=>{
-    try { 
+    try{
       const list = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
-      setAllAnnonces(list);
-    } catch {}
-  },[]);
-
-  const prixInfo = useMemo(()=> cat ? getPrixByCategorie(cat.id) : { prixUSD: 5, prixCDF: 11500 }, [cat]);
-
-  const filtered = useMemo(()=>{
-    if(!cat) return [];
-    // ✅ FIX: filtre exact categorie + activite (pas includes)
-    let res = allAnnonces.filter((a:any)=>{
-      const aCat = normalizeCategorie(a.categorieId || a.categorie || "");
-      const aAct = (a.activiteId || a.activite || "").toLowerCase();
-      if(aCat !== catId) return false;
-      // Si activite demandée, filtre par activite, sinon montre tout de la catégorie
-      if(actSlug && act){
-        return aAct === act.id.toLowerCase() || aAct === act.slug.toLowerCase() || aAct.includes(actSlug);
+      const allUsersRaw = localStorage.getItem("wenze_all_users");
+      const allUsers = allUsersRaw ? JSON.parse(allUsersRaw) : [];
+      const userMap = new Map<string, any>();
+      for(const u of allUsers){
+        const wa = cleanWhatsapp(u.ownerWhatsapp||u.whatsapp||"");
+        if(wa) userMap.set(wa, u);
       }
-      return true;
-    });
-    
-    if(search){
-      const q = search.toLowerCase();
-      res = res.filter((a:any)=> (a.titre||"").toLowerCase().includes(q) || (a.description||"").toLowerCase().includes(q));
-    }
-    
-    if(tri==="prix"){
-      res = [...res].sort((a,b)=> (a.prix||0)-(b.prix||0));
-    } else {
-      res = [...res].sort((a,b)=> new Date(b.createdAt||b.date).getTime() - new Date(a.createdAt||a.date).getTime());
-    }
-    return res;
-  }, [allAnnonces, catId, actSlug, act, cat, tri, search]);
 
-  if(!cat){
-    return (
-      <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6 text-center">
-        <p className="text-4xl mt-10">📁</p>
-        <p className="font-black mt-4">Catégorie {rawCatId} introuvable</p>
-        <p className="text-[11px] text-gray-500 mt-2">WENZE 2.0: 🛍️ Commerces-Services 5$ • 🏭 Gros-Autres 10$</p>
-        <Link href="/categories" className="mt-6 inline-block bg-black text-white px-6 py-3 rounded-full font-bold text-[12px]">Voir 2 catégories</Link>
-      </div>
+      let filtered = list.filter((a:any)=>{
+        const aCat = normalizeCategorie(a.categorieId||a.categorie||"");
+        const aAct = (a.activiteId||a.activite||a.subCategory||"").toString().toLowerCase();
+        
+        // V6: match catégorie
+        if(aCat!==catId && normalizeCategorie(aCat)!==catId) return false;
+        
+        // V6: match activité si présente dans annonce
+        if(actSlug && aAct){
+          if(aAct!==actSlug && normalizeCategorie(aAct)!==actSlug && !aAct.includes(actSlug) && !actSlug.includes(aAct)){
+            return false;
+          }
+        }
+        // Si annonce n'a pas d'activité, on l'accepte quand même dans la catégorie (compat)
+        return true;
+      });
+
+      // V6 CRITIQUE: Filtre comptes cachés
+      try{
+        const { isCompteCache, checkFreemiumWenze } = require("@/lib/paiement");
+        filtered = filtered.filter((a:any)=>{
+          const wa = cleanWhatsapp(a.ownerWhatsapp||a.whatsapp||a.userId||"");
+          const user = userMap.get(wa) || { ownerWhatsapp: wa, whatsapp: wa, createdAt: a.createdAt, id: wa };
+          if(typeof isCompteCache==="function" && isCompteCache(user)) return false;
+          return true;
+        });
+
+        filtered = filtered.map((a:any)=>{
+          try{
+            const wa = cleanWhatsapp(a.ownerWhatsapp||a.whatsapp||a.userId||"");
+            const user = userMap.get(wa) || { ownerWhatsapp: wa, whatsapp: wa, createdAt: a.createdAt, id: wa };
+            const ab = checkFreemiumWenze(user, 0);
+            return { ...a, _isPaye: !!ab.isPaye, _badge: ab.badge, _palierId: ab.palierId, _joursRestants: ab.joursRestants||0 };
+          }catch{ return { ...a, _isPaye: false, _badge: "🆓" }; }
+        });
+
+        filtered.sort((a:any,b:any)=>{
+          if(a._isPaye && !b._isPaye) return -1;
+          if(!a._isPaye && b._isPaye) return 1;
+          return new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime();
+        });
+      }catch{}
+
+      setAllAnnonces(filtered);
+    }catch(e){ console.error("activite page V6 error", e); }
+  },[catId, actSlug, rawCatId, rawActSlug]);
+
+  const filteredSearch = useMemo(()=>{
+    if(!search.trim()) return allAnnonces;
+    const q = search.toLowerCase();
+    return allAnnonces.filter((a:any)=>
+      (a.titre||a.title||"").toLowerCase().includes(q) ||
+      (a.description||"").toLowerCase().includes(q)
     );
-  }
+  },[allAnnonces, search]);
 
   return (
-    <div className="max-w-[430px] mx-auto bg-[#FFFBF0] min-h-screen pb-24">
-      <header className="sticky top-0 bg-white z-20 p-4 border-b">
+    <div className="min-h-screen bg-gray-50 pb-20">
+      <div className="sticky top-0 z-10 bg-white border-b p-3">
         <div className="flex items-center gap-2">
-          <Link href={`/categorie/${cat.id}`} className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
+          <Link href={`/categorie/${catId}`} className="p-2 rounded-full bg-gray-100">←</Link>
+          <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center text-xl">{(act as any)?.icone||(cat as any).icone||"🔧"}</div>
           <div className="flex-1 min-w-0">
-            <h1 className="font-black text-[14px] truncate">{cat.icon} {act ? act.label : cat.titre}</h1>
-            <p className="text-[10px] text-gray-500 truncate">{cat.titre} • {act ? act.label : `${cat.activites.length} activités`} • {filtered.length} annonces • {prixInfo.prixUSD}$ / {prixInfo.prixCDF.toLocaleString()} CDF • Taux {TAUX_CDF}</p>
+            <h1 className="font-bold text-sm truncate">{(act as any)?.titre||actSlug} - {cat.titre||catId} V6</h1>
+            <p className="text-[11px] text-gray-500 truncate">{(act as any)?.description||`Activité ${actSlug} dans ${cat.titre} - ${allAnnonces.length} visibles (cachés filtrés) - Même prix`}</p>
           </div>
-          <span className={`text-[10px] px-2 py-1 rounded-full font-black ${cat.id==="gros-autres"?"bg-black text-white":"bg-[#6C3CE0] text-white"}`}>{prixInfo.prixUSD}$</span>
+          <span className="text-[10px] bg-green-100 text-green-700 px-2 py-1 rounded-full">{allAnnonces.length} visibles</span>
         </div>
-        <div className="mt-3 flex gap-2">
-          <div className="flex-1 relative">
-            <input value={search} onChange={e=> setSearch(e.target.value)} placeholder={`Recherche ${act?.label || cat.titreCourt}...`} className="w-full bg-gray-100 rounded-full py-2.5 px-4 pl-9 text-sm outline-none" />
-            <span className="absolute left-3 top-3 text-xs">🔍</span>
-          </div>
-          <button onClick={()=> setTri(tri==="recent"?"prix":"recent")} className="bg-white border px-3 py-2 rounded-full text-[11px] font-bold">{tri==="recent"?"🕒 Récent":"💰 Prix"}</button>
+        <div className="flex gap-2 mt-3">
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Recherche dans ${act?.titre||actSlug}...`} className="flex-1 border rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-orange-400 outline-none" />
+          <Link href="/publier" className="bg-black text-white px-4 py-2 rounded-xl text-xs font-bold">+ Publier</Link>
         </div>
-      </header>
-
-      <div className="p-4">
-        {/* BANNER WENZE 2.0 - prix selon catégorie parente */}
-        <div className={`rounded-2xl p-4 border-2 ${cat.id==="gros-autres"?"bg-black text-white border-black":"bg-[#6C3CE0] text-white border-[#6C3CE0]"}`}>
-          <div className="flex justify-between items-start">
-            <div>
-              <p className="font-black text-[14px]">{act ? `${cat.icon} ${act.label}` : `${cat.icon} ${cat.titre}`}</p>
-              <p className="text-[11px] opacity-80 mt-1">{cat.description} • {cat.regime} • Activité incluse dans {prixInfo.prixUSD}$</p>
-              <p className="text-[10px] opacity-60 mt-1">Électricité, maçon, soudeur, plombier, coiffure = {cat.id==="commerces-services"?"5$ même régime":"inclus"} - Taux fixe {TAUX_CDF}</p>
-            </div>
-            <span className="bg-white text-black text-[11px] px-3 py-1 rounded-full font-black whitespace-nowrap">{prixInfo.prixUSD}$ / {prixInfo.prixCDF.toLocaleString()} CDF</span>
-          </div>
-          <div className="mt-3 flex gap-1 flex-wrap">
-            {cat.activites.map((a:any)=> (
-              <Link key={a.id} href={`/categorie/${cat.id}/${a.slug}`} className={`text-[9px] px-2 py-1 rounded-full font-bold border ${a.slug===actSlug ? "bg-white text-black border-white" : "bg-white/20 border-white/30"}`}>{a.label}</Link>
-            ))}
-          </div>
+        <div className="mt-2 text-[10px] text-gray-500 bg-blue-50 p-2 rounded-xl">
+          V6 FIX Double Slug: rawCat `{rawCatId}` → `{catId}` + rawAct `{rawActSlug}` → `{actSlug}` | {cat.titre} › {act?.titre||actSlug} | <b>Même prix pour tous</b> - STANDARD 5$ 4 places strictes / PRO 10$ 10 places / PREMIUM 20$ 30 places - 1 ticket = X places sur Y jours - Cumulable - Max 50 - Taux {TAUX_CDF} - Comptes cachés 🔒 filtrés - Tri payés d'abord
         </div>
-
-        {filtered.length===0 ? (
-          <div className="mt-6 bg-white border-2 border-dashed rounded-2xl p-8 text-center">
-            <p className="text-4xl">{act ? "🔧" : cat.icon}</p>
-            <p className="font-black mt-2 text-[13px]">{search ? `Pas de résultat "${search}"` : `Pas encore d'annonces ${act ? `en ${act.label}` : `en ${cat.titre}`}`}</p>
-            <p className="text-[11px] text-gray-500 mt-1">{cat.icon} {cat.titre} - {prixInfo.prixUSD}$ / {prixInfo.prixCDF.toLocaleString()} CDF - Taux {TAUX_CDF} - 0% commission</p>
-            <Link href={`/publier?categorie=${cat.id}&activite=${act?.slug || ""}`} className={`mt-4 inline-block text-white px-6 py-3 rounded-full font-bold text-[12px] ${cat.id==="gros-autres"?"bg-black":"bg-[#6C3CE0]"}`}>Publier {act ? act.label : cat.titreCourt} {prixInfo.prixUSD}$</Link>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3 mt-4">
-            {filtered.map((p:any)=> (
-              <div key={p.id} className="border rounded-2xl overflow-hidden bg-white shadow-sm">
-                <Link href={`/produit/${p.id}`} className="block w-full aspect-[4/3] bg-white flex items-center justify-center overflow-hidden relative">
-                  {p.photo ? <img src={p.photo} alt={p.titre} className="max-w-full max-h-full object-contain"/> : <span className="text-3xl">{cat.icon}</span>}
-                  <span className={`absolute top-2 right-2 text-[7px] px-1.5 py-0.5 rounded-full font-bold ${cat.id==="gros-autres"?"bg-black text-white":"bg-[#6C3CE0] text-white"}`}>{prixInfo.prixUSD}$</span>
-                  {p.activiteId && <span className="absolute top-2 left-2 bg-white/90 text-black text-[7px] px-1.5 py-0.5 rounded-full font-bold border">{p.activiteId}</span>}
-                </Link>
-                <div className="p-2.5">
-                  <p className="font-bold text-[#6C3CE0] text-[13px] truncate">{formatPrix(p)}</p>
-                  <Link href={`/produit/${p.id}`}><p className="text-[11px] font-semibold truncate hover:text-[#6C3CE0]">{p.titre}</p></Link>
-                  <p className="text-[9px] text-gray-400 truncate">👤 {p.user} • {act?.label || p.activiteId || cat.titreCourt}</p>
-                  <a href={`https://wa.me/${cleanWhatsapp(p.ownerWhatsapp||p.whatsapp)}?text=${encodeURIComponent(`Bonjour ${p.user} 👋 WENZE - "${p.titre}" à ${formatPrix(p)} - Taux ${TAUX_CDF}`)}`} target="_blank" className="mt-2 w-full bg-[#00C950] text-white text-[11px] font-bold py-2.5 rounded-full flex justify-center">💬 WhatsApp</a>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="mt-6 flex gap-2">
-          <Link href={`/categorie/${cat.id}`} className="flex-1 bg-white border p-3 rounded-xl text-center font-bold text-[12px]">← {cat.titreCourt}</Link>
-          <Link href="/categories" className="flex-1 bg-black text-white p-3 rounded-xl text-center font-bold text-[12px]">2 catégories</Link>
+        <div className="flex gap-1.5 mt-2 overflow-x-auto text-[10px]">
+          <Link href="/" className="bg-gray-100 px-2 py-1 rounded-full">Accueil</Link>
+          <span className="py-1">›</span>
+          <Link href="/categorie" className="bg-gray-100 px-2 py-1 rounded-full">Catégories</Link>
+          <span className="py-1">›</span>
+          <Link href={`/categorie/${catId}`} className="bg-gray-100 px-2 py-1 rounded-full">{cat.titre||catId}</Link>
+          <span className="py-1">›</span>
+          <span className="bg-black text-white px-2 py-1 rounded-full">{act?.titre||actSlug}</span>
         </div>
       </div>
+
+      <div className="p-3 grid grid-cols-2 gap-3">
+        {filteredSearch.map((a:any)=>(
+          <Link key={a.id||a.annonceId} href={`/produit/${a.id||a.annonceId}`} className="bg-white rounded-2xl border overflow-hidden hover:shadow-md transition">
+            <div className="aspect-square bg-gray-100 relative">
+              {a.images?.[0] ? <img src={a.images[0]} alt={a.titre||a.title} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">Pas d'image</div>}
+              <div className="absolute top-1.5 left-1.5 flex gap-1">
+                <span className="text-[9px] bg-black/70 text-white px-1.5 py-0.5 rounded-full backdrop-blur">{a._badge||"🆓"} {a._palierId||""}</span>
+                {a._isPaye && <span className="text-[9px] bg-green-500 text-white px-1 py-0.5 rounded-full">{a._joursRestants}j</span>}
+              </div>
+            </div>
+            <div className="p-2">
+              <div className="font-bold text-xs line-clamp-2">{a.titre||a.title||"Produit"}</div>
+              <div className="text-[11px] text-orange-600 font-bold mt-1">{formatPrix(a)}</div>
+              <div className="text-[10px] text-gray-500 mt-0.5">{cleanWhatsapp(a.ownerWhatsapp||a.whatsapp||"").slice(-9)} • {a._badge} {a._palierId||""}</div>
+            </div>
+          </Link>
+        ))}
+      </div>
+
+      {filteredSearch.length===0 && (
+        <div className="text-center py-10 p-4">
+          <div className="text-4xl mb-2">🔍</div>
+          <div className="text-sm font-bold">Aucune annonce dans {act?.titre||actSlug} / {cat.titre||catId}</div>
+          <div className="text-[11px] text-gray-500 mt-1">
+            V6 Double Slug Fix: rawCat `{rawCatId}` → `{catId}` + rawAct `{rawActSlug}` → `{actSlug}`<br/>
+            Anciens liens technique/commerce/beaute → commerces-services, agro → gros-autres<br/>
+            Comptes cachés 🔒 filtrés - Sois le premier - STANDARD 5$ = 4 places strictes sur 7j - Même prix Détail/Gros/Presta
+          </div>
+          <Link href="/publier" className="inline-block mt-4 bg-black text-white px-6 py-2.5 rounded-xl text-sm font-bold">Publier dans {act?.titre||actSlug} - 0.2$/j OCC</Link>
+        </div>
+      )}
     </div>
   );
-}
-export const dynamic = 'force-dynamic';
+                                           }
