@@ -2,12 +2,13 @@
 import { useState, useEffect, Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getCategorieById, normalizeCategorie, getActiviteById } from "@/lib/categories";
+import { getCategorieById, normalizeCategorie, getActiviteById, CATEGORIES_WENZE } from "@/lib/categories";
 import { FREEMIUM, PALIERS, TAUX_CDF, toCDFString, verifierAbonnement, consommerPlace, libererPlace, isCompteCache } from "@/lib/paiement";
 
+export const dynamic = "force-dynamic";
 const cleanWa = (n:any)=> (n||"").toString().replace(/[^0-9]/g,"").replace(/^0+/,"");
-const getUser = ()=>{ try{ const r=localStorage.getItem("wenze_user"); return r?JSON.parse(r):null; }catch{return null;} };
-const readList = (k:string)=>{ try{ const raw=localStorage.getItem(k)||"[]"; const v=JSON.parse(raw||"[]"); return Array.isArray(v)?v:[];}catch{return[];} };
+const getUser = ()=>{ try{ if(typeof window==="undefined") return null; const r=localStorage.getItem("wenze_user"); return r?JSON.parse(r):null; }catch{return null;} };
+const readList = (k:string)=>{ try{ if(typeof window==="undefined") return []; const raw=localStorage.getItem(k)||"[]"; const v=JSON.parse(raw||"[]"); return Array.isArray(v)?v:[];}catch{return[];} };
 
 function PublierContent(){
   const router = useRouter();
@@ -32,14 +33,6 @@ function PublierContent(){
     const u=getUser();
     if(!u){ router.push("/connexion?next=/publier"); return; }
     const waU=cleanWa(u.ownerWhatsapp||u.whatsapp||u.id);
-    // Guard compte caché
-    try{
-      const allUsers=readList("wenze_all_users");
-      const fullU=allUsers.find((x:any)=>cleanWa(x.ownerWhatsapp||"")===waU) || u;
-      if(isCompteCache(fullU)){
-        // On laisse publier mais on warn, il sera caché jusqu'à ticket
-      }
-    }catch{}
 
     let abCheck:any=null;
     try{
@@ -73,7 +66,7 @@ function PublierContent(){
     setUser({ ownerWhatsapp:u.ownerWhatsapp||u.whatsapp||"", whatsapp:u.whatsapp||"", id:u.id||"", nom:u.nom||"", nomEtablissement:u.nomEtablissement||u.nom||"", commune:u.commune||"", categorieId:fixedCat, role:"boutique", catObj });
     if(!old){ setForm((f:any)=>({ ...f, categorieId:fixedCat, activiteId:u.activiteId||firstAct, commune:u.commune||f.commune })); }
     setLoading(false);
-  },[router,editId,catFromUrl,selectedTicketId]);
+  },[router,editId,catFromUrl]);
 
   const currentCat:any=useMemo(()=>getCategorieById(form.categorieId)||{},[form.categorieId]);
   const prixNum=Number(form.prix||0);
@@ -88,14 +81,13 @@ function PublierContent(){
   const handlePhotos=(e:any)=>{
     const files=Array.from(e.target.files||[]) as File[];
     if(!files.length) return;
-    // V6 STRICT: 1 ticket = X places strictes
     const maxAdd=selectedTicket?selectedTicket.imagesMax-selectedTicket.imagesUsed+(isEditMode?1:0):(ab?.isFreemium?ab.imagesRestantes:4);
     if(photos.length+files.length>maxAdd){
-      showToastFn(`Limite stricte atteinte: ${selectedTicket?`Ticket ${selectedTicket.palierId} ${selectedTicket.imagesUsed}/${selectedTicket.imagesMax} places - Reste ${maxAdd-photos.length}`:`Freemium ${ab?.count||0}/${FREEMIUM.maxImages} à vie - Reste ${ab?.imagesRestantes||0}`}`, "error");
+      showToastFn(`Limite stricte atteinte: ${selectedTicket?`Ticket ${selectedTicket.palierId} ${selectedTicket.imagesUsed}/${selectedTicket.imagesMax} - Reste ${maxAdd-photos.length}`:`Freemium ${ab?.count||0}/${FREEMIUM.maxImages} à vie - Reste ${ab?.imagesRestantes||0}`}, "error");
       return;
     }
     files.slice(0,4-photos.length).forEach((file:File)=>{
-      if(file.size>5*1024*1024){ showToastFn("Photo 5Mo max (V6 léger pour éviter Quota)", "error"); return; }
+      if(file.size>5*1024*1024){ showToastFn("Photo 5Mo max (V6 léger)", "error"); return; }
       const reader=new FileReader();
       reader.onload=()=>{
         const img=new Image();
@@ -116,7 +108,7 @@ function PublierContent(){
   const handlePublish=()=>{
     if(!ab){ showToastFn("Vérification abonnement V6...", "error"); return; }
     if(ab.isCache){ router.push("/abonnement?msg=cache"); return; }
-    if(!ab.peutPublier){ showToastFn(ab.isFreemium?`Freemium 3/3 à vie atteint - Achète ticket 5$ (${toCDFString(5)})`:`Plus de places libres - Achète nouveau ticket même prix pour tous - Max 50`, "error"); return; }
+    if(!ab.peutPublier){ showToastFn(ab.isFreemium?`Freemium 3/3 à vie atteint - Achète ticket 5$ (${toCDFString(5)})`:`Plus de places libres - Achète nouveau ticket même prix - Max 50`, "error"); return; }
     if(!isEditMode&&ab.isPaye&&!selectedTicketId){ showToastFn("V6 Strict: Choisis le ticket où publier - 1 ticket = X places strictes", "error"); return; }
     if(form.titre.trim().length<3){ showToastFn("Titre 3 caractères min", "error"); return; }
     if(!prixNum){ showToastFn("Prix $ requis - Taux "+TAUX_CDF, "error"); return; }
@@ -128,7 +120,6 @@ function PublierContent(){
       const createdAtFinal=keepDates?.createdAt||new Date().toISOString();
       const wa=cleanWa(user.ownerWhatsapp||user.whatsapp);
       const catId=normalizeCategorie(form.categorieId);
-      // STRICT consomme place
       if(!isEditMode&&selectedTicketId){
         const ok=consommerPlace(selectedTicketId, id);
         if(!ok){ showToastFn(`Ticket ${selectedTicket?.palierId} plein ${selectedTicket?.imagesUsed}/${selectedTicket?.imagesMax} strictes ou expiré`, "error"); setSaving(false); return; }
@@ -146,18 +137,24 @@ function PublierContent(){
       if(userAnnonces.length>=maxGlobal){
         const sorted=userAnnonces.sort((a:any,b:any)=>new Date(a.createdAt).getTime()-new Date(b.createdAt).getTime());
         const oldest=sorted[0];
-        try{ libererPlace(oldest.ticketId||oldest.id); }catch{}
+        try{ libererPlace(oldest.id); }catch{}
         list=list.filter((x:any)=>String(x.id)!==String(oldest.id));
       }
       list.unshift(annonce);
-      localStorage.setItem("wenze_annonces_list", JSON.stringify(list.slice(0,200)));
+      if(typeof window!=="undefined") localStorage.setItem("wenze_annonces_list", JSON.stringify(list.slice(0,200)));
       setShowSuccess({ id:annonce.id, titre:annonce.titre, prix:prixNum+"$ / "+toCDFString(prixNum), ticket:selectedTicket });
       setSaving(false);
       setTimeout(()=>router.push("/produit/"+id),1800);
-    }catch(e:any){ showToastFn(e.message||"Stockage plein - Supprime photos ou annonces", "error"); setSaving(false); }
+    }catch(e:any){ showToastFn(e.message||"Stockage plein - Supprime photos", "error"); setSaving(false); }
   };
 
-  if(loading) return <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6"><div className="h-24 bg-white border rounded-2xl animate-pulse"/><p className="text-[11px] text-gray-400 mt-2">V6 Chargement - Même ticket pour tous - Taux {TAUX_CDF}...</p></div>;
+  if(loading){
+    return (
+      <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6 flex items-center justify-center">
+        <div><div className="h-24 bg-white border rounded-2xl animate-pulse"/><p className="text-[11px] text-gray-400 mt-2">V6 Chargement - Même ticket - Taux {TAUX_CDF}...</p></div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-28">
@@ -169,7 +166,7 @@ function PublierContent(){
             <div className="bg-[#FFFBF0] border-2 rounded-2xl p-4 mt-4 text-left">
               <p className="font-black text-[13px]">{showSuccess.titre}</p>
               <p className="text-[12px] font-black text-orange-600 mt-1">{showSuccess.prix}</p>
-              <p className="text-[10px] mt-2 bg-black text-white inline-block px-2.5 py-1 rounded-full">{showSuccess.ticket?`🎫 ${showSuccess.ticket.palierId} ${showSuccess.ticket.imagesUsed+1}/${showSuccess.ticket.imagesMax} strictes - Expire ${new Date(showSuccess.ticket.expireAt).toLocaleDateString("fr-FR")}`:`🆓 Freemium ${ab?.count||0}/${FREEMIUM.maxImages} à vie - 30j visible`}</p>
+              <p className="text-[10px] mt-2 bg-black text-white inline-block px-2.5 py-1 rounded-full">{showSuccess.ticket?`🎫 ${showSuccess.ticket.palierId} ${showSuccess.ticket.imagesUsed+1}/${showSuccess.ticket.imagesMax} strictes`:`🆓 Freemium ${ab?.count||0}/${FREEMIUM.maxImages} à vie - 30j visible`}</p>
             </div>
             <p className="text-[10px] text-gray-500 mt-3">Redirection vers produit...</p>
           </div>
@@ -180,7 +177,7 @@ function PublierContent(){
         <Link href={isEditMode?`/produit/${editId}`:"/"} className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
         <div className="flex-1 min-w-0">
           <h1 className="font-black text-[13px] truncate">WENZE V6 - {isEditMode?"Modifier":"Publier"} - {ab?(ab.isCache?"🔒 CACHÉ":ab.isPaye?`${ab.ticketsActifs?.length||0} tickets ${ab.placesRestantes||0} libres/50 max`:`🆓 ${ab.count}/${FREEMIUM.maxImages} Freemium`):"..."}</h1>
-          <p className="text-[9px] text-gray-500 truncate">{currentCat.icon||"📦"} {currentCat.titre||form.categorieId} - Strict: 1 ticket = X places sur Y jours - Même prix pour tous - 0% comm - Taux {TAUX_CDF}</p>
+          <p className="text-[9px] text-gray-500 truncate">{currentCat.icon||"📦"} {currentCat.titre||form.categorieId} - Strict: 1 ticket = X places sur Y jours - Même prix - 0% comm - Taux {TAUX_CDF}</p>
         </div>
         <span className={`text-[10px] px-2.5 py-1 rounded-full font-black text-white ${ab?.isCache?"bg-red-600":ab?.isPaye?"bg-black":"bg-orange-500"}`}>{ab?.badge||"..."}</span>
       </header>
@@ -191,7 +188,7 @@ function PublierContent(){
         {ab?.isCache&&(
           <div className="bg-red-600 text-white rounded-2xl p-4 border-2 border-black shadow">
             <p className="font-black text-[13px]">🔒 Compte caché V6 - 30j Freemium expirés</p>
-            <p className="text-[11px] mt-1.5 opacity-90">Tes annonces non visibles dans Marché. Tes tickets restent archivés. Achète ticket pour réapparaître immédiatement - Même prix pour tous.</p>
+            <p className="text-[11px] mt-1.5 opacity-90">Tes annonces non visibles dans Marché. Achète ticket pour réapparaître immédiatement - Même prix pour tous.</p>
             <Link href="/abonnement" className="mt-3 block w-full bg-white text-black text-center py-3 rounded-full font-black text-[12px]">🎫 Payer 5$ / {toCDFString(5)} - Réapparaître</Link>
           </div>
         )}
@@ -199,15 +196,15 @@ function PublierContent(){
         {ab?.isFreemium&&ab.imagesRestantes===0&&(
           <div className="bg-yellow-100 border-2 border-yellow-400 rounded-2xl p-4">
             <p className="font-black text-[12px]">🆓 Freemium 3/3 à vie atteint - Strict V6</p>
-            <p className="text-[10px] mt-1">Tu as utilisé tes 3 places strictes à vie. Achète ⭐ STANDARD 5$ ({toCDFString(5)}) = 4 places strictes sur 7j - Cumulable - Max 50 - 0% comm</p>
+            <p className="text-[10px] mt-1">Achète ⭐ STANDARD 5$ ({toCDFString(5)}) = 4 places strictes sur 7j - Cumulable - Max 50 - 0% comm</p>
             <Link href="/abonnement" className="mt-3 block w-full bg-black text-white text-center py-2.5 rounded-full font-black text-[11px]">Voir tickets 5$/10$/20$ - Même prix pour tous</Link>
           </div>
         )}
 
         {ab?.isPaye&&(
           <div className="bg-white border-2 border-black rounded-2xl p-4 shadow-sm">
-            <p className="font-black text-[13px]">🎫 Choisis le ticket où publier - V6 Strict & Interchangeable</p>
-            <p className="text-[9px] text-gray-600 mt-1">1 ticket 4 places/7j = tu peux poster 1/j pendant 4j jusqu'à 4/4, pas 4/j. Suppression libère place immédiatement. Renouvelable. Max 50.</p>
+            <p className="font-black text-[13px]">🎫 Choisis le ticket où publier - V6 Strict</p>
+            <p className="text-[9px] text-gray-600 mt-1">1 ticket 4 places/7j = tu peux poster 1/j pendant 4j jusqu'à 4/4, pas 4/j. Suppression libère place.</p>
             <div className="mt-3 space-y-2 max-h-[220px] overflow-y-auto">
               {(ab.ticketsActifs||[]).map((t:any)=>(
                 <button key={t.ticketId} onClick={()=>setSelectedTicketId(t.ticketId)} className={`w-full border-2 rounded-xl p-3 text-left transition ${selectedTicketId===t.ticketId?"border-black bg-black text-white":"border-gray-200 bg-white hover:border-black"}`}>
@@ -219,11 +216,7 @@ function PublierContent(){
                 </button>
               ))}
             </div>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <Link href="/abonnement" className="bg-white border-2 border-black py-2.5 rounded-full text-center font-black text-[10px]">+ Acheter autre ticket - N'écrase pas</Link>
-              <Link href="/profil" className="bg-gray-100 py-2.5 rounded-full text-center font-bold text-[10px]">Mon abonnement {ab.badge}</Link>
-            </div>
-            {selectedTicket&&<p className="text-[10px] mt-3 font-bold bg-[#FFFBF0] border rounded-xl p-2.5">✅ Ticket choisi: {selectedTicket.palierId} - Reste {placesTicket} places strictes sur {selectedTicket.jours}j - 1 image/j jusqu'à {selectedTicket.imagesMax} - Cumulable</p>}
+            {selectedTicket&&<p className="text-[10px] mt-3 font-bold bg-[#FFFBF0] border rounded-xl p-2.5">✅ Ticket choisi: {selectedTicket.palierId} - Reste {placesTicket} places strictes sur {selectedTicket.jours}j</p>}
           </div>
         )}
 
@@ -232,7 +225,6 @@ function PublierContent(){
             <p className="font-black text-[12px]">Photos V6 - 4 max - Léger 800px JPEG 65%</p>
             <p className="text-[10px] bg-black text-white px-2.5 py-1 rounded-full font-bold">{photos.length} / {selectedTicket?selectedTicket.imagesMax-selectedTicket.imagesUsed+(isEditMode?1:0):ab?.isFreemium?ab.imagesRestantes:4}</p>
           </div>
-          <p className="text-[9px] text-gray-500 mt-1">{selectedTicket?`Ticket ${selectedTicket.palierId}: ${selectedTicket.imagesUsed}/${selectedTicket.imagesMax} strictes - Tu peux poster 1/j jusqu'à ${selectedTicket.imagesMax}`:ab?.isFreemium?`Freemium ${ab.count}/${FREEMIUM.maxImages} à vie strictes - Visibles 30j puis 🔒 caché`:"Choisis un ticket ci-dessus"}</p>
           <input type="file" accept="image/*" multiple onChange={handlePhotos} className="mt-3 w-full text-[11px] border border-dashed rounded-xl p-3 bg-gray-50" disabled={!peutPublier||ab?.isCache||(ab?.isPaye&&!selectedTicketId)} />
           {photos.length>0&&(
             <div className="mt-4 grid grid-cols-2 gap-3">
@@ -240,7 +232,6 @@ function PublierContent(){
                 <div key={i} className="relative group">
                   <img src={p} alt="" className="w-full h-28 object-cover rounded-xl border-2" />
                   <button onClick={()=>{ setPhotos(prev=>prev.filter((_,idx)=>idx!==i)); }} className="absolute top-1.5 right-1.5 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center text-[12px] font-bold">✕</button>
-                  <span className="absolute bottom-1 left-1 bg-black/70 text-white text-[8px] px-1.5 py-0.5 rounded-full">{i+1}</span>
                 </div>
               ))}
             </div>
@@ -256,4 +247,19 @@ function PublierContent(){
             <div><label className="text-[10px] font-bold">Stock</label><input value={form.stock} onChange={e=>setField("stock",e.target.value.replace(/[^0-9]/g,""))} placeholder="1" inputMode="numeric" className="w-full mt-1 border rounded-xl p-3.5 text-[13px] focus:ring-2 focus:ring-black outline-none" /></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <div><label className="text-[10px] fo
+            <div><label className="text-[10px] font-bold">Commune</label><input value={form.commune} onChange={e=>setField("commune",e.target.value)} placeholder="Ex: Gombe" className="w-full mt-1 border rounded-xl p-3.5 text-[13px] focus:ring-2 focus:ring-black outline-none" /></div>
+            <div><label className="text-[10px] font-bold">Ville</label><input value={form.ville} onChange={e=>setField("ville",e.target.value)} placeholder="Kinshasa" className="w-full mt-1 border rounded-xl p-3.5 text-[13px] focus:ring-2 focus:ring-black outline-none" /></div>
+          </div>
+          <div>
+            <label className="text-[10px] font-bold">Catégorie - Même ticket pour tous</label>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {CATEGORIES_WENZE.map((c:any)=>{
+                const sel=form.categorieId===c.id;
+                return <button key={c.id} type="button" onClick={()=>{ setField("categorieId",c.id); const first=c.activites?.[0]?.id||""; setField("activiteId",first); }} className={`text-left p-3 rounded-xl border-2 text-[11px] font-bold ${sel?"bg-black text-white border-black":"bg-white border-gray-200"}`}>{c.icon} {c.titreCourt}</button>;
+              })}
+            </div>
+          </div>
+          <div>
+            <label className="text-[10px] font-bold">Activité</label>
+            <div className="mt-2 flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+              {(ge
