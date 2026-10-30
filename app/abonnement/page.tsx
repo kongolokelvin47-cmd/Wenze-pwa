@@ -2,184 +2,214 @@
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FORMULES, PUBS, TAUX_CDF, verifierAbonnement, getSoldeWPay, getPrixByCategorie, activerAbonnement } from "@/lib/paiement";
-import { getCategorieById, normalizeCategorie } from "@/lib/categories";
+import { FREEMIUM, PALIERS, OCCASIONNEL, TAUX_CDF, verifierAbonnement, activerPalier, toCDF, formatPrix } from "@/lib/paiement";
 
 export const dynamic = 'force-dynamic';
 
 function AbonnementContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const catFromUrl = normalizeCategorie(searchParams.get("cat") || searchParams.get("categorie") || "");
-  const mode = searchParams.get("mode"); // occasionnel, boutique, pub-video
-  const boostId = searchParams.get("boost");
-  const pubId = searchParams.get("pub"); // id pub vidéo
+  const mode = searchParams.get("mode"); // client
   const annonceId = searchParams.get("id");
 
   const [ab, setAb] = useState<any>(null);
+  const [selectedPalier, setSelectedPalier] = useState<"STANDARD"|"PRO"|"PREMIUM">("STANDARD");
+  const [selectedDuree, setSelectedDuree] = useState<"1j"|"7j"|"30j">("30j");
+  const [selectedOcc, setSelectedOcc] = useState<string>("occ-1img-1j");
   const [paying, setPaying] = useState(false);
   const [success, setSuccess] = useState<any>(null);
 
-  const isOccasionnel = mode === "occasionnel" || catFromUrl === "client";
-  const isPubVideo = mode === "pub-video" || !!pubId;
-  const catObj = getCategorieById(catFromUrl);
+  const isOccasionnel = mode === "occasionnel" || mode === "client";
 
-  const BOOSTS = [
-    { id:"boost-1", label:"Boost 24h TOP", prixUSD:1, prixCDF:2300, dureeJ:1, type:"annonce" },
-    { id:"boost-3", label:"Boost 3 jours", prixUSD:3, prixCDF:6900, dureeJ:3, type:"annonce" },
-    { id:"boost-7", label:"Boost 7 jours MAX", prixUSD:5, prixCDF:11500, dureeJ:7, type:"annonce" },
-  ];
+  useEffect(()=>{ try{ setAb(verifierAbonnement()); }catch{} },[]);
 
-  // PUB VIDEO - depuis lib/paiement PUBS
-  const pubVideoObj = PUBS?.find((p:any)=>p.id===pubId) || (isPubVideo ? PUBS?.[0] : null);
+  const palier = PALIERS[selectedPalier];
+  const prixUSD = palier.prix[selectedDuree];
+  const prixCDF = toCDF(prixUSD);
+  const jours = palier.jours[selectedDuree];
 
-  const boostObj = BOOSTS.find(b=>b.id===boostId) || BOOSTS[0];
-  const prixBoutique = getPrixByCategorie(catFromUrl);
+  const occSelected = OCCASIONNEL.offres.find(o=>o.id===selectedOcc) || OCCASIONNEL.offres[0];
 
-  let prixUSD = prixBoutique.prixUSD;
-  let prixCDF = prixBoutique.prixCDF;
-  let label = `${catObj?.titre} ${prixUSD}$`;
-  let dureeJ = 30;
-
-  if(isOccasionnel){ prixUSD=boostObj.prixUSD; prixCDF=boostObj.prixCDF; label=boostObj.label; dureeJ=boostObj.dureeJ; }
-  if(isPubVideo && pubVideoObj){ prixUSD=pubVideoObj.prixUSD; prixCDF=pubVideoObj.prixCDF; label=`Pub Vidéo ${pubVideoObj.label} ${prixUSD}$`; dureeJ=pubVideoObj.dureeJ||7; }
-
-  useEffect(()=>{
-    try{ setAb(verifierAbonnement()); }catch{}
-  },[]);
-
-  const handlePay = async ()=>{
+  const handlePayPalier = async ()=>{
     setPaying(true);
-    try{
-      const user = JSON.parse(localStorage.getItem("wenze_user")||"{}");
-      await new Promise(r=>setTimeout(r,1400));
+    await new Promise(r=>setTimeout(r,1200));
+    const res = activerPalier(selectedPalier, selectedDuree);
+    if(res.success){
+      setSuccess({ type:"palier", palier: selectedPalier, duree: selectedDuree, prixUSD, prixCDF, expireAt: res.expireAt, jours });
+      setTimeout(()=> router.push("/publier"), 2500);
+    }
+    setPaying(false);
+  };
 
-      if(isOccasionnel && annonceId){
-        const list:any[] = JSON.parse(localStorage.getItem("wenze_annonces_list")||"[]");
-        const idx = list.findIndex((a:any)=>a.id===annonceId);
-        if(idx>=0){
-          list[idx].boostUntil = new Date(Date.now()+dureeJ*86400000).toISOString();
-          list[idx].boostType = boostObj.id;
-          list[idx].boostPrixUSD = prixUSD;
-          list[idx].boostedAt = new Date().toISOString();
-          localStorage.setItem("wenze_annonces_list", JSON.stringify(list));
-        }
-        const { notifyBoostPayed } = await import("@/lib/notifications");
-        notifyBoostPayed(user, annonceId, { ...boostObj, prixUSD, prixCDF });
-        setSuccess({ type:"boost", label, prixUSD, prixCDF, annonceId, dureeJ });
-        setTimeout(()=> router.push(`/produit/${annonceId}`), 2000);
-
-      } else if(isPubVideo){
-        // ✅ PUB VIDEO PAYÉE - Sauve expireAt + notif + rappel J-5 J-1
-        const expireAt = new Date(Date.now()+dureeJ*86400000).toISOString();
-        const pubsPayees:any[] = JSON.parse(localStorage.getItem("wenze_pubs_video")||"[]");
-        pubsPayees.push({ id:`pub-${Date.now()}`, pubId: pubVideoObj?.id, label, prixUSD, prixCDF, expireAt, createdAt:new Date().toISOString(), userId:user.id||user.ownerWhatsapp });
-        localStorage.setItem("wenze_pubs_video", JSON.stringify(pubsPayees));
-        // Réutilise activerAbonnement pour que checkAndNotifyExpirations voit expireAt
-        localStorage.setItem("wenze_abonnement", JSON.stringify({ prixUSD, prixCDF, expireAt, type:"pub-video", label, createdAt:new Date().toISOString() }));
-        try{
-          const { notifyAbonnementPayed, addNotification } = await import("@/lib/notifications");
-          notifyAbonnementPayed(user, prixUSD, prixCDF);
-          // Notif spécifique pub vidéo
-          addNotification({ type:"pub-video-payee", title:`🎬 Pub Vidéo ${label} activée!`, message:`Ta pub vidéo ${label} ${prixUSD}$ est TOP sur /video ${dureeJ}j + 🔔 notif clients + rappel J-1`, data:{ pubId: pubVideoObj?.id, expireAt } } as any);
-        }catch{}
-        setSuccess({ type:"pub-video", label, prixUSD, prixCDF, expireAt, dureeJ });
-        setTimeout(()=> router.push("/video"), 2000);
-
-      } else {
-        // ✅ BOUTIQUE 5$/10$
-        const expireAt = activerAbonnement(prixUSD, prixCDF);
-        const { notifyAbonnementPayed } = await import("@/lib/notifications");
-        notifyAbonnementPayed(user, prixUSD, prixCDF);
-        setSuccess({ type:"abonnement", label, prixUSD, prixCDF, expireAt, dureeJ:30 });
-        setTimeout(()=> router.push("/publier"), 2000);
+  const handlePayOcc = async ()=>{
+    setPaying(true);
+    await new Promise(r=>setTimeout(r,1200));
+    // Simule paiement occasionnel
+    const list:any[] = JSON.parse(localStorage.getItem("wenze_annonces_list")||"[]");
+    if(annonceId){
+      const idx = list.findIndex((a:any)=>a.id===annonceId);
+      if(idx>=0){
+        list[idx].boostUntil = new Date(Date.now()+occSelected.jours*86400000).toISOString();
+        list[idx].occasionnelPaye = true;
+        list[idx].occasionnelPrix = occSelected.prixUSD;
+        localStorage.setItem("wenze_annonces_list", JSON.stringify(list));
       }
-    } catch{ setPaying(false); }
+    }
+    // Sauve transaction occasionnelle
+    const occTx = { id:`OCC-${Date.now()}`, type:"OCCASIONNEL", offre: occSelected.id, prixUSD: occSelected.prixUSD, prixCDF: occSelected.prixCDF, expireAt: new Date(Date.now()+occSelected.jours*86400000).toISOString(), createdAt: new Date().toISOString() };
+    localStorage.setItem("wenze_occasionnel_dernier", JSON.stringify(occTx));
+    const logs = JSON.parse(localStorage.getItem("wenze_transactions")||"[]");
+    logs.push(occTx);
+    localStorage.setItem("wenze_transactions", JSON.stringify(logs));
+
+    setSuccess({ type:"occasionnel", offre: occSelected, prixUSD: occSelected.prixUSD, prixCDF: occSelected.prixCDF, jours: occSelected.jours });
+    setTimeout(()=> router.push(annonceId ? `/produit/${annonceId}` : "/"), 2500);
+    setPaying(false);
   };
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-24">
-      <div className="sticky top-0 bg-white border-b p-4 z-10">
-        <h1 className="font-black text-[15px]">WENZE WENZE BUSINESS - Paiement {isPubVideo?"Pub Vidéo":isOccasionnel?"Boost":"Boutique"}</h1>
-        <p className="text-[9px] text-gray-500 mt-1">Taux {TAUX_CDF} CDF • 0% comm • Pub vidéo incluse • Rappels J-5 J-1 • 🔔 notif clients</p>
-        {ab && <p className="text-[10px] mt-1 font-bold">Statut: {ab.label}</p>}
+      <div className="sticky top-0 bg-white border-b-2 border-black p-4 z-10">
+        <h1 className="font-black text-[15px]">WENZE PUB - 100% Visibilité - 0% Commission</h1>
+        <p className="text-[9px] text-gray-600 mt-1">Taux {TAUX_CDF} CDF fixe • 3 images à vie Freemium 30j puis caché • Règle: {FREEMIUM.maxImages} images gratuites à vie</p>
+        {ab && (
+          <div className={`mt-2 text-[11px] font-bold px-2 py-1 rounded-full border-2 ${ab.isCache ? 'bg-red-100 border-red-300 text-red-800' : ab.isPaye ? 'bg-green-100 border-green-300 text-green-800' : 'bg-yellow-100 border-yellow-300'}`}>
+            Statut: {ab.badge} {ab.message} {ab.count!==undefined && `(${ab.count}/3)`}
+          </div>
+        )}
       </div>
 
       {success && (
-        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/70 z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[24px] max-w-[340px] w-full p-6 text-center border-2 border-black">
             <div className="w-16 h-16 bg-green-500 rounded-full flex items-center justify-center mx-auto text-white text-3xl">✓</div>
-            <h2 className="font-black text-[17px] mt-4">Paiement approuvé!</h2>
+            <h2 className="font-black text-[16px] mt-4">Paiement approuvé!</h2>
             <div className="bg-[#FFFBF0] border-2 rounded-xl p-3 mt-3 text-left">
-              <p className="font-black text-[12px]">{success.label} - {success.prixUSD}$ / {success.prixCDF.toLocaleString()} CDF</p>
-              {success.type==="pub-video" && <p className="text-[10px] text-green-700 font-bold mt-1">🎬 Pub Vidéo TOP sur /video {success.dureeJ}j + 🔔 notif à tous les clients + rappel J-5 J-1 + badge vidéo</p>}
-              {success.type==="boost" && <p className="text-[10px] text-green-700 font-bold mt-1">🚀 Boost TOP {success.dureeJ}j + 🔔 notif clients + rappel 24h</p>}
-              {success.type==="abonnement" && <p className="text-[10px] text-green-700 font-bold mt-1">✅ Boutique 30j + 🔔 notif clients à chaque pub + boost gratuit + rappel J-5 J-1</p>}
-              {success.expireAt && <p className="text-[9px] text-gray-500 mt-1">Expire {new Date(success.expireAt).toLocaleDateString("fr-FR")} - Rappel auto</p>}
+              {success.type==="palier" && <>
+                <p className="font-black text-[12px]">{PALIERS[success.palier].badge} {success.palier} {success.duree} - {success.prixUSD}$ / {success.prixCDF.toLocaleString()} CDF</p>
+                <p className="text-[10px] text-green-700 font-bold mt-1">✅ {PALIERS[success.palier].imagesMax} images max + {PALIERS[success.palier].videos} - TOP {success.jours}j - Réapparaît instantanément</p>
+                <p className="text-[9px] text-gray-500 mt-1">Expire {new Date(success.expireAt).toLocaleDateString("fr-FR")} - Max 50 actives</p>
+              </>}
+              {success.type==="occasionnel" && <>
+                <p className="font-black text-[12px]">{success.offre.badge} {success.offre.label} - {success.prixUSD}$</p>
+                <p className="text-[10px] text-green-700 font-bold mt-1">✅ Vente occasionnelle TOP {success.jours}j - Pas de freemium</p>
+              </>}
             </div>
           </div>
         </div>
       )}
 
-      <div className="p-4 space-y-4">
-        {isPubVideo && (
-          <div className="bg-white border-2 border-purple-300 rounded-2xl p-4">
-            <p className="font-black text-[13px]">🎬 Publicité Vidéo WENZE WENZE BUSINESS</p>
-            <p className="text-[11px] text-gray-600 mt-1">Ta vidéo sera en TOP sur /video + page d'accueil + 🔔 notif à tous les clients comme une boutique 5$/10$.</p>
-            <div className="mt-3 grid gap-2">
-              {PUBS?.map((p:any)=>(
-                <div key={p.id} className={`border-2 rounded-xl p-3 cursor-pointer ${pubId===p.id?"border-purple-600 bg-purple-50":"border-gray-200"}`} onClick={()=>router.push(`/abonnement?mode=pub-video&pub=${p.id}`)}>
-                  <p className="font-black text-[12px]">{p.label} - {p.prixUSD}$ / {p.prixCDF?.toLocaleString()||toCDF(p.prixUSD)} CDF - {p.dureeJ||7}j</p>
-                  <p className="text-[10px] text-gray-600">{p.desc||`Vidéo TOP ${p.dureeJ}j + notif clients + rappel J-1`}</p>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 bg-purple-50 border-2 border-purple-200 rounded-xl p-3">
-              <p className="font-black text-[12px]">{label} - {prixUSD}$ sélectionnée</p>
-              <p className="text-[10px] mt-1">TOP /video {dureeJ}j + 🔔 broadcast clients + rappel J-5 J-1 + badge 🎬</p>
-            </div>
+      <div className="p-4 space-y-5">
+        {/* ALERTE CACHE */}
+        {ab?.isCache && (
+          <div className="bg-red-50 border-2 border-red-400 rounded-2xl p-4">
+            <p className="font-black text-[13px] text-red-800">🔒 Ton compte est en mode caché</p>
+            <p className="text-[11px] text-red-700 mt-1">Tu as utilisé tes 3 images gratuites à vie et tes 30 jours sont expirés. Personne ne te voit dans la recherche. Paye un palier ci-dessous pour réapparaître instantanément.</p>
           </div>
         )}
 
-        {isOccasionnel && !isPubVideo && (
-          <div className="bg-white border-2 rounded-2xl p-4">
-            <p className="font-black text-[13px]">📦 Boost occasionnel</p>
-            <div className="mt-3 grid gap-2">
-              {BOOSTS.map(b=>(
-                <div key={b.id} className={`border-2 rounded-xl p-3 cursor-pointer ${boostId===b.id?"border-black bg-[#FFFBF0]":"border-gray-200"}`} onClick={()=>router.push(`/abonnement?mode=occasionnel&boost=${b.id}&id=${annonceId||""}`)}>
-                  <p className="font-black text-[12px]">{b.label} - {b.prixUSD}$ / {b.prixCDF} CDF</p>
-                  <p className="text-[10px] text-gray-600">TOP {b.dureeJ}j + 🔔 notif clients</p>
+        {/* MODE CLIENT OCCASIONNEL */}
+        {isOccasionnel ? (
+          <div className="bg-white border-2 border-black rounded-2xl p-4">
+            <p className="font-black text-[14px]">🎟️ Vente Occasionnelle - Client (Pas de freemium)</p>
+            <p className="text-[10px] text-gray-600 mt-1">Tu vends ta vieille télé? Pas de gratuit. Paye 0.2$ mini pour filtrer le spam. Visible immédiatement.</p>
+            <div className="mt-4 grid gap-2">
+              {OCCASIONNEL.offres.map(o=>(
+                <div key={o.id} onClick={()=>setSelectedOcc(o.id)} className={`border-2 rounded-xl p-3 cursor-pointer flex justify-between items-center ${selectedOcc===o.id?"border-black bg-black text-white":"border-gray-200 bg-white"}`}>
+                  <div>
+                    <p className="font-black text-[12px]">{o.badge} {o.label}</p>
+                    <p className="text-[9px] opacity-70">{o.jours}j TOP - Anti-spam</p>
+                  </div>
+                  <p className="font-black text-[12px]">{o.prixUSD}$ / {o.prixCDF} CDF</p>
                 </div>
               ))}
             </div>
+            <button onClick={handlePayOcc} disabled={paying} className="mt-4 w-full bg-black text-white py-4 rounded-full font-black text-[13px] disabled:opacity-50">
+              {paying?`Paiement...`:`Payer ${occSelected.prixUSD}$ / ${occSelected.prixCDF} CDF - Publier occasionnel`}
+            </button>
           </div>
-        )}
+        ) : (
+          <>
+            {/* SELECTEUR PALIER */}
+            <div className="bg-white border-2 border-black rounded-2xl p-4">
+              <p className="font-black text-[14px]">Choisis ton panneau publicitaire</p>
+              <p className="text-[10px] text-gray-600 mt-1">Même prix pour Détail, Grossiste, Prestataire. Plus de triche catégorie. Max 50 actives.</p>
+              
+              <div className="mt-4 grid grid-cols-3 gap-2">
+                {(Object.keys(PALIERS) as Array<"STANDARD"|"PRO"|"PREMIUM">).map(k=>{
+                  const p = PALIERS[k];
+                  const active = selectedPalier===k;
+                  return (
+                    <div key={k} onClick={()=>setSelectedPalier(k)} className={`border-2 rounded-xl p-3 cursor-pointer text-center ${active?"border-black bg-black text-white":"border-gray-200"}`}>
+                      <p className="text-[16px]">{p.badge}</p>
+                      <p className="font-black text-[11px] mt-1">{k}</p>
+                      <p className="text-[8px] mt-1 opacity-70">{p.imagesMin}-{p.imagesMax} img</p>
+                      <p className="text-[8px] opacity-70">{p.videos}</p>
+                    </div>
+                  );
+                })}
+              </div>
 
-        {!isOccasionnel && !isPubVideo && (
-          <div className="bg-white border-2 rounded-2xl p-4">
-            <p className="font-black text-[13px]">{catObj?.icon} {catObj?.titre} - {prixUSD}$</p>
-            <div className="mt-3 bg-green-50 border-2 border-green-200 rounded-xl p-3">
-              <p className="text-[10px]">✅ Illimité images+vidéos<br/>🔔 Notif clients à chaque publication<br/>🚀 Boost gratuit 1/mois<br/>⏰ Rappel J-5 J-1<br/>0% commission</p>
+              {/* SELECTEUR DUREE */}
+              <div className="mt-4">
+                <p className="font-black text-[11px]">Durée pour {palier.nom}:</p>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {(["1j","7j","30j"] as const).map(d=>{
+                    const prix = palier.prix[d];
+                    const active = selectedDuree===d;
+                    const best = d==="30j";
+                    return (
+                      <div key={d} onClick={()=>setSelectedDuree(d)} className={`border-2 rounded-xl p-3 cursor-pointer text-center relative ${active?"border-black bg-[#FFFBF0]":"border-gray-200"} ${best?"ring-2 ring-green-400":""}`}>
+                        {best && <span className="absolute -top-2 left-1/2 -translate-x-1/2 bg-green-500 text-white text-[7px] font-black px-2 py-0.5 rounded-full">MEILLEUR</span>}
+                        <p className="font-black text-[13px]">{d}</p>
+                        <p className="font-black text-[12px] mt-1">{prix}$</p>
+                        <p className="text-[9px] text-gray-500">{toCDF(prix).toLocaleString()} CDF</p>
+                        <p className="text-[8px] mt-1">{palier.jours[d]}j TOP</p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* RECAP */}
+              <div className="mt-4 bg-green-50 border-2 border-green-200 rounded-xl p-3">
+                <p className="font-black text-[12px]">{palier.badge} {palier.nom} - {selectedDuree}</p>
+                <p className="text-[10px] mt-1">✅ {palier.imagesMin} à {palier.imagesMax} images actives + {palier.videos} + Max {palier.limiteActives} actives (51ème archive auto) + TOP {jours}j</p>
+                <p className="text-[10px] mt-1 font-bold">💰 {prixUSD}$ / {prixCDF.toLocaleString()} CDF - Réapparition instantanée</p>
+                <p className="text-[9px] text-gray-600 mt-1">Règle: Serveur protégé. 0% commission. Main à main.</p>
+              </div>
+
+              <button onClick={handlePayPalier} disabled={paying} className="mt-4 w-full bg-black text-white py-4 rounded-full font-black text-[13px] disabled:opacity-50">
+                {paying?`Paiement ${prixUSD}$...`:`Payer ${prixUSD}$ / ${prixCDF.toLocaleString()} CDF - Activer ${selectedPalier} ${selectedDuree}`}
+              </button>
+              <p className="text-[9px] text-gray-500 text-center mt-2">Airtel / Orange / M-Pesa • Activation instantanée • Ton compte sort du mode caché</p>
             </div>
-            <div className="mt-3">
-              <p className="font-black text-[11px]">FORMULES disponibles:</p>
-              <div className="grid gap-2 mt-2">
-                {FORMULES?.map((f:any)=><div key={f.id} className="border rounded-xl p-2 text-[11px]"><span className="font-black">{f.label} {f.prixUSD}$</span> - {f.duree}</div>)}
+
+            {/* TABLEAU COMPARATIF */}
+            <div className="bg-white border-2 rounded-2xl p-4">
+              <p className="font-black text-[12px]">Comparatif paliers (Même prix pour tous)</p>
+              <div className="mt-3 space-y-2 text-[10px]">
+                <div className="grid grid-cols-4 gap-2 font-black border-b pb-2">
+                  <span>Palier</span><span>Images</span><span>Vidéo</span><span>Prix 30j</span>
+                </div>
+                <div className="grid grid-cols-4 gap-2"><span>⭐ STANDARD</span><span>1-4</span><span>1x15s</span><span className="font-black">5$</span></div>
+                <div className="grid grid-cols-4 gap-2"><span>🚀 PRO</span><span>5-10</span><span>1x60s</span><span className="font-black">10$</span></div>
+                <div className="grid grid-cols-4 gap-2"><span>👑 PREMIUM</span><span>11-30</span><span>2x60s</span><span className="font-black">20$</span></div>
+                <div className="grid grid-cols-4 gap-2 text-gray-500"><span>🆓 Freemium</span><span>3 à vie</span><span>0</span><span>0$ / 30j puis caché</span></div>
               </div>
             </div>
-          </div>
+          </>
         )}
 
-        <button onClick={handlePay} disabled={paying} className="w-full bg-black text-white py-4 rounded-full font-black text-[13px] disabled:opacity-50">
-          {paying?`Paiement ${prixUSD}$...`:`Payer ${prixUSD}$ / ${prixCDF.toLocaleString()} CDF - ${isPubVideo?"🎬 Pub Vidéo":"Mobile Money"}`}
-        </button>
-        <p className="text-[9px] text-gray-500 text-center">Airtel/Orange/M-Pesa • Pub vidéo + Boutique + Boost = même système 🔔 notif + rappel J-5 J-1 • WENZE WENZE BUSINESS</p>
-        <Link href={isPubVideo?"/video":"/"} className="block text-center text-[11px] text-gray-500">← Retour</Link>
+        <div className="text-center space-y-2">
+          <Link href="/" className="block text-[11px] text-gray-500">← Retour accueil</Link>
+          <Link href="/abonnement?mode=occasionnel" className="block text-[11px] font-bold underline">Je suis client, je veux vendre en occasionnel 0.2$ →</Link>
+        </div>
       </div>
     </div>
   );
 }
 
 export default function PageAbonnement(){
-  return <Suspense fallback={<div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6">Chargement WENZE WENZE BUSINESS...</div>}><AbonnementContent/></Suspense>
-          }
+  return <Suspense fallback={<div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6">Chargement WENZE PUB...</div>}><AbonnementContent/></Suspense>
+        }
