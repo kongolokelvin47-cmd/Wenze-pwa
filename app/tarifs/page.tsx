@@ -1,129 +1,98 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CATEGORIES_WENZE } from "@/lib/categories";
-import { TAUX_CDF, FORMULES, verifierAbonnement } from "@/lib/paiement";
+import { TAUX_CDF, toCDFString, PALIERS, FREEMIUM, verifierAbonnement } from "@/lib/paiement";
 
 export default function Tarifs() {
-  const toCDF = (usd: number) => `${(usd * TAUX_CDF).toLocaleString()} CDF`;
   const [abonnement, setAbonnement] = useState<any>(null);
 
   useEffect(() => { try { setAbonnement(verifierAbonnement()); } catch {} }, []);
 
-  const isCommerces = abonnement?.actif && (abonnement?.categorie==="commerces-services" || abonnement?.type==="commerces_services" || abonnement?.type==="pro");
-  const isGros = abonnement?.actif && (abonnement?.categorie==="gros-autres" || abonnement?.type==="gros_autres" || abonnement?.type==="grossiste");
-
   return (
-    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-4 pb-24">
-      <Link href="/" className="text-xs font-bold text-[#6C3CE0]">← Accueil</Link>
-      <h1 className="text-[22px] font-black mt-2 leading-tight">WENZE BUSINESS<br/>Tarifs 2.0</h1>
-      <p className="text-[11px] text-gray-500 mt-1">Taux fixe {TAUX_CDF.toLocaleString()} CDF / $ • 0% commission • {CATEGORIES_WENZE.length} catégories • Boutique garantie</p>
-
-      <div className="bg-black text-white rounded-xl p-3 mt-3 flex justify-between items-center">
-        <div><p className="font-black text-[12px]">🛍️ Petites activités 5$ • 🏭 Gros & autres 10$</p><p className="text-[10px] opacity-70">Électricité, maçon, coiffure etc = 5$ - Gros/production = 10$</p></div>
-        <span className="bg-white text-black text-[10px] px-2 py-1 rounded-full font-black">Taux {TAUX_CDF}</span>
-      </div>
-
-      {abonnement?.actif && (
-        <div className="bg-green-50 border-2 border-green-400 rounded-xl p-3 mt-3">
-          <p className="text-[11px] font-black text-green-700">✅ {abonnement.label} actif - {abonnement.expireDans}j - {abonnement.categorie}</p>
-          <p className="text-[10px] text-green-600 mt-1">{abonnement.prixUSD}$ / {(abonnement.prixUSD*TAUX_CDF).toLocaleString()} CDF • Taux {TAUX_CDF}</p>
-        </div>
-      )}
-
-      {/* A - CLIENT */}
-      <div className="border-2 rounded-2xl p-4 mt-5 bg-white">
-        <div className="flex justify-between items-center">
-          <h2 className="font-black text-sm">A. Client / Acheteur</h2>
-          <span className="bg-black text-white text-[10px] px-3 py-1 rounded-full font-bold">0 $ / 0 CDF</span>
-        </div>
-        <p className="text-[10px] text-gray-500">Gratuit à vie</p>
-        <div className="text-[11px] mt-3 bg-gray-50 p-3 rounded-xl space-y-1">
-          <p>✓ Recherche produits, boutiques</p>
-          <p>✓ Contact WhatsApp</p>
-          <p className="font-bold">✓ Vente occasionnelle après paiement Boost</p>
-        </div>
-      </div>
-
-      {/* B - FREEMIUM */}
-      <div className="border-2 rounded-2xl p-4 mt-4 bg-white">
-        <div className="flex justify-between items-center">
-          <h2 className="font-black text-sm">B. Freemium - 3 gratuites</h2>
-          <span className="bg-gray-800 text-white text-[10px] px-3 py-1 rounded-full font-bold">0 $ / 0 CDF - À vie</span>
-        </div>
-        <div className="text-[11px] mt-3 space-y-1">
-          <p>✓ 2 catégories: 🛍️ Commerces/Services et 🏭 Gros/Autres</p>
-          <p>✓ <b>3 annonces gratuites à vie</b></p>
-          <p>✓ Boutique visible /boutiques</p>
-        </div>
-        <Link href="/inscription?type=freemium" className="block bg-gray-800 text-white text-center text-xs font-bold p-3 rounded-full mt-3">Commencer Freemium - Taux {TAUX_CDF}</Link>
-      </div>
-
-      {/* C - COMMERCES ET SERVICES 5$ */}
-      <div className={`border-2 rounded-2xl p-4 mt-4 ${isCommerces ? 'border-green-400 bg-green-50' : 'border-[#6C3CE0] bg-purple-50'}`}>
-        <div className="flex justify-between items-start">
-          <div>
-            <h2 className="font-black text-[14px]">C. Commerces et Services {isCommerces && '✅ ACTIF'}</h2>
-            <p className="text-[10px] text-gray-600">Toutes petites activités - même régime 5$</p>
+    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-28">
+      <header className="sticky top-0 bg-white/95 backdrop-blur z-20 p-4 border-b">
+        <div className="flex items-center gap-3">
+          <Link href="/" className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
+          <div className="flex-1">
+            <h1 className="font-black text-[18px] leading-tight">WENZE Tarifs V6.2 - Politique Actuelle</h1>
+            <p className="text-[10px] text-gray-500">Même ticket pour tous - 0% commission - Taux {TAUX_CDF} - Max 50 - Suppression libère place</p>
           </div>
-          <span className="bg-[#6C3CE0] text-white text-[10px] px-3 py-1 rounded-full font-black whitespace-nowrap">5 $ / {toCDF(5)} / mois</span>
+          <span className={`text-[10px] px-2.5 py-1 rounded-full font-black ${abonnement?.isPaye?"bg-black text-white":"bg-orange-100 text-orange-700"} ${abonnement?.isCache?"bg-red-100 text-red-700":""}`}>{abonnement?.badge||"🆓"} {abonnement?.palierId||"Freemium"}{abonnement?.isCache?" 🔒":""}</span>
         </div>
-        <div className="grid grid-cols-2 gap-1 mt-3 text-[10px]">
-          {["🛒 Détail","🛍️ Services","💇 Coiffure","⚡ Électricité / Maçon / Soudeur / Plombier","🍲 Restauration","🧹 Services divers","🎤 Événementiel","🔧 Réparation"].map(x=> <span key={x} className="bg-white p-1.5 rounded border font-bold">{x}</span>)}
+        <div className="mt-3 bg-black text-white rounded-xl p-2.5 text-[9px]">
+          <b>POLITIQUE NOUVELLE V6 UNIFIÉE:</b> On vend VISIBILITÉ, pas catégorie - 1 ticket = X places STRICTES sur Y jours (pas X/j) - Cumulable - Max 50 actives - Suppression libère place immédiatement - Freemium 3 images à vie visibles 30j puis 🔒 caché si 0 ticket - 0% commission - Taux {TAUX_CDF} - isOwner = ownerWhatsapp
         </div>
-        <div className="text-[11px] mt-3 space-y-1">
-          <p>✓ Illimité + Boutique Pro + Boost inclus</p>
-          <p>✓ <b>Électricité, maçon, soudeur, coiffure etc = même prix 5$</b></p>
-        </div>
-        {isCommerces ? (
-          <Link href="/abonnement" className="block bg-green-600 text-white text-center text-xs font-bold p-3 rounded-full mt-3">✅ Actif 5$ - Gérer</Link>
-        ) : (
-          <Link href="/abonnement" className="block bg-[#6C3CE0] text-white text-center text-xs font-bold p-3 rounded-full mt-3">Devenir 🛍️ 5$ / 11 500 CDF</Link>
-        )}
-      </div>
+      </header>
 
-      {/* D - GROS ET AUTRES 10$ - CORRIGÉ 25$ → 10$ */}
-      <div className={`border-2 rounded-2xl p-4 mt-4 ${isGros ? 'border-green-400 bg-green-50' : 'border-black bg-white'}`}>
-        <div className="flex justify-between items-start">
-          <div>
-            <h2 className="font-black text-[14px]">D. Gros et autres {isGros && '✅ ACTIF'}</h2>
-            <p className="text-[10px] text-gray-600">Volume, production, import - 10$</p>
+      <div className="p-4 space-y-4">
+        {/* FREEMIUM */}
+        <div className="bg-white border-2 border-dashed rounded-2xl p-5">
+          <div className="flex justify-between items-start">
+            <div><p className="font-black text-[14px]">🆓 Freemium Découverte</p><p className="text-[11px] text-gray-500 mt-1">Pour tester - 3 images à vie - Même prix pour tous après</p></div>
+            <span className="bg-gray-100 px-3 py-1 rounded-full text-[12px] font-black">0$</span>
           </div>
-          <span className="bg-black text-white text-[10px] px-3 py-1 rounded-full font-black whitespace-nowrap">10 $ / {toCDF(10)} / mois</span>
+          <ul className="mt-3 space-y-1.5 text-[11px]">
+            <li className="flex gap-2"><span>✅</span> <b>{FREEMIUM.maxImages} images à vie strictes</b> - 1 image = 1 place stricte</li>
+            <li className="flex gap-2"><span>✅</span> Visibles <b>{FREEMIUM.dureeJours} jours</b> puis compte 🔒 caché si 0 ticket - Panier/messages conservés</li>
+            <li className="flex gap-2"><span>✅</span> Max <b>50 actives</b> - Suppression libère place - isOwner WA sécurisé</li>
+            <li className="flex gap-2"><span>❌</span> 0 vidéo - Images only 800px JPEG 65% - Léger pour éviter Quota</li>
+          </ul>
+          <p className="text-[9px] text-gray-400 mt-3">Freemium = {FREEMIUM.maxImages} places strictes à vie - Après {FREEMIUM.dureeJours}j, tu deviens 🔒 caché - Active ticket 5$ ({toCDFString(5)}) pour réapparaître - Même ticket pour 🛍️ Détail et 🏭 Gros</p>
         </div>
-        <div className="grid grid-cols-2 gap-1 mt-3 text-[10px]">
-          {["🏭 Grossiste","📦 Semi-gros","🏢 Import","🌾 Production / Usine","🚛 B2B","📋 Autres"].map(x=> <span key={x} className="bg-gray-50 p-1.5 rounded border font-bold">{x}</span>)}
+
+        {/* TICKETS - MÊME PRIX */}
+        <div>
+          <p className="font-black text-[13px]">🎫 Tickets Visibilité - Même prix pour tous secteurs</p>
+          <p className="text-[10px] text-gray-500 mt-1">1 ticket = X places STRICTES sur Y jours (pas X/j) - Ex: 4 places/7j = tu postes 1/j pendant 4j jusqu'à 4/4, pas 4/j - Cumulable - Max 50 - Suppression libère place</p>
+          <div className="mt-3 grid gap-3">
+            {Object.entries(PALIERS).map(([k,v]:any)=>(
+              <div key={k} className={`bg-white border-2 rounded-2xl p-5 shadow-sm ${k==="STANDARD"?"border-black":""}`}>
+                <div className="flex justify-between items-start">
+                  <div className="flex gap-3">
+                    <div className="w-12 h-12 bg-[#FFFBF0] border-2 rounded-xl flex items-center justify-center text-2xl">{v.badge}</div>
+                    <div><p className="font-black text-[14px]">{v.badge} {k}</p><p className="text-[10px] text-gray-500">{v.nom} - {v.places} places strictes sur {v.jours}j</p><p className="text-[9px] mt-1 bg-black text-white inline-block px-2 py-0.5 rounded-full">Même prix pour tous - 0% comm - Taux {TAUX_CDF}</p></div>
+                  </div>
+                  <div className="text-right"><p className="font-black text-[20px]">{v.prixUSD}$</p><p className="text-[11px] text-gray-500">{toCDFString(v.prixUSD)}</p><p className="text-[9px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold mt-1">{k==="STANDARD"?"⭐ Populaire":k==="PRO"?"🚀 Pro":"👑 Max"}</p></div>
+                </div>
+                <ul className="mt-4 space-y-1.5 text-[11px]">
+                  <li className="flex gap-2"><span className="text-green-600 font-bold">✓</span> <b>{v.places} places strictes</b> sur <b>{v.jours} jours</b> - 1 place = 1 annonce active - Pas X/j</li>
+                  <li className="flex gap-2"><span className="text-green-600 font-bold">✓</span> <b>{v.videoCount} vidéo {v.videoDuree}</b> {v.videoCount===0?"(images only)":"60s max"} - Léger 800px</li>
+                  <li className="flex gap-2"><span className="text-green-600 font-bold">✓</span> <b>Cumulable</b> - Achète 2 tickets = {v.places*2} places - N'écrase pas ancien</li>
+                  <li className="flex gap-2"><span className="text-green-600 font-bold">✓</span> <b>Renouvelable</b> - Prolonge avant expiration - Expire = places perdues sauf si renouvelé</li>
+                  <li className="flex gap-2"><span className="text-green-600 font-bold">✓</span> <b>Suppression libère place immédiatement</b> - Vendu ? Supprime → place libre pour nouveau produit</li>
+                  <li className="flex gap-2"><span className="text-green-600 font-bold">✓</span> Max <b>{v.limiteActives} actives</b> - Au-delà, plus ancienne archivée - 0% commission WhatsApp direct</li>
+                </ul>
+                <Link href={`/abonnement?ticket=${k}`} className={`mt-4 block w-full text-center py-3.5 rounded-full font-black text-[12px] ${k==="STANDARD"?"bg-black text-white":"bg-white border-2 border-black text-black"}`}>Activer {k} - {v.prixUSD}$ / {toCDFString(v.prixUSD)} - {v.places} places</Link>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="text-[11px] mt-3 space-y-1">
-          <p>✓ Illimité gros volume + Badge 🏭</p>
+
+        <div className="bg-black text-white rounded-2xl p-5">
+          <p className="font-black text-[13px]">💡 Exemple concret V6 - Même ticket pour tous</p>
+          <p className="text-[11px] mt-2 opacity-90 leading-relaxed">
+            Tu vends <b>riz 25kg</b> (🏭 Gros) et ton voisin vend <b>coiffure</b> (🛍️ Détail). Vous payez <b>même prix</b>:<br/><br/>
+            ⭐ <b>STANDARD 5$ ({toCDFString(5)})</b> = 4 places strictes sur 7j. Tu postes 1 annonce Lundi, 1 Mardi, 1 Mercredi, 1 Jeudi = 4/4 places utilisées. Vendredi tu veux poster 5ème → plein. Tu supprimes Lundi (vendu) → 3/4 places → tu peux reposter 1 place libérée. Cumulable: achète 2× STANDARD = 8 places sur 7j. Max 50 actives. Taux {TAUX_CDF}. 0% comm. isOwner = ownerWhatsapp cleanWa().replace(/^0+/,"").
+          </p>
         </div>
-        {isGros ? (
-          <Link href="/abonnement" className="block bg-green-600 text-white text-center text-xs font-bold p-3 rounded-full mt-3">✅ Actif 10$ - Gérer</Link>
-        ) : (
-          <Link href="/abonnement" className="block bg-black text-white text-center text-xs font-bold p-3 rounded-full mt-3">Devenir 🏭 10$ / 23 000 CDF</Link>
-        )}
-      </div>
 
-      <h2 className="font-black mt-8 text-sm">Boost & Vidéo - Taux {TAUX_CDF}</h2>
-      <div className="border rounded-xl p-3 mt-2 flex justify-between gap-2 bg-white">
-        <div className="flex-1 text-[11px]"><b>Boost Image</b> - 2 $ / {toCDF(2)} - 5 jours</div>
-        <Link href="/publier?boost=image" className="bg-black text-white text-[10px] px-3 py-2 rounded-full h-fit font-bold">Acheter</Link>
-      </div>
-      <div className="space-y-2 mt-2">
-        <div className="border rounded-xl p-3 flex justify-between text-[11px] bg-white"><div><b>Video Express</b> - 1 $ / {toCDF(1)} - 2 jours</div><b>1 $</b></div>
-        <div className="border rounded-xl p-3 flex justify-between text-[11px] bg-white"><div><b>Video Standard</b> - 3 $ / {toCDF(3)} - 6 jours</div><b>3 $</b></div>
-        <div className="border rounded-xl p-3 flex justify-between text-[11px] bg-white"><div><b>Video Mensuelle</b> - 15 $ / {toCDF(15)} - 30 jours</div><b>15 $</b></div>
-      </div>
+        <div className="bg-white border rounded-2xl p-4">
+          <p className="font-black text-[12px]">❓ FAQ Politique Actuelle V6.2</p>
+          <div className="mt-3 space-y-3 text-[11px]">
+            <div><p className="font-bold">Pourquoi même prix pour Détail et Gros ?</p><p className="text-gray-600 mt-1">On vend VISIBILITÉ, pas catégorie. Un maçon et un dépôt de ciment ont même besoin d'être vus. WENZE = plateforme, pas grossiste. 0% commission.</p></div>
+            <div><p className="font-bold">1 ticket = X places strictes sur Y jours, c'est quoi ?</p><p className="text-gray-600 mt-1">Pas X/j. Ex: 4 places/7j = tu as 4 places à utiliser dans les 7j, tu peux poster 1/j pendant 4j. Si tu postes 4/jour 1 → 4/4 plein, tu dois attendre suppression ou nouveau ticket.</p></div>
+            <div><p className="font-bold">Suppression libère place ?</p><p className="text-gray-600 mt-1">Oui V6. Supprime annonce avant expiration → place libérée immédiatement dans même ticket. Max 50 actives.</p></div>
+            <div><p className="font-bold">Freemium 3 à vie puis caché ?</p><p className="text-gray-600 mt-1">3 images à vie strictes, visibles 30j. Après 30j + 0 ticket actif → compte 🔒 caché (annonces non visibles dans Marché/Recherche) mais panier/messages conservés. Active ticket 5$ ({toCDFString(5)}) pour réapparaître immédiatement.</p></div>
+          </div>
+        </div>
 
-      <div className="mt-8 bg-gray-900 text-white p-4 rounded-2xl text-[11px]">
-        <p className="font-bold">Règles WENZE 2.0 - Taux {TAUX_CDF} fixe:</p>
-        <p className="mt-2">1. 🛍️ Commerces/Services 5$ / 11 500 CDF et 🏭 Gros/Autres 10$ / 23 000 CDF - 30 jours.</p>
-        <p>2. Électricité, maçon, soudeur, plombier, coiffure = petites activités = 5$ même régime.</p>
-        <p>3. 0% commission - Boutique visible /boutiques.</p>
-      </div>
+        <div className="flex gap-2">
+          <Link href="/abonnement" className="flex-1 bg-black text-white rounded-full py-4 text-center font-black text-[13px]">🎫 Payer ticket - Même prix - Max 50</Link>
+          <Link href="/market" className="flex-1 bg-white border-2 border-black rounded-full py-4 text-center font-bold text-[13px]">Voir Marché</Link>
+        </div>
 
-      <p className="text-[10px] text-center text-gray-400 mt-4">WENZE 2.0 • 🛍️ 5$ = {FORMULES.commerces_services.prixCDF.toLocaleString()} CDF • 🏭 10$ = {FORMULES.gros_autres.prixCDF.toLocaleString()} CDF • Taux {TAUX_CDF}</p>
+        <p className="text-[9px] text-gray-400 text-center leading-relaxed">V6.2 Politique économique actuelle: Même ticket pour tous - ⭐ 5$ ({toCDFString(5)}) 4pl/7j 0 vidéo • 🚀 10$ 10pl/15j 1 vidéo • 👑 20$ 30pl/30j 2 vidéos • Freemium 3 images à vie 30j puis 🔒 caché • Max 50 • Suppression libère place • 1 ticket = X places strictes sur Y jours (pas X/j) • Cumulable • 0% comm • Taux {TAUX_CDF} • isOwner WA</p>
+      </div>
     </div>
-  )
-}
-export const dynamic = 'force-dynamic';
+  );
+            }
