@@ -1,6 +1,6 @@
-// lib/paiement.ts - V6 FINAL STRICT MULTI-TICKETS - TONMARCHÉ.CD
+// lib/paiement.ts - V6.1 FINAL STRICT MULTI-TICKETS - TONMARCHÉ.CD
 // Politique: 3 images à vie Freemium 30j -> Caché - Tickets cumulables - Strict 1j/7j/30j même règle
-// Expert - Build Vert Garanti
+// Build Vert Garanti + Notifications intégrées
 
 export const TAUX_CDF = 2300;
 export function toCDF(usd: number){ return Math.round((usd || 0) * TAUX_CDF); }
@@ -56,8 +56,32 @@ export const OCCASIONNEL = {
 export interface Ticket {
   ticketId:string; palierId:PalierId; dureeId:DureeId;
   imagesMax:number; imagesUsed:number; imagesIds:string[];
-  jours:number; startAt:string; expireAt:string; prixUSD:number; actif:boolean;
-  renouvelable:boolean;
+  jours:number; startAt:string; expireAt:string; prixUSD:number; prixCDF?:number; actif:boolean;
+  renouvelable:boolean; ownerWhatsapp?:string; // LIGNE MANQUANTE 1: owner pour filtre page.tsx
+  videoMax?:number; videoUsed?:number; // LIGNE MANQUANTE 2: quota vidéo V6
+}
+
+// LIGNE MANQUANTE 3: Import notifications (lazy pour éviter boucle)
+function notifyTicketPayedSafe(ticket:any){
+  try{
+    if(!safeWindow()) return;
+    const { notifyTicketPayed } = require("./notifications");
+    notifyTicketPayed(ticket);
+  }catch{}
+}
+function notifyPlaceConsommeeSafe(annonceId:string, ticketId:string, used:number, max:number){
+  try{
+    if(!safeWindow()) return;
+    const { notifyPlaceConsommee } = require("./notifications");
+    notifyPlaceConsommee(annonceId, ticketId, used, max);
+  }catch{}
+}
+function notifyPlaceLibereeSafe(annonceId:string, ticketId:string){
+  try{
+    if(!safeWindow()) return;
+    const { notifyPlaceLiberee } = require("./notifications");
+    notifyPlaceLiberee(annonceId, ticketId);
+  }catch{}
 }
 
 // Acheter = AJOUTE, n'écrase jamais
@@ -70,16 +94,21 @@ export function acheterTicket(palierId:PalierId, dureeId:DureeId){
   if(actifs.length >= 10) return { success:false, error:"Max 10 tickets actifs simultanés - Renouvelle un ancien" };
 
   const jours = palier.jours[dureeId];
+  // LIGNE MANQUANTE 4: récup ownerWhatsapp
+  let ownerWa = "";
+  try{ const uRaw = safeGet("wenze_user"); if(uRaw){ const u = JSON.parse(uRaw); ownerWa = cleanWa(u.ownerWhatsapp||u.whatsapp||u.id||""); } }catch{}
+  
   const ticket:Ticket = {
     ticketId:`TICKET-${palierId}-${dureeId}-${Date.now()}-${Math.random().toString(36).slice(2,4).toUpperCase()}`,
     palierId, dureeId, imagesMax: palier.imagesMax, imagesUsed:0, imagesIds:[],
     jours, startAt:new Date().toISOString(), expireAt:new Date(Date.now()+jours*86400000).toISOString(),
-    prixUSD: palier.prix[dureeId], actif:true, renouvelable:true,
+    prixUSD: palier.prix[dureeId], prixCDF: toCDF(palier.prix[dureeId]), actif:true, renouvelable:true,
+    ownerWhatsapp: ownerWa, // INTEGRÉE
+    videoMax: palier.videoCount, videoUsed: 0, // INTEGRÉE quota vidéo
   };
   tickets.push(ticket);
   safeSet("wenze_tickets", JSON.stringify(tickets));
 
-  // Compat ancien + nettoyage cache
   try{
     const userRaw = safeGet("wenze_user");
     if(userRaw){
@@ -93,11 +122,14 @@ export function acheterTicket(palierId:PalierId, dureeId:DureeId){
       safeSet("wenze_all_users", JSON.stringify(all));
     }
     const log = safeParse("wenze_transactions");
-    log.push({ id:ticket.ticketId, transactionId:ticket.ticketId, ...ticket, success:true, createdAt:ticket.startAt });
+    log.push({ id:ticket.ticketId, transactionId:ticket.ticketId, ...ticket, success:true, createdAt:ticket.startAt, ownerWhatsapp: ownerWa });
     safeSet("wenze_transactions", JSON.stringify(log));
   }catch{}
 
-  return { success:true, ticket, message:`✅ ${palier.nom} ${dureeId} - ${palier.imagesMax} places strictes sur ${jours}j` };
+  // LIGNE MANQUANTE 5: Notif ticket payé + compte réactivé
+  notifyTicketPayedSafe(ticket);
+
+  return { success:true, ticket, message:`✅ ${palier.nom} ${dureeId} - ${palier.imagesMax} places strictes sur ${jours}j - Owner ${ownerWa.slice(-4)}` };
 }
 
 export function renouvelerTicket(ticketId:string){
@@ -105,11 +137,12 @@ export function renouvelerTicket(ticketId:string){
   const idx = tickets.findIndex((t:any)=>t.ticketId===ticketId);
   if(idx<0) return { success:false, error:"Ticket introuvable" };
   const t = tickets[idx];
-  // Renouvellement = ajoute jours à expireAt actuel, garde compteur imagesIds mais prolonge visibilité
   const base = new Date(t.expireAt).getTime() > Date.now() ? new Date(t.expireAt).getTime() : Date.now();
   t.expireAt = new Date(base + t.jours*86400000).toISOString();
   t.actif = true;
   safeSet("wenze_tickets", JSON.stringify(tickets));
+  // Notif renouvelé
+  try{ const { addNotification } = require("./notifications"); addNotification({ type:"ticket_renouvele", title:`♻️ Ticket ${t.palierId} renouvelé +${t.jours}j`, message:`Renouvelé jusqu'à ${new Date(t.expireAt).toLocaleDateString("fr-FR")} - ${t.imagesUsed}/${t.imagesMax} places - Cumulable`, forUserId: t.ownerWhatsapp, boutiqueId: t.ownerWhatsapp, priority:"medium", actionUrl:"/abonnement", data:{ ticketId } } as any); }catch{}
   return { success:true, ticket:t, message:`♻️ Renouvelé +${t.jours}j - Expire ${t.expireAt}` };
 }
 
@@ -120,22 +153,40 @@ export function consommerPlace(ticketId:string, annonceId:string){
   if(idx<0) return false;
   const t = tickets[idx];
   if(new Date(t.expireAt).getTime() < Date.now()) return false;
-  if(t.imagesUsed >= t.imagesMax) return false; // STRICT 4 max sur 7j, pas 4/j
-  if(t.imagesIds.includes(annonceId)) return true; // déjà compté = edit
+  if(t.imagesUsed >= t.imagesMax) return false;
+  if(t.imagesIds.includes(annonceId)) return true;
   t.imagesUsed +=1; t.imagesIds.push(annonceId);
   safeSet("wenze_tickets", JSON.stringify(tickets));
+  // LIGNE MANQUANTE 6: Notif place consommée
+  notifyPlaceConsommeeSafe(annonceId, ticketId, t.imagesUsed, t.imagesMax);
   return true;
 }
 
 // Libérer place si supprime avant échéance
 export function libererPlace(annonceId:string){
   const tickets = safeParse("wenze_tickets");
-  let changed=false;
+  let changed=false; let lastTicketId="";
   tickets.forEach((t:any)=>{
     const pos = t.imagesIds.indexOf(annonceId);
-    if(pos>=0){ t.imagesIds.splice(pos,1); t.imagesUsed=Math.max(0,t.imagesUsed-1); changed=true; }
+    if(pos>=0){ t.imagesIds.splice(pos,1); t.imagesUsed=Math.max(0,t.imagesUsed-1); changed=true; lastTicketId=t.ticketId; }
   });
-  if(changed) safeSet("wenze_tickets", JSON.stringify(tickets));
+  if(changed){
+    safeSet("wenze_tickets", JSON.stringify(tickets));
+    // LIGNE MANQUANTE 7: Notif place libérée
+    if(lastTicketId) notifyPlaceLibereeSafe(annonceId, lastTicketId);
+  }
+  // Occasionnel aussi
+  const occs = safeParse("wenze_occasionnel");
+  let changedOcc=false; let occTicketId="";
+  occs.forEach((t:any)=>{
+    const pos = (t.imagesIds||[]).indexOf(annonceId);
+    if(pos>=0){ t.imagesIds.splice(pos,1); t.imagesUsed=Math.max(0,(t.imagesUsed||1)-1); changedOcc=true; occTicketId=t.ticketId; }
+  });
+  if(changedOcc){
+    safeSet("wenze_occasionnel", JSON.stringify(occs));
+    if(occTicketId) notifyPlaceLibereeSafe(annonceId, occTicketId);
+    changed=true;
+  }
   return changed;
 }
 
@@ -143,13 +194,16 @@ export function libererPlace(annonceId:string){
 export function acheterOccasionnel(offreId:string){
   const offre = OCCASIONNEL.offres.find(o=>o.id===offreId);
   if(!offre) return { success:false };
+  let ownerWa=""; try{ const uRaw=safeGet("wenze_user"); if(uRaw){ const u=JSON.parse(uRaw); ownerWa=cleanWa(u.ownerWhatsapp||u.whatsapp||u.id||""); } }catch{}
   const occ = safeParse("wenze_occasionnel");
-  const ticketOcc = { ticketId:`OCC-${offreId}-${Date.now()}`, offreId, imagesMax:offre.images||1, imagesUsed:0, imagesIds:[], jours:offre.jours, startAt:new Date().toISOString(), expireAt:new Date(Date.now()+offre.jours*86400000).toISOString(), prixUSD:offre.prixUSD, actif:true };
+  const ticketOcc = { ticketId:`OCC-${offreId}-${Date.now()}`, offreId, imagesMax:offre.images||1, imagesUsed:0, imagesIds:[], jours:offre.jours, startAt:new Date().toISOString(), expireAt:new Date(Date.now()+offre.jours*86400000).toISOString(), prixUSD:offre.prixUSD, prixCDF:offre.prixCDF, actif:true, ownerWhatsapp: ownerWa, videoMax: offre.id.includes("video")?1:0, videoUsed:0 };
   occ.push(ticketOcc);
   safeSet("wenze_occasionnel", JSON.stringify(occ));
   const log = safeParse("wenze_transactions");
-  log.push({ id:ticketOcc.ticketId, ...ticketOcc, type:"OCCASIONNEL", success:true });
+  log.push({ id:ticketOcc.ticketId, ...ticketOcc, type:"OCCASIONNEL", success:true, ownerWhatsapp: ownerWa });
   safeSet("wenze_transactions", JSON.stringify(log));
+  // LIGNE MANQUANTE 8: Notif occasionnel
+  try{ const { addNotification } = require("./notifications"); addNotification({ type:"occasionnel_payed", title:`🎟️ Occasionnel ${offre.label} payé`, message:`Ticket OCC ${offre.images} places sur ${offre.jours}j - ${offre.prixUSD}$ - Cumulable avec tickets pub - Suppression libère place`, forUserId: ownerWa, boutiqueId: ownerWa, priority:"medium", actionUrl:"/publier", data:{ ticketId: ticketOcc.ticketId } } as any); }catch{}
   return { success:true, ticket:ticketOcc };
 }
 
@@ -157,9 +211,18 @@ export function acheterOccasionnel(offreId:string){
 export function isCompteCache(user:any):boolean{
   if(!user) return false;
   const tickets = safeParse("wenze_tickets");
-  const actifs = tickets.filter((t:any)=> new Date(t.expireAt).getTime() > Date.now());
-  if(actifs.length>0) return false; // un ticket actif = pas caché
-  // Check ancien champ compat
+  const wa = user ? cleanWa(user.ownerWhatsapp||user.whatsapp||user.id||"") : "";
+  // Filtre par owner si possible
+  const actifs = tickets.filter((t:any)=> {
+    const sameOwner = !t.ownerWhatsapp || !wa || cleanWa(t.ownerWhatsapp)===wa;
+    return sameOwner && new Date(t.expireAt).getTime() > Date.now();
+  });
+  if(actifs.length>0) return false;
+  const occs = safeParse("wenze_occasionnel").filter((t:any)=> {
+    const sameOwner = !t.ownerWhatsapp || !wa || cleanWa(t.ownerWhatsapp)===wa;
+    return sameOwner && new Date(t.expireAt).getTime() > Date.now();
+  });
+  if(occs.length>0) return false;
   if(user.palierExpireAt){ try{ if(new Date(user.palierExpireAt).getTime() > Date.now()) return false; }catch{} }
   if(user.abonnementExpireAt){ try{ if(new Date(user.abonnementExpireAt).getTime() > Date.now()) return false; }catch{} }
   let created = Date.now();
@@ -174,41 +237,42 @@ export function checkFreemiumWenze(user:any, annoncesCount:number){
   const diffJ = Math.ceil((now-created)/86400000);
   const joursRestantsFreemium = Math.max(0, FREEMIUM.dureeJours - diffJ);
 
-  // 1. Multi-tickets actifs
-  const tickets = safeParse("wenze_tickets");
+  const wa = user ? cleanWa(user.ownerWhatsapp||user.whatsapp||user.id||"") : "";
+  const allTickets = safeParse("wenze_tickets");
+  const tickets = wa ? allTickets.filter((t:any)=> !t.ownerWhatsapp || cleanWa(t.ownerWhatsapp)===wa) : allTickets;
   const actifs = tickets.filter((t:any)=> new Date(t.expireAt).getTime() > now);
-  const occs = safeParse("wenze_occasionnel").filter((t:any)=> new Date(t.expireAt).getTime() > now);
+  const allOccs = safeParse("wenze_occasionnel");
+  const occs = wa ? allOccs.filter((t:any)=> !t.ownerWhatsapp || cleanWa(t.ownerWhatsapp)===wa) : allOccs;
+  const occsActifs = occs.filter((t:any)=> new Date(t.expireAt).getTime() > now);
+
   if(actifs.length>0){
     const placesRestantes = actifs.reduce((s:any,t:any)=> s + (t.imagesMax - t.imagesUsed), 0);
     const totalMax = actifs.reduce((s:any,t:any)=> s + t.imagesMax, 0);
     const plusProcheExpire = actifs.sort((a:any,b:any)=> new Date(a.expireAt).getTime() - new Date(b.expireAt).getTime())[0];
     const joursRestants = Math.ceil((new Date(plusProcheExpire.expireAt).getTime() - now)/86400000);
-    // Global max 50 actives
     const peutPublierGlobal = annoncesCount < 50 && placesRestantes>0;
     return {
-      isPaye:true, isFreemium:false, isCache:false,
-      peutPublier: peutPublierGlobal,
+      isPaye:true, isFreemium:false, isCache:false, peutPublier: peutPublierGlobal,
       palierId: plusProcheExpire.palierId, palier: PALIERS[plusProcheExpire.palierId],
-      ticketsActifs: actifs, ticketsOccasionnel: occs,
+      ticketsActifs: actifs, ticketsOccasionnel: occsActifs,
       joursRestants, expireAt: plusProcheExpire.expireAt,
       placesRestantes, totalImagesMax: totalMax,
       annoncesRestantes: 50 - annoncesCount, imagesRestantes: placesRestantes,
-      message: actifs.length>1 ? `${actifs.length} tickets actifs - ${placesRestantes}/${totalMax} places libres - ${joursRestants}j restants` : `${PALIERS[plusProcheExpire.palierId].badge} ${PALIERS[plusProcheExpire.palierId].nom} ${plusProcheExpire.dureeId} - ${plusProcheExpire.imagesUsed}/${plusProcheExpire.imagesMax} strictes - ${joursRestants}j restants`,
+      message: actifs.length>1 ? `${actifs.length} tickets actifs - ${placesRestantes}/${totalMax} places libres - ${joursRestants}j restants - Owner ${wa.slice(-4)}` : `${PALIERS[plusProcheExpire.palierId].badge} ${PALIERS[plusProcheExpire.palierId].nom} ${plusProcheExpire.dureeId} - ${plusProcheExpire.imagesUsed}/${plusProcheExpire.imagesMax} strictes - ${joursRestants}j restants`,
       badge: PALIERS[plusProcheExpire.palierId].badge, type: plusProcheExpire.palierId,
     };
   }
 
-  if(occs.length>0){
-    const placesOcc = occs.reduce((s:any,t:any)=> s + (t.imagesMax - t.imagesUsed), 0);
+  if(occsActifs.length>0){
+    const placesOcc = occsActifs.reduce((s:any,t:any)=> s + (t.imagesMax - t.imagesUsed), 0);
     return {
       isPaye:true, isFreemium:false, isCache:false, peutPublier: placesOcc>0,
-      palierId:"OCCASIONNEL" as any, palier:null, ticketsActifs:[], ticketsOccasionnel:occs,
-      joursRestantes: Math.ceil((new Date(occs[0].expireAt).getTime()-now)/86400000),
-      placesRestantes: placesOcc, message:`🎟️ Occasionnel ${placesOcc} places - Cumulable avec tickets pub`, badge:"🎟️", type:"occasionnel",
+      palierId:"OCCASIONNEL" as any, palier:null, ticketsActifs:[], ticketsOccasionnel:occsActifs,
+      joursRestantes: Math.ceil((new Date(occsActifs[0].expireAt).getTime()-now)/86400000),
+      placesRestantes: placesOcc, message:`🎟️ Occasionnel ${placesOcc} places - Cumulable avec tickets pub - Owner ${wa.slice(-4)}`, badge:"🎟️", type:"occasionnel",
     } as any;
   }
 
-  // 2. Freemium 30j
   if(diffJ <= FREEMIUM.dureeJours){
     const rest = Math.max(0, FREEMIUM.maxImages - annoncesCount);
     return {
@@ -221,12 +285,11 @@ export function checkFreemiumWenze(user:any, annoncesCount:number){
     };
   }
 
-  // 3. Caché
   return {
     isPaye:false, isFreemium:false, isCache:true, peutPublier:false,
     palierId:null, palier:null, joursRestants:0, expireAt:null,
     annoncesRestantes:0, imagesRestantes:0, placesRestantes:0,
-    message:`🔒 Compte caché - Freemium 30j expiré - Paye 5$ pour réapparaître`, badge:"🔒", type:"cache",
+    message:`🔒 Compte caché - Freemium 30j expiré - Paye 5$ pour réapparaître - Owner ${wa.slice(-4)}`, badge:"🔒", type:"cache",
   };
 }
 
@@ -248,9 +311,7 @@ export function verifierAbonnement(){
 export function checkFreemiumLimit(){ return verifierAbonnement(); }
 
 // ========== 6. ACTIVATION COMPAT ANCIEN CODE ==========
-export function activerPalier(palierId:PalierId, dureeId:DureeId, devise:"$"|"CDF"="$"){
-  return acheterTicket(palierId, dureeId);
-}
+export function activerPalier(palierId:PalierId, dureeId:DureeId, devise:"$"|"CDF"="$"){ return acheterTicket(palierId, dureeId); }
 export function handlePaiement(type:string){
   const raw = type.toUpperCase();
   if(raw.includes("STANDARD")) return acheterTicket("STANDARD","30j");
