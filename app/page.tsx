@@ -173,10 +173,7 @@ export default function WenzeBusiness() {
             <h1 className="font-black text-[11px] leading-none truncate">WENZE V6.4 - {ab?.isPaye?`✅ ${ab.badge} ${ab.palierId} ${ab.joursRestants}j ${ab.placesRestantes||0} libres`:`🆓 ${ab?.count||0}/${FREEMIUM.maxImages} Freemium ${ab?.joursRestants||30}j`}{ab?.isCache?" 🔒 CACHÉ":""}</h1>
             <p className="text-[8px] text-gray-500 truncate">Kinshasa • {payantCount} payants • {boostedCount} TOP • Même ticket ⭐ 5$ ({toCDFString(5)}) 🚀 10$ 👑 20$ • Max 50 • Taux {TAUX_CDF} • 0% comm</p>
           </div>
-          <Link href="/notifications" className="relative w-9 h-9 bg-[#FFFBF0] border rounded-full flex items-center justify-center shrink-0">
-            🔔
-            {notifCount>0 && <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] min-w-[18px] h-[18px] rounded-full flex items-center justify-center font-black px-1">{notifCount>99?"99+":notifCount}</span>}
-          </Link>
+          <Link href="/notifications" className="relative w-9 h-9 bg-[#FFFBF0] border rounded-full flex items-center justify-center shrink-0">🔔{notifCount>0 && <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] min-w-[18px] h-[18px] rounded-full flex items-center justify-center font-black px-1">{notifCount>99?"99+":notifCount}</span>}</Link>
           <Link href="/panier" className="w-9 h-9 bg-[#FFFBF0] border rounded-full flex items-center justify-center shrink-0">🛒</Link>
           <Link href="/profil" className="w-9 h-9 bg-black text-white rounded-full flex items-center justify-center shrink-0">👤</Link>
         </div>
@@ -199,123 +196,44 @@ export default function WenzeBusiness() {
 
       <div className="p-4 space-y-3">
         {toast && <div className="bg-black text-white p-3 rounded-xl text-[12px] font-bold text-center animate-pulse">{toast}</div>}
-
-        {notifCount>0 && (
-          <button onClick={()=> router.push("/notifications")} className="w-full bg-black text-white rounded-2xl p-3.5 flex justify-between items-center">
-            <p className="font-black text-[11px] text-left">🔔 {notifCount} notifs - {ab?.isPaye?`Rappel ticket ${ab.joursRestants}j restants`:`Active ticket 5$ (${toCDFString(5)}) pour notifier clients`}</p>
-            <span className="bg-white text-black px-3 py-1 rounded-full text-[10px] font-black">Voir →</span>
-          </button>
-        )}
-
-        <div className="bg-black text-white rounded-2xl p-4">
-          <div className="flex justify-between items-start gap-2">
-            <div className="flex-1">
-              <p className="font-black text-[12px]">Politique V6.4 - Même ticket pour tous - 5 étoiles</p>
-              <p className="text-[10px] opacity-80 mt-1 leading-relaxed">
-                ⭐ <b>STANDARD 5$</b> • {toCDFString(5)} • 4 places strictes / 7j • 0 vidéo • Notif auto<br/>
-                🚀 <b>PRO 10$</b> • {toCDFString(10)} • 10 places / 15j • 1 vidéo 60s • Cumulable<br/>
-                👑 <b>PREMIUM 20$</b> • {toCDFString(20)} • 30 places / 30j • 2 vidéos • Max 50 • 0% comm<br/>
-                🆓 <b>Freemium 3 à vie</b> • 3 images à vie visibles 30j puis 🔒 caché • Taux {TAUX_CDF}
-              </p>
-            </div>
-            <Link href="/boutiques" className="bg-white text-black px-4 py-2 rounded-full font-black text-[10px] shrink-0">Boutiques</Link>
-          </div>
-        </div>
-
-        <div className="flex justify-between items-center">
-          <p className="font-black text-[11px]">{filtered.length} annonces {payantCount>0?`• ✅ ${payantCount} payants`:``} {boostedCount>0?`• 🚀 ${boostedCount} TOP`:``} • {prixMoyenUSD}$ moyen • {toCDFString(prixMoyenUSD)}</p>
-          <Link href="/recherche" className="text-[10px] text-black font-bold border px-3 py-1 rounded-full bg-white">Recherche →</Link>
-        </div>
-
+        {notifCount>0 && <button onClick={()=> router.push("/notifications")} className="w-full bg-black text-white rounded-2xl p-3.5 flex justify-between items-center"><p className="font-black text-[11px] text-left">🔔 {notifCount} notifs</p><span className="bg-white text-black px-3 py-1 rounded-full text-[10px] font-black">Voir →</span></button>}
+        <div className="flex justify-between items-center"><p className="font-black text-[11px]">{filtered.length} annonces {payantCount>0?`• ✅ ${payantCount} payants`:``} • {prixMoyenUSD}$ moyen</p><Link href="/recherche" className="text-[10px] text-black font-bold border px-3 py-1 rounded-full bg-white">Recherche →</Link></div>
         <div className="grid grid-cols-2 gap-3">
           {filtered.length===0 ? (
             <div className="col-span-2 text-center py-12 bg-white border-2 border-dashed rounded-2xl">
-              <p className="text-4xl">📦</p><p className="text-[13px] font-black mt-3">Aucune annonce dans {selectedCat==="all"?"WENZE":selectedCat}</p>
-              <p className="text-[11px] text-gray-500 mt-1 max-w-[260px] mx-auto">V6 filtre les comptes 🔒 cachés (Freemium 30j expiré) - Sois premier à publier - Même ticket pour tous - Max 50 - 0% comm - Taux {TAUX_CDF}</p>
+              <p className="text-4xl">📦</p><p className="text-[13px] font-black mt-3">Aucune annonce</p>
               <button onClick={()=> router.push(`/publier?cat=${selectedCat==="all"?"commerces-services":selectedCat}`)} className="mt-4 bg-black text-white px-6 py-3 rounded-full font-black text-[11px]">+ Publier - 5$ / {toCDFString(5)}</button>
             </div>
           ) : filtered.map((a:any)=>{
             const cat = getCategorieById(a.categorieId) as any;
             const isVideo = !!a.isVideo;
             return (
-              <div key={a.id} className={`bg-white border rounded-2xl overflow-hidden flex flex-col hover:shadow transition ${a.isBoosted?"border-2 border-green-500 shadow-lg":""} ${a.isPayant?"":"border-gray-200"}`}>
-                <button 
-                  onClick={()=> isVideo ? openVideoPage(a) : setSelectedImage(a)} 
-                  className="h-36 bg-[#FFFBF0] flex items-center justify-center overflow-hidden relative group"
-                >
-                  {isVideo ? (
-                    <>
-                      <video src={a.photo} className="max-w-full max-h-full object-contain" muted playsInline preload="metadata"/>
-                      <div className="absolute inset-0 bg-black/20 flex items-center justify-center">
-                        <div className="w-12 h-12 bg-white/90 rounded-full flex items-center justify-center text-[18px] shadow-lg group-active:scale-90 transition">▶️</div>
-                      </div>
-                    </>
-                  ) : a.photo ? (
-                    <img src={a.photo} alt={a.titre} className="max-w-full max-h-full object-contain group-hover:scale-105 transition"/>
-                  ) : (
-                    <span className="text-3xl">{cat?.icon||"🏬"}</span>
-                  )}
-                  <span className={`absolute top-2 left-2 text-[8px] px-2 py-1 rounded-full font-black ${a.isPayant?"bg-black text-white": "bg-gray-100 text-gray-600"} ${isVideo?"bg-red-600 text-white":""}`}>{a.vendeurBadge} {a.vendeurPalier} {isVideo?"🎥 VIDÉO":""} • {a.prix}$</span>
-                  {a.isBoosted && <span className="absolute top-2 right-2 text-[7px] bg-[#25D366] text-white px-2 py-1 rounded-full font-black animate-pulse">🚀 TOP</span>}
+              <div key={a.id} className={`bg-white border rounded-2xl overflow-hidden flex flex-col ${a.isBoosted?"border-2 border-green-500":""}`}>
+                <button onClick={()=> isVideo ? openVideoPage(a) : setSelectedImage(a)} className="h-36 bg-[#FFFBF0] flex items-center justify-center overflow-hidden relative">
+                  {isVideo ? <video src={a.photo} className="max-w-full max-h-full object-contain" muted playsInline preload="metadata"/> : a.photo ? <img src={a.photo} alt={a.titre} className="max-w-full max-h-full object-contain"/> : <span className="text-3xl">{cat?.icon||"🏬"}</span>}
+                  <span className="absolute top-2 left-2 text-[8px] px-2 py-1 rounded-full font-black bg-black text-white">{a.vendeurBadge} {a.vendeurPalier} • {a.prix}$</span>
                 </button>
-
                 <div className="p-2.5 flex-1 flex flex-col">
-                  <button onClick={()=> isVideo ? openVideoPage(a) : openProduit(a)} className="text-left font-bold text-[12px] leading-tight line-clamp-2 hover:text-black">
-                    {a.titre} {isVideo?"🎥":""}
-                  </button>
-                  <p className="text-[10px] text-gray-500 truncate mt-0.5">{cat?.titreCourt} • {a.commune||"Kinshasa"} • {a.vendeurBadge} {a.vendeurPalier} {a.isPayant?"✅":"🆓"}</p>
+                  <button onClick={()=> isVideo ? openVideoPage(a) : openProduit(a)} className="text-left font-bold text-[12px] line-clamp-2">{a.titre}</button>
                   <p className="font-black text-[12px] mt-1">{a.prix}$ / {a.prixCDF}</p>
-                  <p className="text-[8px] text-gray-400 mt-1">WA {a._wa?.slice(-9)} • {a.vendeurPalier} • Max 50 • 0% comm</p>
                   <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-                    <a href={`https://wa.me/${a._wa}?text=${encodeURIComponent(`Salut WENZE V6.4 👋 ${a.titre} - ${a.prix}$ / ${a.prixCDF} - ID ${a.id} - Taux ${TAUX_CDF} - 0% comm - Max 50`)}`} target="_blank" className="bg-[#25D366] text-white text-center py-2.5 rounded-full font-bold text-[10px]">WhatsApp</a>
-                    {isVideo ? (
-                      <button onClick={()=> openVideoPage(a)} className="bg-black text-white py-2.5 rounded-full font-bold text-[10px]">▶️ Lire</button>
-                    ) : (
-                      <button onClick={()=> addPanier(a)} className="bg-white border-2 border-black text-black py-2.5 rounded-full font-bold text-[10px]">🛒 Panier</button>
-                    )}
+                    <a href={`https://wa.me/${a._wa}?text=${encodeURIComponent(`Salut WENZE ${a.titre} - ${a.prix}$`)}`} target="_blank" className="bg-[#25D366] text-white text-center py-2.5 rounded-full font-bold text-[10px]">WhatsApp</a>
+                    <button onClick={()=> addPanier(a)} className="bg-white border-2 border-black text-black py-2.5 rounded-full font-bold text-[10px]">🛒 Panier</button>
                   </div>
                 </div>
               </div>
             )
           })}
         </div>
-
-        <div className="bg-white border rounded-2xl p-4">
-          <p className="font-black text-[11px]">V6.4 Idées nouvelles - App 5 étoiles</p>
-          <p className="text-[10px] text-gray-600 mt-2 leading-relaxed">
-            <b>1. Même ticket:</b> ⭐ 5$ ({toCDFString(5)}) 4pl/7j, 🚀 10$ 10pl/15j, 👑 20$ 30pl/30j - 0% comm - Taux {TAUX_CDF}<br/>
-            <b>2. Freemium 3 à vie 30j puis 🔒 caché:</b> 3 places strictes à vie, visibles 30j<br/>
-            <b>3. Max 50 + suppression libère place:</b> 1 ticket = X places strictes sur Y jours
-          </p>
-        </div>
       </div>
-
-      {selectedImage && !selectedImage.isVideo && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={()=> setSelectedImage(null)}>
-          <div className="bg-white rounded-2xl max-w-[380px] w-full overflow-hidden" onClick={e=> e.stopPropagation()}>
-            <div className="h-80 bg-[#FFFBF0] flex items-center justify-center">
-              <img src={selectedImage.photo} alt={selectedImage.titre} className="max-w-full max-h-full object-contain"/>
-            </div>
-            <div className="p-4">
-              <p className="font-black text-[13px]">{selectedImage.titre} {selectedImage.vendeurBadge} {selectedImage.vendeurPalier} {selectedImage.isBoosted?"🚀 TOP":""}</p>
-              <p className="text-[11px] text-gray-600 mt-1 line-clamp-3">{selectedImage.description}</p>
-              <p className="font-black text-black mt-2">{selectedImage.prix}$ / {selectedImage.prixCDF} • {selectedImage.vendeurBadge} • Max 50 • 0% comm • Taux {TAUX_CDF}</p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button onClick={()=> { setSelectedImage(null); openProduit(selectedImage); }} className="bg-black text-white py-3 rounded-full font-bold text-[12px]">Voir produit</button>
-                <button onClick={()=> setSelectedImage(null)} className="bg-white border-2 py-3 rounded-full font-bold text-[12px]">Fermer</button>
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <a href={`https://wa.me/${selectedImage._wa}?text=${encodeURIComponent(`WENZE V6.4 ${selectedImage.titre} - ${selectedImage.prix}$`)}`} target="_blank" className="bg-[#25D366] text-white text-center py-3 rounded-full font-bold text-[12px]">WhatsApp</a>
-                <button onClick={()=> { addPanier(selectedImage); setSelectedImage(null); }} className="bg-black text-white py-3 rounded-full font-bold text-[12px]">🛒 Panier</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       <nav className="fixed bottom-0 max-w-[430px] w-full bg-white border-t flex justify-around py-2.5 text-[10px] z-30">
         <Link href="/" className="font-bold text-black flex flex-col items-center gap-0.5"><span className="text-[18px]">🏠</span>Accueil</Link>
         <Link href="/video" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🎥</span>Vidéo</Link>
         <Link href="/publier" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[22px] bg-black text-white w-7 h-7 rounded-full flex items-center justify-center">+</span>Publier</Link>
         <Link href="/boutiques" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏬</span>Boutiques</Link>
-        <Link href="/profil" className="flex flex-col items-center gap-0.5 text-gray-500 relative"><span className="text-[18px]">👤</span>Profil {notifC
+        <Link href="/profil" className="flex flex-col items-center gap-0.5 text-gray-500 relative"><span className="text-[18px]">👤</span>Profil {notifCount>0 && <span className="absolute -top-1 left-3 bg-red-600 text-white text-[8px] w-4 h-4 rounded-full flex items-center justify-center font-black">{notifCount}</span>}</Link>
+      </nav>
+    </div>
+  );
+                                          }
