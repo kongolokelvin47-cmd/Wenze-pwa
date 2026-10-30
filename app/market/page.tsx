@@ -1,180 +1,170 @@
 'use client'
 import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
-import { TAUX_CDF, toCDF } from '@/lib/paiement'
-import { CATEGORIES_WENZE, getCategorieById, normalizeCategorie, getPrixByCategorie } from '@/lib/categories'
+import { TAUX_CDF, toCDFString, isCompteCache, checkFreemiumWenze, PALIERS } from '@/lib/paiement'
+import { CATEGORIES_WENZE, getCategorieById, normalizeCategorie } from '@/lib/categories'
 
 type Product = {
-  id: string
-  titre: string
-  prix: number
-  prixCDF?: number
-  categorieId: string
-  categorieTitre?: string
-  user?: string
-  photo?: string
-  ownerWhatsapp?: string
-  market?: string // ancien champ compat
-  name?: string // compat supabase
-  price?: number
+  id: string; titre: string; title?: string; name?: string;
+  prix: number; prixUSD?: number; price?: number;
+  categorieId: string; categorieTitre?: string;
+  photo?: string; images?: string[]; user?: string;
+  ownerWhatsapp?: string; whatsapp?: string; userId?: string; createdAt?: string;
+  _isPaye?: boolean; _badge?: string; _palierId?: string; _jours?: number;
 }
-
-function cleanWa(n: string){ return (n||"").toString().replace(/[^0-9]/g,""); }
+function cleanWa(n:string){ return (n||"").toString().replace(/[^0-9]/g,""); }
 function formatPrix(p:any){
-  const usd = Number(p.prix || p.price) || 0
-  return `${usd}$ / ${toCDF(usd).toLocaleString("fr-FR")} CDF`
+  const usd = Number(p.prixUSD||p.prix||p.price)||0;
+  if(usd===0) return "Prix sur demande";
+  return `${usd}$ / ${toCDFString(usd)}`;
 }
 
 export default function MarketPage() {
   const [loading, setLoading] = useState(true)
   const [products, setProducts] = useState<Product[]>([])
   const [search, setSearch] = useState("")
-  const [filterCat, setFilterCat] = useState<"all" | "commerces-services" | "gros-autres">("all")
+  const [filterCat, setFilterCat] = useState<"all"|"commerces-services"|"gros-autres">("all")
 
-  useEffect(() => {
-    const loadProducts = async () => {
-      try {
-        // ✅ WENZE 2.0: priorité localStorage, Supabase optionnel si table existe
-        let list: any[] = []
-        
-        // 1. Try Supabase si dispo (ne crashe pas si pas de table)
-        try {
-          const { createClient } = await import('@/utils/supabase/client')
-          const supabase = createClient()
-          const { data } = await supabase.from('products').select('*').limit(20)
-          if(data && data.length > 0){
-            list = data.map((d:any)=> ({
-              id: d.id,
-              titre: d.name || d.titre,
-              prix: d.price || d.prix,
-              categorieId: normalizeCategorie(d.categorieId || d.category || "commerces-services"),
-              user: d.market || d.user,
-              photo: d.photo,
-              ownerWhatsapp: d.ownerWhatsapp
-            }))
-          }
-        } catch(e){
-          // normal - pas de table products WENZE
-        }
+  useEffect(()=>{
+    try{
+      const raw = localStorage.getItem("wenze_annonces_list");
+      const list = raw ? JSON.parse(raw) : [];
+      const allUsers = JSON.parse(localStorage.getItem("wenze_all_users")||"[]");
+      const userMap = new Map<string,any>();
+      for(const u of allUsers){ const wa=cleanWa(u.ownerWhatsapp||u.whatsapp||""); if(wa) userMap.set(wa,u); }
 
-        // 2. Fallback WENZE réel: wenze_annonces_list
-        if(list.length === 0){
-          const raw = localStorage.getItem("wenze_annonces_list")
-          if(raw){
-            const parsed = JSON.parse(raw)
-            list = parsed.map((a:any)=> ({
-              ...a,
-              categorieId: normalizeCategorie(a.categorieId || a.categorie || "commerces-services"),
-              titre: a.titre || a.name,
-              prix: a.prix || a.price,
-            }))
-          }
-        }
+      let prods: Product[] = list.map((a:any)=>({
+        id: a.id||a.annonceId, titre: a.titre||a.title||a.name||"Produit", title: a.title, name: a.name,
+        prix: Number(a.prixUSD||a.prix||a.price||0), prixUSD: Number(a.prixUSD||a.prix||a.price||0), price: a.price,
+        categorieId: normalizeCategorie(a.categorieId||a.categorie||"commerces-services"),
+        categorieTitre: a.categorieTitre, photo: a.images?.[0]||a.photo, images: a.images, user: a.user||a.nomBoutique,
+        ownerWhatsapp: a.ownerWhatsapp||a.whatsapp||a.userId, whatsapp: a.whatsapp||a.ownerWhatsapp, userId: a.userId, createdAt: a.createdAt,
+      }));
 
-        setProducts(list)
-      } catch (e) {
-        console.log('WENZE Market - pas de produits encore')
-      } finally {
-        setLoading(false)
-      }
-    }
-    loadProducts()
-  }, [])
+      // POLITIQUE ÉCONOMIQUE NOUVELLE V6 - Filtre + enrichissement
+      const final = prods.filter((p)=>{
+        const wa=cleanWa(p.ownerWhatsapp||p.whatsapp||p.userId||"");
+        const user=userMap.get(wa)||{ ownerWhatsapp:wa, whatsapp:wa, createdAt:p.createdAt, id:wa };
+        try{ if(isCompteCache(user)) return false; }catch{} return true;
+      }).map((p)=>{
+        try{
+          const wa=cleanWa(p.ownerWhatsapp||p.whatsapp||p.userId||"");
+          const user=userMap.get(wa)||{ ownerWhatsapp:wa, createdAt:p.createdAt, id:wa };
+          const ab=checkFreemiumWenze(user,0);
+          return { ...p, _isPaye:!!ab.isPaye, _badge:ab.badge, _palierId:ab.palierId, _jours:ab.joursRestants||0 };
+        }catch{ return { ...p, _isPaye:false, _badge:"🆓", _palierId:"", _jours:0 }; }
+      }).sort((a:any,b:any)=>{
+        if(a._isPaye&&!b._isPaye) return -1;
+        if(!a._isPaye&&b._isPaye) return 1;
+        if(a._isPaye&&b._isPaye){ const o:any={PREMIUM:3,PRO:2,STANDARD:1,OCC:0}; return (o[b._palierId]||0)-(o[a._palierId]||0); }
+        return new Date(b.createdAt||0).getTime()-new Date(a.createdAt||0).getTime();
+      });
+
+      setProducts(final);
+    }catch(e){ console.log("Market V6",e); } finally{ setLoading(false); }
+  },[]);
 
   const filtered = useMemo(()=>{
-    const q = search.toLowerCase().trim()
-    return products.filter(p=>{
-      const cat = normalizeCategorie(p.categorieId)
-      if(filterCat !== "all" && cat !== filterCat) return false
-      if(!q) return true
-      return (p.titre||"").toLowerCase().includes(q) || (p.user||p.market||"").toLowerCase().includes(q) || (p.categorieTitre||"").toLowerCase().includes(q)
-    })
-  }, [products, search, filterCat])
+    let list=products;
+    if(filterCat!=="all"){
+      list=list.filter(p=>{
+        const cat=normalizeCategorie(p.categorieId);
+        const obj=getCategorieById(cat) as any;
+        if(filterCat==="commerces-services") return obj?.groupe==="commerces-services"||!cat.includes("gros");
+        if(filterCat==="gros-autres") return obj?.groupe==="gros-autres"||cat.includes("gros");
+        return true;
+      });
+    }
+    if(!search.trim()) return list;
+    const q=search.toLowerCase(); const qWa=cleanWa(q);
+    return list.filter(p=> (p.titre||p.title||p.name||"").toLowerCase().includes(q) || (p.categorieTitre||"").toLowerCase().includes(q) || (p.user||"").toLowerCase().includes(q) || (qWa&&cleanWa(p.ownerWhatsapp||"").includes(qWa)));
+  },[products,search,filterCat]);
 
-  if (loading) {
-    return <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6"><div className="h-24 bg-white border rounded-2xl animate-pulse"/><p className="text-[11px] text-gray-400 mt-3">Chargement Marché WENZE 2.0... Taux {TAUX_CDF} CDF</p></div>
-  }
+  const totalCommerces = products.filter(p=>{ const c=normalizeCategorie(p.categorieId); const o=getCategorieById(c) as any; return o?.groupe==="commerces-services"||!c.includes("gros"); }).length;
+  const totalGros = products.filter(p=>{ const c=normalizeCategorie(p.categorieId); const o=getCategorieById(c) as any; return o?.groupe==="gros-autres"||c.includes("gros"); }).length;
 
-  const totalCommerces = products.filter(p=> normalizeCategorie(p.categorieId)==="commerces-services").length
-  const totalGros = products.filter(p=> normalizeCategorie(p.categorieId)==="gros-autres").length
+  if(loading) return <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6"><div className="h-24 bg-white border rounded-2xl animate-pulse"/><p className="text-[11px] text-gray-400 mt-3">Chargement Marché V6 - Taux {TAUX_CDF} - Comptes cachés filtrés - Même prix pour tous...</p></div>;
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-24">
-      <header className="sticky top-0 bg-white z-20 p-4 border-b">
+      <header className="sticky top-0 bg-white/95 backdrop-blur z-20 p-4 border-b">
         <div className="flex items-center gap-3">
-          <Link href="/" className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
+          <Link href="/" className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
           <div className="flex-1">
-            <h1 className="font-black text-[16px]">Marché WENZE 2.0</h1>
-            <p className="text-[10px] text-gray-500">🛍️ {totalCommerces} • 🏭 {totalGros} • {products.length} produits • Taux {TAUX_CDF} • 0% comm</p>
+            <h1 className="font-black text-[16px]">Marché • Politique Nouvelle V6</h1>
+            <p className="text-[10px] text-gray-500">🛍️ {totalCommerces} Détail • 🏭 {totalGros} Gros • {products.length} visibles • Taux {TAUX_CDF} • 0% comm • Max 50</p>
           </div>
-          <Link href="/publier" className="w-9 h-9 bg-[#6C3CE0] rounded-full flex items-center justify-center text-white font-bold">➕</Link>
+          <Link href="/publier" className="w-10 h-10 bg-black rounded-full flex items-center justify-center text-white font-black">+</Link>
         </div>
         <div className="mt-3 relative">
-          <input value={search} onChange={e=> setSearch(e.target.value)} placeholder="Recherche marché: nom, boutique, catégorie..." className="w-full bg-gray-100 rounded-full py-3 px-5 pl-10 text-sm outline-none focus:ring-2 focus:ring-[#6C3CE0]" />
-          <span className="absolute left-3 top-3.5">🔍</span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Recherche: produit, boutique, WA..." className="w-full bg-gray-100 rounded-2xl py-3.5 px-5 pl-11 text-sm outline-none focus:ring-2 focus:ring-black" />
+          <span className="absolute left-4 top-3.5">🔍</span>
         </div>
-        <div className="mt-3 flex gap-2">
-          <button onClick={()=> setFilterCat("all")} className={`flex-1 py-2.5 rounded-full font-black text-[11px] border-2 ${filterCat==="all"?"bg-black text-white border-black":"bg-white border-gray-200"}`}>Tous • {products.length}</button>
-          <button onClick={()=> setFilterCat("commerces-services")} className={`flex-1 py-2.5 rounded-full font-black text-[11px] border-2 ${filterCat==="commerces-services"?"bg-[#6C3CE0] text-white border-[#6C3CE0]":"bg-white border-gray-200"}`}>🛍️ 5$ • {totalCommerces}</button>
-          <button onClick={()=> setFilterCat("gros-autres")} className={`flex-1 py-2.5 rounded-full font-black text-[11px] border-2 ${filterCat==="gros-autres"?"bg-black text-white border-black":"bg-white border-gray-200"}`}>🏭 10$ • {totalGros}</button>
+        <div className="mt-3 flex gap-2 overflow-x-auto">
+          <button onClick={()=>setFilterCat("all")} className={`whitespace-nowrap py-2.5 px-5 rounded-full font-black text-[11px] border-2 ${filterCat==="all"?"bg-black text-white border-black":"bg-white border-gray-200"}`}>Tous • {products.length}</button>
+          <button onClick={()=>setFilterCat("commerces-services")} className={`whitespace-nowrap py-2.5 px-5 rounded-full font-black text-[11px] border-2 ${filterCat==="commerces-services"?"bg-black text-white border-black":"bg-white border-gray-200"}`}>🛍️ Détail/Services • {totalCommerces}</button>
+          <button onClick={()=>setFilterCat("gros-autres")} className={`whitespace-nowrap py-2.5 px-5 rounded-full font-black text-[11px] border-2 ${filterCat==="gros-autres"?"bg-black text-white border-black":"bg-white border-gray-200"}`}>🏭 Gros/Dépôt • {totalGros}</button>
+        </div>
+        <div className="mt-3 bg-black text-white rounded-xl p-2.5 flex justify-between items-center">
+          <div><p className="font-black text-[11px]">POLITIQUE NOUVELLE V6 - Même prix pour tous</p><p className="text-[9px] opacity-70 leading-tight mt-0.5">On vend VISIBILITÉ, pas catégorie - 1 ticket = X places strictes sur Y jours - Pas X/j - Cumulable - Max 50 actives - Suppression libère place - 🆓 Freemium 3 images à vie 30j puis caché 🔒</p></div>
+          <span className="bg-white text-black text-[9px] px-2 py-1 rounded-full font-black whitespace-nowrap">{TAUX_CDF}</span>
         </div>
       </header>
 
-      <div className="p-4">
-        <div className="bg-black text-white rounded-xl p-3 flex justify-between items-center">
-          <div><p className="font-black text-[12px]">Marché Kinshasa - WENZE 2.0</p><p className="text-[10px] opacity-70">🛍️ Petites activités 5$ même régime (électricité, maçon, coiffure) • 🏭 Gros 10$</p></div>
-          <span className="bg-white text-black text-[9px] px-2 py-1 rounded-full font-black">Taux {TAUX_CDF}</span>
+      <div className="p-3">
+        <div className="bg-white border rounded-2xl p-3 flex gap-2 text-[9px]">
+          {Object.entries(PALIERS).map(([k,v]:any)=><div key={k} className="flex-1 text-center"><div className="font-black">{v.badge} {k}</div><div className="text-gray-500">{v.prixUSD}$</div><div className="text-[8px]">{v.places} places/{v.jours}j</div></div>)}
         </div>
 
-        {filtered.length === 0 ? (
+        {filtered.length===0 ? (
           <div className="mt-6 bg-white border-2 border-dashed rounded-2xl p-8 text-center">
             <p className="text-4xl">🏪</p>
-            <p className="font-black mt-2 text-[13px]">{search ? `Pas de produit pour "${search}"` : "Marché vide - Sois le premier!"}</p>
-            <p className="text-[11px] text-gray-500 mt-1">🛍️ 5$ / 11 500 CDF • 🏭 10$ / 23 000 CDF • Taux {TAUX_CDF} • 0% commission</p>
-            <Link href="/publier" className="mt-3 inline-block bg-[#6C3CE0] text-white px-6 py-3 rounded-full font-bold text-[12px]">Publier produit 🛍️ 5$</Link>
+            <p className="font-black mt-2 text-[13px]">{search?`Pas de résultat pour "${search}"`:"Marché vide - Sois le premier!"}</p>
+            <p className="text-[11px] text-gray-500 mt-1">V6: Comptes cachés filtrés - Publie → visible immédiatement - Même prix Détail/Gros</p>
+            <Link href="/publier" className="mt-4 inline-block bg-black text-white px-6 py-3 rounded-full font-black text-[12px]">Publier - ⭐ 5$ ({toCDFString(5)}) - 0.2$/j</Link>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 mt-4">
-            {filtered.map((p:any)=>{
-              const catId = normalizeCategorie(p.categorieId)
-              const catObj = getCategorieById(catId)
-              const prixInfo = catObj ? getPrixByCategorie(catObj.id) : { prixUSD: 5, prixCDF: 11500 }
+            {filtered.map((p)=>{
+              const catId=normalizeCategorie(p.categorieId);
+              const catObj=getCategorieById(catId) as any;
               return (
-                <div key={p.id} className="border rounded-2xl overflow-hidden bg-white shadow-sm">
-                  <Link href={`/produit/${p.id}`} className="block w-full aspect-[4/3] bg-white flex items-center justify-center overflow-hidden relative">
-                    {p.photo ? <img src={p.photo} alt={p.titre} className="max-w-full max-h-full object-contain"/> : <span className="text-3xl">{catObj?.icon || "🏪"}</span>}
-                    <span className={`absolute top-2 right-2 text-[7px] px-1.5 py-0.5 rounded-full font-bold ${catId==="gros-autres"?"bg-black text-white":"bg-[#6C3CE0] text-white"}`}>{prixInfo.prixUSD}$</span>
+                <div key={p.id} className="border rounded-2xl overflow-hidden bg-white shadow-sm hover:shadow-md transition">
+                  <Link href={`/produit/${p.id}`} className="block w-full aspect-[4/3] bg-gray-50 flex items-center justify-center overflow-hidden relative">
+                    {p.photo||p.images?.[0]?<img src={p.photo||p.images?.[0]} alt={p.titre} className="max-w-full max-h-full object-cover w-full h-full"/>:<span className="text-3xl">{catObj?.icon||"🏪"}</span>}
+                    <span className="absolute top-2 left-2 text-[8px] bg-black/70 text-white px-2 py-1 rounded-full backdrop-blur">{p._badge} {p._palierId}{p._isPaye?` • ${p._jours}j`:""}</span>
+                    <span className="absolute bottom-2 left-2 text-[8px] bg-white/90 px-2 py-0.5 rounded-full">{catObj?.icon} {catObj?.titreCourt||catId}</span>
                   </Link>
                   <div className="p-2.5">
-                    <p className="font-bold text-[#6C3CE0] text-[13px] truncate">{formatPrix(p)}</p>
-                    <p className="text-[11px] font-semibold truncate">{p.titre || p.name}</p>
-                    <p className="text-[9px] text-gray-400 truncate">{catObj?.icon} {p.categorieTitre || catObj?.titreCourt || catId} • 👤 {p.user || p.market}</p>
-                    <a href={`https://wa.me/${cleanWa(p.ownerWhatsapp)}?text=${encodeURIComponent(`Bonjour ${p.user} 👋 WENZE Marché - "${p.titre}" à ${formatPrix(p)} - Taux ${TAUX_CDF}`)}`} target="_blank" className="mt-2 w-full bg-[#00C950] text-white text-[11px] font-bold py-2.5 rounded-full flex justify-center">💬 WhatsApp</a>
+                    <p className="font-bold text-black text-[12px] truncate">{p.titre||p.name}</p>
+                    <p className="text-[12px] font-black text-orange-600">{formatPrix(p)}</p>
+                    <p className="text-[9px] text-gray-400 truncate">{p.user||"Boutique"} • {cleanWa(p.ownerWhatsapp||"").slice(-9)}</p>
+                    <a href={`https://wa.me/${cleanWa(p.ownerWhatsapp||"")}?text=${encodeURIComponent(`Bonjour ${p.user||"Boutique"} 👋 WENZE Market V6 - "${p.titre}" à ${formatPrix(p)} - Taux ${TAUX_CDF} - Même prix Détail/Gros`)}`} target="_blank" className="mt-2 w-full bg-[#25D366] text-white text-[11px] font-black py-2.5 rounded-full flex justify-center">💬 WhatsApp</a>
                   </div>
                 </div>
-              )
+              );
             })}
           </div>
         )}
 
         <div className="mt-8 bg-white border rounded-2xl p-4">
-          <p className="font-black text-[12px]">WENZE 2.0 - Marché Kinshasa</p>
-          <div className="mt-2 grid grid-cols-2 gap-2 text-[10px]">
-            {CATEGORIES_WENZE.map((c:any)=> (
-              <Link key={c.id} href={`/categorie/${c.id}`} className={`p-3 rounded-xl border-2 ${c.id==="gros-autres"?"bg-black text-white border-black":"bg-purple-50 border-[#6C3CE0]/20"}`}>
-                <p className="font-black text-[12px]">{c.icon} {c.titre}</p>
-                <p className="opacity-70 mt-1">{c.description}</p>
-                <p className="font-black mt-2">{c.prixUSD}$ / {c.prixCDF.toLocaleString()} CDF</p>
+          <p className="font-black text-[12px]">Catégories WENZE - Même ticket pour toutes</p>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-[10px]">
+            {CATEGORIES_WENZE.slice(0,6).map((c:any)=>(
+              <Link key={c.id} href={`/categorie/${c.id}`} className="p-3 rounded-xl border bg-gray-50 hover:bg-black hover:text-white transition">
+                <p className="font-black text-[12px]">{c.icon} {c.titreCourt||c.titre}</p>
+                <p className="opacity-70 mt-1 text-[9px]">{c.description}</p>
               </Link>
             ))}
           </div>
+          <p className="text-[9px] text-gray-400 mt-3">Politique: Plus de différence prix par catégorie. On vend visibilité: 4 places strictes sur 7j (5$), 10 places sur 15j (10$), 30 places sur 30j (20$). Max 50 actives. Suppression libère place immédiatement. 0% commission.</p>
         </div>
       </div>
 
-      <nav className="fixed bottom-0 max-w-[430px] w-full bg-white border-t flex justify-around py-2.5 text-[10px] z-30">
+      <nav className="fixed bottom-0 max-w-[430px] w-full bg-white/95 backdrop-blur border-t flex justify-around py-2.5 text-[10px] z-30">
         <Link href="/" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏠</span>Accueil</Link>
-        <Link href="/market" className="font-bold text-[#6C3CE0] flex flex-col items-center gap-0.5"><span className="text-[18px]">🏪</span>Marché</Link>
-        <Link href="/publier" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px] bg-[#6C3CE0] text-white w-6 h-6 rounded-full flex items-center justify-center">➕</span>Vendre</Link>
+        <Link href="/market" className="font-black text-black flex flex-col items-center gap-0.5"><span className="text-[18px]">🏪</span>Marché</Link>
+        <Link href="/publier" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px] bg-black text-white w-7 h-7 rounded-full flex items-center justify-center">+</span>Vendre</Link>
         <Link href="/boutiques" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏬</span>Boutiques</Link>
         <Link href="/profil" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">👤</span>Profil</Link>
       </nav>
