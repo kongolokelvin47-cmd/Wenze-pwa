@@ -3,115 +3,168 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useMemo, useState, useEffect } from "react";
 import { getCategorieById, normalizeCategorie, getPrixByCategorie, CATEGORIES_WENZE } from "@/lib/categories";
-import { TAUX_CDF, toCDF } from "@/lib/paiement";
+import { TAUX_CDF, toCDF, toCDFString, PALIERS } from "@/lib/paiement";
 
 function cleanWa(n: string){ return (n||"").toString().replace(/[^0-9]/g,""); }
 function formatPrix(p:any){
-  const usd = Number(p.prix) || 0;
-  if(p.prixCDF) return `${p.prixCDF.toLocaleString("fr-FR")} CDF`;
-  return `${usd}$ / ${toCDF(usd).toLocaleString("fr-FR")} CDF`;
+  // V6: prix produit, pas prix ticket - p.prix = prix du produit du vendeur
+  const usd = Number(p.prixUSD || p.prix || 0);
+  if(usd===0) return "Prix sur demande";
+  return `${usd}$ / ${toCDFString(usd)}`;
 }
 
 export default function CategorieSlugPage() {
   const params = useParams();
   const rawSlug = (params.slug as string)?.toLowerCase();
-  const slug = normalizeCategorie(rawSlug); // ✅ FIX: ancien soudeur/commerce → commerces-services
-  const cat = getCategorieById(slug);
+  const slug = normalizeCategorie(rawSlug);
+  const cat = getCategorieById(slug) || getCategorieById(rawSlug) || { id: slug, titre: slug, description: `Catégorie ${slug} - Même prix pour tous`, icone: "📦", groupe: "commerces-services" } as any;
   const [annonces, setAnnonces] = useState<any[]>([]);
   const [search, setSearch] = useState("");
 
   useEffect(()=>{
     try{
       const list = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
-      // ✅ FIX WENZE 2.0: filtre exact par normalizeCategorie, pas includes
-      const filtered = list.filter((a:any)=>{
-        const c = normalizeCategorie(a.categorieId || a.categorie || "");
-        return c === slug;
+      const allUsersRaw = localStorage.getItem("wenze_all_users");
+      const allUsers = allUsersRaw ? JSON.parse(allUsersRaw) : [];
+      const userMap = new Map<string, any>();
+      for(const u of allUsers){
+        const wa = cleanWa(u.ownerWhatsapp||u.whatsapp||"");
+        if(wa) userMap.set(wa, u);
+      }
+
+      let filtered = list.filter((a:any)=>{
+        const catId = normalizeCategorie(a.categorieId||a.categorie||"");
+        // V6 FIX slug: soudeur/commerce -> commerces-services, gros -> gros-autres etc
+        if(catId!==slug && normalizeCategorie(catId)!==slug){
+          // Check si appartient au même groupe
+          const aCat = getCategorieById(catId);
+          const targetCat = getCategorieById(slug);
+          if(aCat && targetCat){
+            const aGroupe = (aCat as any).groupe;
+            const tGroupe = (targetCat as any).groupe;
+            if(aGroupe && tGroupe && aGroupe!==tGroupe && catId!==slug) {
+              // Si slug est un groupe, accepte tout du groupe
+              if(slug==="commerces-services" || slug==="gros-autres"){
+                if(aGroupe!==slug && catId!==slug) return false;
+              } else {
+                return false;
+              }
+            }
+          } else if(catId!==slug) {
+            return false;
+          }
+        }
+        return true;
       });
-      filtered.sort((a:any,b:any)=> new Date(b.createdAt||b.date).getTime() - new Date(a.createdAt||a.date).getTime());
+
+      // V6 CRITIQUE: Filtre comptes cachés
+      try{
+        const { isCompteCache, checkFreemiumWenze } = require("@/lib/paiement");
+        filtered = filtered.filter((a:any)=>{
+          const wa = cleanWa(a.ownerWhatsapp||a.whatsapp||a.userId||"");
+          const user = userMap.get(wa) || { ownerWhatsapp: wa, whatsapp: wa, createdAt: a.createdAt, id: wa };
+          if(typeof isCompteCache==="function" && isCompteCache(user)) return false;
+          return true;
+        });
+
+        // Enrichir avec abonnement pour tri payés d'abord
+        filtered = filtered.map((a:any)=>{
+          try{
+            const wa = cleanWa(a.ownerWhatsapp||a.whatsapp||a.userId||"");
+            const user = userMap.get(wa) || { ownerWhatsapp: wa, whatsapp: wa, createdAt: a.createdAt, id: wa };
+            const ab = checkFreemiumWenze(user, 0);
+            return { ...a, _isPaye: !!ab.isPaye, _badge: ab.badge, _palierId: ab.palierId, _joursRestants: ab.joursRestants||0, _isFreemium: !!ab.isFreemium };
+          }catch{ return { ...a, _isPaye: false, _badge: "🆓" }; }
+        });
+
+        // Tri V6 business: Payés d'abord (PREMIUM > PRO > STANDARD) puis récents
+        filtered.sort((a:any,b:any)=>{
+          if(a._isPaye && !b._isPaye) return -1;
+          if(!a._isPaye && b._isPaye) return 1;
+          if(a._isPaye && b._isPaye){
+            const order: any = { PREMIUM:3, PRO:2, STANDARD:1 };
+            const ao = order[a._palierId]||0;
+            const bo = order[b._palierId]||0;
+            if(ao!==bo) return bo-ao;
+          }
+          return new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime();
+        });
+
+      }catch{}
+
       setAnnonces(filtered);
-    }catch{}
-  },[slug]);
+    }catch(e){ console.error("slug page V6 error", e); }
+  },[slug, rawSlug]);
 
-  const prixInfo = useMemo(()=> cat ? getPrixByCategorie(cat.id) : { prixUSD: 5, prixCDF: 11500, label: "🛍️ Commerces & Services" }, [cat]);
-
-  const filteredAnnonces = useMemo(()=>{
-    const q = search.toLowerCase().trim();
-    if(!q) return annonces;
-    return annonces.filter((a:any)=> (a.titre||"").toLowerCase().includes(q) || (a.description||"").toLowerCase().includes(q) || (a.user||"").toLowerCase().includes(q));
-  }, [annonces, search]);
-
-  if(!cat){
-    return (
-      <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6 text-center">
-        <p className="text-4xl mt-10">📁</p>
-        <p className="font-black mt-4">Catégorie introuvable - {rawSlug}</p>
-        <p className="text-[11px] text-gray-500 mt-2">WENZE 2.0: {CATEGORIES_WENZE.map(c=> `${c.icon} ${c.titre} ${c.prixUSD}$`).join(" • ")}</p>
-        <div className="mt-6 grid gap-2">
-          {CATEGORIES_WENZE.map((c:any)=> <Link key={c.id} href={`/categorie/${c.id}`} className={`p-4 rounded-xl font-bold text-[13px] ${c.id==="gros-autres"?"bg-black text-white":"bg-[#6C3CE0] text-white"}`}>{c.icon} {c.titre} - {c.prixUSD}$</Link>)}
-        </div>
-      </div>
+  const filteredSearch = useMemo(()=>{
+    if(!search.trim()) return annonces;
+    const q = search.toLowerCase();
+    return annonces.filter((a:any)=>
+      (a.titre||a.title||"").toLowerCase().includes(q) ||
+      (a.description||"").toLowerCase().includes(q) ||
+      cleanWa(a.ownerWhatsapp||a.whatsapp||"").includes(cleanWa(q))
     );
-  }
+  },[annonces, search]);
 
   return (
-    <div className="max-w-[430px] mx-auto bg-[#FFFBF0] min-h-screen pb-24">
-      <header className="sticky top-0 bg-white z-20 p-4 border-b">
-        <div className="flex items-center gap-3">
-          <Link href="/categories" className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
-          <div className="flex-1">
-            <h1 className="font-black text-[15px]">{cat.icon} {cat.titre}</h1>
-            <p className="text-[10px] text-gray-500">{cat.description} • {annonces.length} annonces • {prixInfo.prixUSD}$ / {prixInfo.prixCDF.toLocaleString()} CDF • Taux {TAUX_CDF}</p>
+    <div className="min-h-screen bg-gray-50 pb-20">
+      <div className="sticky top-0 z-10 bg-white border-b p-3">
+        <div className="flex items-center gap-2">
+          <Link href="/categorie" className="p-2 rounded-full bg-gray-100">←</Link>
+          <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center text-xl">{(cat as any).icone||"📦"}</div>
+          <div className="flex-1 min-w-0">
+            <h1 className="font-bold text-sm truncate">{(cat as any).titre||slug} - V6 Même prix</h1>
+            <p className="text-[11px] text-gray-500 truncate">{(cat as any).description||`Catégorie ${slug} - ${annonces.length} annonces visibles (cachés filtrés)`}</p>
           </div>
-          <span className={`text-[10px] px-2 py-1 rounded-full font-black ${cat.id==="gros-autres"?"bg-black text-white":"bg-[#6C3CE0] text-white"}`}>{prixInfo.prixUSD}$</span>
+          <span className="text-[10px] bg-green-100 text-green-700 px-2 py-1 rounded-full">{annonces.length} visibles</span>
         </div>
-        <div className="mt-3 relative">
-          <input value={search} onChange={e=> setSearch(e.target.value)} placeholder={`Recherche dans ${cat.titreCourt}...`} className="w-full bg-gray-100 rounded-full py-3 px-5 pl-10 text-sm outline-none focus:ring-2 focus:ring-[#6C3CE0]" />
-          <span className="absolute left-3 top-3.5">🔍</span>
+        <div className="mt-3 flex gap-2">
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={`Recherche dans ${cat.titre||slug}... V6`} className="flex-1 border rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-orange-400 outline-none" />
+          <Link href="/publier" className="bg-black text-white px-4 py-2 rounded-xl text-xs font-bold">+ Publier</Link>
         </div>
-      </header>
+        <div className="mt-2 text-[10px] text-gray-500 bg-orange-50 p-2 rounded-xl">
+          V6: <b>Même prix pour tous</b> - Cette catégorie ne change pas le prix ticket - STANDARD 5$ (4 places strictes sur 7j) / PRO 10$ (10 places) / PREMIUM 20$ (30 places) - 1 ticket = X places sur Y jours (pas X/j) - Cumulable - Suppression libère place - Max 50 - Taux {TAUX_CDF} - Comptes cachés 🔒 filtrés - Tri payés d'abord ⭐🚀👑
+        </div>
+      </div>
 
-      <div className="p-4">
-        <div className={`rounded-2xl p-4 border-2 ${cat.id==="gros-autres"?"bg-black text-white border-black":"bg-[#6C3CE0] text-white border-[#6C3CE0]"}`}>
-          <div className="flex justify-between items-center">
-            <div><p className="font-black text-[14px]">{cat.icon} {cat.titre}</p><p className="text-[11px] opacity-80 mt-1">{cat.description} • {cat.regime} • Taux {TAUX_CDF}</p></div>
-            <span className="bg-white text-black text-[11px] px-3 py-1 rounded-full font-black">{prixInfo.prixUSD}$ / {prixInfo.prixCDF.toLocaleString()} CDF</span>
-          </div>
-          <div className="mt-3 flex gap-1 flex-wrap">
-            {cat.activites.map((a:any)=> <span key={a.id} className="text-[9px] bg-white/20 px-2 py-1 rounded-full font-bold">{a.label}</span>)}
-          </div>
-        </div>
-
-        {filteredAnnonces.length===0 ? (
-          <div className="mt-6 bg-white border-2 border-dashed rounded-2xl p-8 text-center">
-            <p className="text-4xl">{cat.icon}</p>
-            <p className="font-black mt-2 text-[13px]">{search ? `Pas de résultat pour "${search}"` : `Pas encore d'annonces en ${cat.titre}`}</p>
-            <p className="text-[11px] text-gray-500 mt-1">Sois le premier - {prixInfo.prixUSD}$ / {prixInfo.prixCDF.toLocaleString()} CDF - Taux {TAUX_CDF} - 0% commission</p>
-            <Link href={`/publier?categorie=${cat.id}`} className={`mt-4 inline-block text-white px-6 py-3 rounded-full font-bold text-[12px] ${cat.id==="gros-autres"?"bg-black":"bg-[#6C3CE0]"}`}>Publier en {cat.titreCourt} {prixInfo.prixUSD}$</Link>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3 mt-4">
-            {filteredAnnonces.map((p:any)=> (
-              <div key={p.id} className="border rounded-2xl overflow-hidden bg-white shadow-sm">
-                <Link href={`/produit/${p.id}`} className="block w-full aspect-[4/3] bg-white flex items-center justify-center overflow-hidden relative">
-                  {p.photo ? <img src={p.photo} alt={p.titre} className="max-w-full max-h-full object-contain"/> : <span className="text-3xl">{cat.icon}</span>}
-                  <span className={`absolute top-2 right-2 text-[7px] px-1.5 py-0.5 rounded-full font-bold ${cat.id==="gros-autres"?"bg-black text-white":"bg-[#6C3CE0] text-white"}`}>{prixInfo.prixUSD}$</span>
-                  {p.boost && <span className="absolute top-2 left-2 bg-[#6C3CE0] text-white text-[7px] px-1.5 py-0.5 rounded-full font-bold">BOOST</span>}
-                </Link>
-                <div className="p-2.5">
-                  <p className="font-bold text-[#6C3CE0] text-[13px] truncate">{formatPrix(p)}</p>
-                  <Link href={`/produit/${p.id}`}><p className="text-[11px] font-semibold truncate hover:text-[#6C3CE0]">{p.titre}</p></Link>
-                  <p className="text-[9px] text-gray-400 truncate">👤 {p.user} • {cat.titreCourt}</p>
-                  <a href={`https://wa.me/${cleanWa(p.ownerWhatsapp||p.whatsapp)}?text=${encodeURIComponent(`Bonjour ${p.user} 👋 WENZE - "${p.titre}" à ${formatPrix(p)} - Taux ${TAUX_CDF}`)}`} target="_blank" className="mt-2 w-full bg-[#00C950] text-white text-[11px] font-bold py-2.5 rounded-full flex justify-center">💬 WhatsApp</a>
-                </div>
+      <div className="p-3 grid grid-cols-2 gap-3">
+        {filteredSearch.map((a:any)=>(
+          <Link key={a.id||a.annonceId} href={`/produit/${a.id||a.annonceId}`} className="bg-white rounded-2xl border overflow-hidden hover:shadow-md transition">
+            <div className="aspect-square bg-gray-100 relative">
+              {a.images?.[0] ? <img src={a.images[0]} alt={a.titre||a.title} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">Pas d'image</div>}
+              <div className="absolute top-1.5 left-1.5 flex gap-1">
+                <span className="text-[9px] bg-black/70 text-white px-1.5 py-0.5 rounded-full backdrop-blur">{a._badge||"🆓"} {a._palierId||""}</span>
+                {a._isPaye && <span className="text-[9px] bg-green-500 text-white px-1 py-0.5 rounded-full">{a._joursRestants}j</span>}
               </div>
-            ))}
-          </div>
-        )}
+              {a._isPaye && <div className="absolute bottom-1 right-1 text-[8px] bg-white/90 px-1 rounded">⭐ Payé</div>}
+            </div>
+            <div className="p-2">
+              <div className="font-bold text-xs line-clamp-2">{a.titre||a.title||"Produit"}</div>
+              <div className="text-[11px] text-orange-600 font-bold mt-1">{formatPrix(a)}</div>
+              <div className="text-[10px] text-gray-500 mt-0.5">{cleanWa(a.ownerWhatsapp||a.whatsapp||"").slice(-9)} • {new Date(a.createdAt).toLocaleDateString("fr-FR")}</div>
+            </div>
+          </Link>
+        ))}
+      </div>
 
-        <Link href="/categories" className="mt-6 block bg-white border p-3 rounded-xl text-center font-bold text-[12px]">← Voir les {CATEGORIES_WENZE.length} catégories - 🛍️ 5$ • 🏭 10$ - Taux {TAUX_CDF}</Link>
+      {filteredSearch.length===0 && (
+        <div className="text-center py-10 p-4">
+          <div className="text-4xl mb-2">📭</div>
+          <div className="text-sm font-bold">Aucune annonce visible dans {cat.titre||slug}</div>
+          <div className="text-[11px] text-gray-500 mt-1">
+            V6: Les comptes cachés (Freemium 30j expiré + 0 ticket actif) sont filtrés<br/>
+            Ancien slug `{rawSlug}` → normalisé `{slug}` → catégorie `{cat.titre||slug}`<br/>
+            Sois le premier à publier - STANDARD 5$ = 4 places strictes sur 7j - Même prix Détail/Gros/Presta
+          </div>
+          <Link href="/publier" className="inline-block mt-4 bg-black text-white px-6 py-2.5 rounded-xl text-sm font-bold">Publier maintenant - 0.2$/j OCC</Link>
+        </div>
+      )}
+
+      <div className="p-3">
+        <div className="bg-white rounded-2xl border p-3 text-[11px]">
+          <b>🔧 FIX Slug V6:</b> raw `{rawSlug}` → normalized `{slug}` → cat `{cat.id}` - Anciens liens `soudeur`, `commerce`, `vetement` → `commerces-services` grâce à `normalizeCategorie()` - Plus de 404
+        </div>
       </div>
     </div>
   );
-}
-export const dynamic = 'force-dynamic';
+                                                                      }
