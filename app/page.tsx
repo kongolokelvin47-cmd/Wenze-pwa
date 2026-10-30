@@ -5,8 +5,16 @@ import { useRouter } from "next/navigation";
 import { CATEGORIES_WENZE, getCategorieById, normalizeCategorie } from "@/lib/categories";
 import { TAUX_CDF, toCDFString, PALIERS, FREEMIUM, verifierAbonnement, isCompteCache, checkFreemiumWenze } from "@/lib/paiement";
 
+export const dynamic = "force-dynamic";
+
 const cleanWa = (n: string) => (n || "").toString().replace(/[^0-9]/g,"").replace(/^0+/,"");
-const safeParse = (k:string)=>{ try{ const r=localStorage.getItem(k); return r?JSON.parse(r):[];}catch{return[];} };
+const safeParse = (k:string)=>{ 
+  try{ 
+    if(typeof window==="undefined") return [];
+    const r=localStorage.getItem(k); 
+    return r?JSON.parse(r):[]; 
+  }catch{return[];} 
+};
 
 export default function WenzeBusiness() {
   const router = useRouter();
@@ -19,7 +27,10 @@ export default function WenzeBusiness() {
   const [ab, setAb] = useState<any>(null);
   const [notifCount, setNotifCount] = useState(0);
 
-  useEffect(()=>{ const t=setTimeout(()=>setDebounced(search.trim()),300); return ()=>clearTimeout(t); },[search]);
+  useEffect(()=>{ 
+    const t=setTimeout(()=>setDebounced(search.trim()),300); 
+    return ()=>clearTimeout(t); 
+  },[search]);
 
   const loadAnnonces = ()=>{
     try{
@@ -27,17 +38,23 @@ export default function WenzeBusiness() {
       const allUsers = safeParse("wenze_all_users");
       const usersMap = new Map<string,any>();
       for(const u of allUsers){ const wa=cleanWa(u.ownerWhatsapp||u.whatsapp||""); if(wa) usersMap.set(wa,u); }
-      try{ const curRaw=localStorage.getItem("wenze_user"); if(curRaw){ const u=JSON.parse(curRaw); const wa=cleanWa(u.ownerWhatsapp||u.whatsapp||""); if(wa) usersMap.set(wa,u); } }catch{}
+      try{ 
+        if(typeof window!=="undefined"){
+          const curRaw=localStorage.getItem("wenze_user"); 
+          if(curRaw){ const u=JSON.parse(curRaw); const wa=cleanWa(u.ownerWhatsapp||u.whatsapp||""); if(wa) usersMap.set(wa,u); } 
+        }
+      }catch{}
 
       const fixed = list.filter((a:any)=>{
         const wa=cleanWa(a.ownerWhatsapp||a.whatsapp||"");
         const vendeur=usersMap.get(wa);
-        if(vendeur && isCompteCache(vendeur)) return false; // V6: ne pas afficher annonces vendeur caché
+        if(vendeur && isCompteCache(vendeur)) return false;
         return true;
       }).map((a:any)=> {
         const wa=cleanWa(a.ownerWhatsapp||a.whatsapp||"");
         const vendeur=usersMap.get(wa);
-        const abVendeur=vendeur?checkFreemiumWenze(vendeur,0):null;
+        let abVendeur:any=null;
+        try{ abVendeur=vendeur?checkFreemiumWenze(vendeur,0):null; }catch{ abVendeur=null; }
         return {
           ...a,
           categorieId: normalizeCategorie(a.categorieId || a.categorie || "commerces-services"),
@@ -58,30 +75,46 @@ export default function WenzeBusiness() {
   useEffect(()=> { 
     loadAnnonces(); 
     try{ setAb(verifierAbonnement()); } catch {}
-    
+
+    let interval1:any=null;
+    let interval2:any=null;
+
     const initNotifs = async ()=>{
       try{
         const { getUnreadCount, checkAndNotifyExpirations } = await import("@/lib/notifications");
-        const user = JSON.parse(localStorage.getItem("wenze_user")||"{}");
+        if(typeof window==="undefined") return;
+        const userRaw=localStorage.getItem("wenze_user");
+        const user=userRaw?JSON.parse(userRaw):{};
         checkAndNotifyExpirations();
         const updateBadge = ()=>{
-          const wa=cleanWa(user.ownerWhatsapp||user.whatsapp||user.id||"");
-          const count = getUnreadCount(user.id || wa);
-          setNotifCount(count);
+          try{
+            const wa=cleanWa(user.ownerWhatsapp||user.whatsapp||user.id||"");
+            const count = getUnreadCount(user.id || wa);
+            setNotifCount(count);
+          }catch{}
         };
         updateBadge();
         window.addEventListener("wenze-notif", updateBadge);
-        const it = setInterval(()=> { checkAndNotifyExpirations(); updateBadge(); loadAnnonces(); }, 60*60*1000);
-        const it2 = setInterval(updateBadge, 3000);
-        return ()=> { clearInterval(it); clearInterval(it2); window.removeEventListener("wenze-notif", updateBadge as any); };
+        interval1 = setInterval(()=> { try{ checkAndNotifyExpirations(); updateBadge(); loadAnnonces(); }catch{} }, 60*60*1000);
+        interval2 = setInterval(updateBadge, 3000);
       } catch{}
     };
     initNotifs();
 
     const onStorage = ()=> { loadAnnonces(); try{ setAb(verifierAbonnement()); }catch{} };
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("wenze-update", onStorage as any);
-    return ()=> { window.removeEventListener("storage", onStorage); window.removeEventListener("wenze-update", onStorage as any); };
+    if(typeof window!=="undefined"){
+      window.addEventListener("storage", onStorage);
+      window.addEventListener("wenze-update", onStorage as any);
+    }
+    return ()=> { 
+      if(typeof window!=="undefined"){
+        window.removeEventListener("storage", onStorage); 
+        window.removeEventListener("wenze-update", onStorage as any);
+        window.removeEventListener("wenze-notif", onStorage as any);
+      }
+      if(interval1) clearInterval(interval1);
+      if(interval2) clearInterval(interval2);
+    };
   }, []);
 
   const filtered = useMemo(()=>{
@@ -109,25 +142,27 @@ export default function WenzeBusiness() {
       const panier = safeParse("wenze_panier");
       if(panier.find((p:any)=> p.id===a.id)){ showToast("Déjà dans panier 🛒"); return; }
       panier.push({ ...a, qty:1 });
-      localStorage.setItem("wenze_panier", JSON.stringify(panier));
+      if(typeof window!=="undefined"){
+        localStorage.setItem("wenze_panier", JSON.stringify(panier));
+        window.dispatchEvent(new Event("storage"));
+      }
       showToast(`Ajouté ${a.prix}$ / ${a.prixCDF} 🛒`);
-      window.dispatchEvent(new Event("storage"));
     } catch { showToast("Panier erreur"); }
   };
 
   const openProduit = (a:any)=>{
-    try{ localStorage.setItem("wenze_current_produit", JSON.stringify(a)); } catch {}
+    try{ if(typeof window!=="undefined") localStorage.setItem("wenze_current_produit", JSON.stringify(a)); } catch {}
     router.push(`/produit/${a.id}`);
   };
 
   const openVideoPage = (a:any)=>{
-    try{ localStorage.setItem("wenze_current_produit", JSON.stringify(a)); } catch {}
+    try{ if(typeof window!=="undefined") localStorage.setItem("wenze_current_produit", JSON.stringify(a)); } catch {}
     router.push(`/video?id=${a.id}`);
   };
 
   const prixMoyenUSD = filtered.length ? Math.round(filtered.reduce((s,a)=> s + Number(a.prix||0),0)/filtered.length) : 0;
-  const boostedCount = filtered.filter(a=> a.isBoosted).length;
-  const payantCount = filtered.filter(a=> a.isPayant).length;
+  const boostedCount = filtered.filter((a:any)=> a.isBoosted).length;
+  const payantCount = filtered.filter((a:any)=> a.isPayant).length;
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-24">
@@ -135,7 +170,7 @@ export default function WenzeBusiness() {
         <div className="p-4 flex items-center gap-3">
           <div className="w-9 h-9 bg-black rounded-full flex items-center justify-center text-white font-black">W</div>
           <div className="flex-1 min-w-0">
-            <h1 className="font-black text-[11px] leading-none truncate">WENZE V6.3 - {ab?.isPaye?`✅ ${ab.badge} ${ab.palierId} ${ab.joursRestants}j ${ab.placesRestantes||0} libres`:`🆓 ${ab?.count||0}/${FREEMIUM.maxImages} Freemium ${ab?.joursRestants||30}j`}{ab?.isCache?" 🔒 CACHÉ":""}</h1>
+            <h1 className="font-black text-[11px] leading-none truncate">WENZE V6.4 - {ab?.isPaye?`✅ ${ab.badge} ${ab.palierId} ${ab.joursRestants}j ${ab.placesRestantes||0} libres`:`🆓 ${ab?.count||0}/${FREEMIUM.maxImages} Freemium ${ab?.joursRestants||30}j`}{ab?.isCache?" 🔒 CACHÉ":""}</h1>
             <p className="text-[8px] text-gray-500 truncate">Kinshasa • {payantCount} payants • {boostedCount} TOP • Même ticket ⭐ 5$ ({toCDFString(5)}) 🚀 10$ 👑 20$ • Max 50 • Taux {TAUX_CDF} • 0% comm</p>
           </div>
           <Link href="/notifications" className="relative w-9 h-9 bg-[#FFFBF0] border rounded-full flex items-center justify-center shrink-0">
@@ -154,8 +189,8 @@ export default function WenzeBusiness() {
         </div>
         <div className="px-4 pb-3 flex gap-2 overflow-x-auto scrollbar-none">
           <button onClick={()=> setSelectedCat("all")} className={`px-4 py-2 rounded-full text-[11px] font-black border-2 whitespace-nowrap transition ${selectedCat==="all"?"bg-black text-white border-black":"bg-white"}`}>Tout • {annonces.length} {boostedCount?`🚀${boostedCount}`:""}</button>
-          {CATEGORIES_WENZE.slice(0,2).map(c=> {
-            const count = annonces.filter(a=> a.categorieId===c.id).length;
+          {CATEGORIES_WENZE.slice(0,2).map((c:any)=> {
+            const count = annonces.filter((a:any)=> a.categorieId===c.id).length;
             return <button key={c.id} onClick={()=> setSelectedCat(c.id)} className={`px-4 py-2 rounded-full text-[11px] font-black border-2 whitespace-nowrap transition ${selectedCat===c.id?"bg-black text-white border-black":"bg-white"}`}>{c.icon} {c.titreCourt} • {count}</button>
           })}
           <button onClick={()=> router.push("/tarifs")} className="px-4 py-2 rounded-full text-[10px] font-bold bg-white border-2 whitespace-nowrap">🎫 Tarifs {TAUX_CDF}</button>
@@ -175,7 +210,7 @@ export default function WenzeBusiness() {
         <div className="bg-black text-white rounded-2xl p-4">
           <div className="flex justify-between items-start gap-2">
             <div className="flex-1">
-              <p className="font-black text-[12px]">Politique V6.3 - Même ticket pour tous - 5 étoiles</p>
+              <p className="font-black text-[12px]">Politique V6.4 - Même ticket pour tous - 5 étoiles</p>
               <p className="text-[10px] opacity-80 mt-1 leading-relaxed">
                 ⭐ <b>STANDARD 5$</b> • {toCDFString(5)} • 4 places strictes / 7j • 0 vidéo • Notif auto<br/>
                 🚀 <b>PRO 10$</b> • {toCDFString(10)} • 10 places / 15j • 1 vidéo 60s • Cumulable<br/>
@@ -197,7 +232,7 @@ export default function WenzeBusiness() {
             <div className="col-span-2 text-center py-12 bg-white border-2 border-dashed rounded-2xl">
               <p className="text-4xl">📦</p><p className="text-[13px] font-black mt-3">Aucune annonce dans {selectedCat==="all"?"WENZE":selectedCat}</p>
               <p className="text-[11px] text-gray-500 mt-1 max-w-[260px] mx-auto">V6 filtre les comptes 🔒 cachés (Freemium 30j expiré) - Sois premier à publier - Même ticket pour tous - Max 50 - 0% comm - Taux {TAUX_CDF}</p>
-              <button onClick={()=> router.push(`/publier?cat=${selectedCat==="all"?"commerces-services":selectedCat}`)} className="mt-4 bg-black text-white px-6 py-3 rounded-full font-black text-[11px]">+ Publier {selectedCat==="all"?"":""} - 5$ / {toCDFString(5)}</button>
+              <button onClick={()=> router.push(`/publier?cat=${selectedCat==="all"?"commerces-services":selectedCat}`)} className="mt-4 bg-black text-white px-6 py-3 rounded-full font-black text-[11px]">+ Publier - 5$ / {toCDFString(5)}</button>
             </div>
           ) : filtered.map((a:any)=>{
             const cat = getCategorieById(a.categorieId) as any;
@@ -222,8 +257,6 @@ export default function WenzeBusiness() {
                   )}
                   <span className={`absolute top-2 left-2 text-[8px] px-2 py-1 rounded-full font-black ${a.isPayant?"bg-black text-white": "bg-gray-100 text-gray-600"} ${isVideo?"bg-red-600 text-white":""}`}>{a.vendeurBadge} {a.vendeurPalier} {isVideo?"🎥 VIDÉO":""} • {a.prix}$</span>
                   {a.isBoosted && <span className="absolute top-2 right-2 text-[7px] bg-[#25D366] text-white px-2 py-1 rounded-full font-black animate-pulse">🚀 TOP</span>}
-                  {!a.isBoosted && a.isPayant && <span className="absolute bottom-1.5 right-1.5 text-[7px] bg-white/90 text-black px-2 py-1 rounded-full font-bold">✅ Payant</span>}
-                  {isVideo && <span className="absolute bottom-1.5 left-1.5 text-[7px] bg-black/80 text-white px-2 py-1 rounded-full">Vidéo → /video</span>}
                 </button>
 
                 <div className="p-2.5 flex-1 flex flex-col">
@@ -234,7 +267,7 @@ export default function WenzeBusiness() {
                   <p className="font-black text-[12px] mt-1">{a.prix}$ / {a.prixCDF}</p>
                   <p className="text-[8px] text-gray-400 mt-1">WA {a._wa?.slice(-9)} • {a.vendeurPalier} • Max 50 • 0% comm</p>
                   <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-                    <a href={`https://wa.me/${a._wa}?text=${encodeURIComponent(`Salut WENZE V6.3 👋 ${a.titre} - ${a.prix}$ / ${a.prixCDF} - ID ${a.id} - Taux ${TAUX_CDF} - 0% comm - Max 50`)}`} target="_blank" className="bg-[#25D366] text-white text-center py-2.5 rounded-full font-bold text-[10px]">WhatsApp</a>
+                    <a href={`https://wa.me/${a._wa}?text=${encodeURIComponent(`Salut WENZE V6.4 👋 ${a.titre} - ${a.prix}$ / ${a.prixCDF} - ID ${a.id} - Taux ${TAUX_CDF} - 0% comm - Max 50`)}`} target="_blank" className="bg-[#25D366] text-white text-center py-2.5 rounded-full font-bold text-[10px]">WhatsApp</a>
                     {isVideo ? (
                       <button onClick={()=> openVideoPage(a)} className="bg-black text-white py-2.5 rounded-full font-bold text-[10px]">▶️ Lire</button>
                     ) : (
@@ -248,11 +281,11 @@ export default function WenzeBusiness() {
         </div>
 
         <div className="bg-white border rounded-2xl p-4">
-          <p className="font-black text-[11px]">V6.3 Idées nouvelles - App 5 étoiles</p>
+          <p className="font-black text-[11px]">V6.4 Idées nouvelles - App 5 étoiles</p>
           <p className="text-[10px] text-gray-600 mt-2 leading-relaxed">
-            <b>1. Même ticket pour tous:</b> On vend VISIBILITÉ, pas catégorie - 🛍️ Détail et 🏭 Gros même prix - ⭐ 5$ ({toCDFString(5)}) 4pl/7j, 🚀 10$ 10pl/15j, 👑 20$ 30pl/30j - 0% comm - Taux {TAUX_CDF} - Max 50 - Suppression libère place<br/>
-            <b>2. Freemium 3 à vie 30j puis 🔒 caché:</b> 3 places strictes à vie, visibles 30j, puis compte caché si 0 ticket actif - Panier conservé - Active ticket pour réapparaître immédiatement - isOwner = ownerWhatsapp cleanWa().replace(/^0+/,"")<br/>
-            <b>3. 1 ticket = X places strictes sur Y jours (pas X/j):</b> Ex: 4 places/7j = tu postes 1/j pendant 4j jusqu'à 4/4, pas 4/j - Suppression libère place - Cumulable - Renouvelable - Max 50 - Recherche debounce 300ms - Filtre caché V6
+            <b>1. Même ticket:</b> ⭐ 5$ ({toCDFString(5)}) 4pl/7j, 🚀 10$ 10pl/15j, 👑 20$ 30pl/30j - 0% comm - Taux {TAUX_CDF}<br/>
+            <b>2. Freemium 3 à vie 30j puis 🔒 caché:</b> 3 places strictes à vie, visibles 30j<br/>
+            <b>3. Max 50 + suppression libère place:</b> 1 ticket = X places strictes sur Y jours
           </p>
         </div>
       </div>
@@ -266,14 +299,13 @@ export default function WenzeBusiness() {
             <div className="p-4">
               <p className="font-black text-[13px]">{selectedImage.titre} {selectedImage.vendeurBadge} {selectedImage.vendeurPalier} {selectedImage.isBoosted?"🚀 TOP":""}</p>
               <p className="text-[11px] text-gray-600 mt-1 line-clamp-3">{selectedImage.description}</p>
-              <p className="font-black text-black mt-2">{selectedImage.prix}$ / {selectedImage.prixCDF} • {selectedImage.vendeurBadge} {selectedImage.vendeurPalier} • Max 50 • 0% comm • Taux {TAUX_CDF}</p>
-              <p className="text-[9px] text-gray-400 mt-1">WA {selectedImage._wa?.slice(-9)} • Suppression libère place • 1 ticket = X places strictes sur Y jours • Cumulable • Max 50 • isOwner WA</p>
+              <p className="font-black text-black mt-2">{selectedImage.prix}$ / {selectedImage.prixCDF} • {selectedImage.vendeurBadge} • Max 50 • 0% comm • Taux {TAUX_CDF}</p>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <button onClick={()=> { setSelectedImage(null); openProduit(selectedImage); }} className="bg-black text-white py-3 rounded-full font-bold text-[12px]">Voir produit</button>
                 <button onClick={()=> setSelectedImage(null)} className="bg-white border-2 py-3 rounded-full font-bold text-[12px]">Fermer</button>
               </div>
               <div className="mt-2 grid grid-cols-2 gap-2">
-                <a href={`https://wa.me/${selectedImage._wa}?text=${encodeURIComponent(`WENZE V6.3 ${selectedImage.titre} - ${selectedImage.prix}$`)}`} target="_blank" className="bg-[#25D366] text-white text-center py-3 rounded-full font-bold text-[12px]">WhatsApp</a>
+                <a href={`https://wa.me/${selectedImage._wa}?text=${encodeURIComponent(`WENZE V6.4 ${selectedImage.titre} - ${selectedImage.prix}$`)}`} target="_blank" className="bg-[#25D366] text-white text-center py-3 rounded-full font-bold text-[12px]">WhatsApp</a>
                 <button onClick={()=> { addPanier(selectedImage); setSelectedImage(null); }} className="bg-black text-white py-3 rounded-full font-bold text-[12px]">🛒 Panier</button>
               </div>
             </div>
@@ -284,4 +316,6 @@ export default function WenzeBusiness() {
       <nav className="fixed bottom-0 max-w-[430px] w-full bg-white border-t flex justify-around py-2.5 text-[10px] z-30">
         <Link href="/" className="font-bold text-black flex flex-col items-center gap-0.5"><span className="text-[18px]">🏠</span>Accueil</Link>
         <Link href="/video" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🎥</span>Vidéo</Link>
-        <Link href="/publier" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[22px] bg-black text-white w-7 h-7 rounded-full flex items-center justify-cen
+        <Link href="/publier" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[22px] bg-black text-white w-7 h-7 rounded-full flex items-center justify-center">+</span>Publier</Link>
+        <Link href="/boutiques" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏬</span>Boutiques</Link>
+        <Link href="/profil" className="flex flex-col items-center gap-0.5 text-gray-500 relative"><span className="text-[18px]">👤</span>Profil {notifC
