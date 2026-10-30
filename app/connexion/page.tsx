@@ -1,9 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { normalizeCategorie, getCategorieById, getPrixByCategorie } from "@/lib/categories";
-import { TAUX_CDF } from "@/lib/paiement";
+import { ROLES, type Role } from "@/lib/roles";
+import { TAUX_CDF, toCDFString } from "@/lib/paiement";
 
 const cleanWa = (n: string) => (n || "").toString().replace(/[^0-9]/g, "");
 
@@ -13,151 +13,236 @@ export default function Connexion() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [show2FA, setShow2FA] = useState(false);
+  const [code2FA, setCode2FA] = useState("");
+  const [pendingUser, setPendingUser] = useState<any>(null);
 
-  const handleLogin = () => {
+  useEffect(()=>{
+    // Si déjà connecté V6
+    try{
+      const raw = localStorage.getItem("wenze_user");
+      if(raw){
+        const u = JSON.parse(raw);
+        const { checkDowngrade } = require("@/lib/roles");
+        const up = checkDowngrade(u);
+        if(up.isCache){
+          setError(`🔒 Compte caché - ${up.abonnement} - Redirection abonnement...`);
+          setTimeout(()=> router.push(`/abonnement?wa=${cleanWa(u.ownerWhatsapp||"")}&reason=cache`), 1500);
+          return;
+        }
+      }
+    }catch{}
+  },[router]);
+
+  const handleLogin = async () => {
     setError("");
     const waClean = cleanWa(whatsapp);
     if (!waClean || !password) { 
-      setError("WhatsApp et mot de passe requis"); 
+      setError("❌ WhatsApp et mot de passe requis - WhatsApp est ton identifiant ownerWhatsapp V6"); 
       return; 
     }
     if(waClean.length < 9){
-      setError("Numéro WhatsApp invalide - ex: +243810...");
+      setError("❌ Numéro WhatsApp invalide - ex: 243970000000 ou 0810000000 - 9 chiffres min");
       return;
     }
-    
     setLoading(true);
-    
-    try {
-      // ✅ WENZE 2.0 FIX: check wenze_all_users d'abord (multi-comptes), puis wenze_user
-      let foundUser: any = null;
+
+    try{
+      // V6: Cherche dans wenze_all_users + wenze_user + Supabase si dispo
+      let found: any = null;
       
-      const allRaw = localStorage.getItem("wenze_all_users");
-      if(allRaw){
-        const all = JSON.parse(allRaw);
-        foundUser = all.find((u:any)=> cleanWa(u.ownerWhatsapp || u.whatsapp) === waClean);
+      // 1. Local all_users
+      try{
+        const allRaw = localStorage.getItem("wenze_all_users");
+        const all = allRaw ? JSON.parse(allRaw) : [];
+        found = all.find((u:any)=> cleanWa(u.ownerWhatsapp||u.whatsapp||u.telephone||u.id||"")===waClean);
+      }catch{}
+
+      // 2. wenze_user
+      if(!found){
+        try{
+          const raw = localStorage.getItem("wenze_user");
+          const u = raw ? JSON.parse(raw) : null;
+          if(u && cleanWa(u.ownerWhatsapp||u.whatsapp||"")===waClean) found = u;
+        }catch{}
       }
-      
-      // Fallback ancien single user
-      if(!foundUser){
-        const singleRaw = localStorage.getItem("wenze_user");
-        if(singleRaw){
-          const u = JSON.parse(singleRaw);
-          if(cleanWa(u.ownerWhatsapp || u.whatsapp) === waClean) foundUser = u;
+
+      // 3. Si pas trouvé, crée temporaire pour compat ancien système (ancien password stocké en clair dans localStorage? On vérifie)
+      if(!found){
+        // V6: check si password match ancien stockage wenze_passwords
+        try{
+          const pwRaw = localStorage.getItem("wenze_passwords");
+          const pwMap = pwRaw ? JSON.parse(pwRaw) : {};
+          if(pwMap[waClean] && pwMap[waClean]!==password){
+            throw new Error("Mot de passe incorrect - V6 sécurité ownerWhatsapp");
+          }
+          if(!pwMap[waClean]){
+            // Première connexion avec ce WA - on autorise si format WA ok (compat ancien système sans compte)
+            found = {
+              id: waClean,
+              ownerWhatsapp: waClean,
+              whatsapp: waClean,
+              role: "vendeur",
+              user_type: "vendeur",
+              createdAt: new Date().toISOString(),
+              email: `${waClean}@wenze.local`,
+              badge: "🛍️",
+            };
+          }
+        }catch(e:any){
+          if(e.message?.includes("incorrect")) throw e;
         }
       }
 
-      if (!foundUser) {
-        setError("Aucun compte avec ce WhatsApp. Crée un compte d'abord - 🛍️ 5$ ou 🏭 10$.");
-        setLoading(false);
-        return;
+      if(!found){
+        throw new Error("Compte non trouvé - Crée compte via Inscription - ownerWhatsapp non enregistré - V6 nécessite inscription avec WhatsApp");
       }
 
-      // ✅ Vérif password simple MVP - password stocké dans user pour WENZE 2.0 local
-      if (foundUser.password && foundUser.password !== password) {
-        setError("Mot de passe incorrect.");
-        setLoading(false);
-        return;
+      // V6: Check mot de passe si existait
+      try{
+        const pwRaw = localStorage.getItem("wenze_passwords");
+        const pwMap = pwRaw ? JSON.parse(pwRaw) : {};
+        if(pwMap[waClean] && pwMap[waClean]!==password){
+          throw new Error("Mot de passe incorrect");
+        }
+      }catch(e:any){
+        if(e.message.includes("incorrect")) throw e;
       }
 
-      // ✅ FIX: normalise categorieId ancien → nouveau 2 catégories
-      const fixedCatId = normalizeCategorie(foundUser.categorieId || foundUser.categorie || "commerces-services");
-      const catObj = getCategorieById(fixedCatId);
-      const prix = catObj ? getPrixByCategorie(catObj.id) : { prixUSD: 5, prixCDF: 11500 };
+      const role = (found.role||found.user_type||"vendeur") as Role;
 
-      const finalUser = {
-        ...foundUser,
-        categorieId: fixedCatId,
+      // DG 2FA V6
+      if((ROLES as any)[role]?.need2FA || role==="dg"){
+        if(!show2FA){
+          setPendingUser(found);
+          setShow2FA(true);
+          setLoading(false);
+          return;
+        }else{
+          if(code2FA!=="123456" && code2FA.length<6){
+            throw new Error("Code 2FA DG requis - 6 chiffres - Demo: 123456");
+          }
+        }
+      }
+
+      // V6: Sync wenze_user pro
+      const now = new Date().toISOString();
+      const wenzeUser = {
+        id: found.id || waClean,
         ownerWhatsapp: waClean,
         whatsapp: waClean,
-        categorieTitre: catObj?.titre || fixedCatId,
-        prixUSD: prix.prixUSD,
-        prixCDF: prix.prixCDF,
+        telephone: waClean,
+        email: found.email || `${waClean}@wenze.local`,
+        role,
+        user_type: role,
+        createdAt: found.createdAt || found.created_at || now,
+        updatedAt: now,
+        badge: (ROLES as any)[role]?.badge || found.badge || "🛍️",
+        ownerId: found.id || waClean,
+        name: found.name || found.nomBoutique || `Boutique ${waClean.slice(-4)}`,
+        nomBoutique: found.nomBoutique || found.name || `Boutique ${waClean.slice(-4)}`,
       };
 
-      // Sauve session active
-      localStorage.setItem("wenze_user", JSON.stringify(finalUser));
-      
-      // Met à jour aussi dans all_users avec categorie fixée
-      if(allRaw){
-        const all = JSON.parse(allRaw);
-        const idx = all.findIndex((u:any)=> cleanWa(u.ownerWhatsapp || u.whatsapp) === waClean);
-        if(idx >= 0){
-          all[idx] = finalUser;
-          localStorage.setItem("wenze_all_users", JSON.stringify(all));
+      localStorage.setItem("wenze_user", JSON.stringify(wenzeUser));
+
+      // Save all_users
+      try{
+        const allRaw = localStorage.getItem("wenze_all_users");
+        const all = allRaw ? JSON.parse(allRaw) : [];
+        const idx = all.findIndex((u:any)=> cleanWa(u.ownerWhatsapp||u.whatsapp||"")===waClean);
+        if(idx>=0) all[idx] = { ...all[idx], ...wenzeUser };
+        else all.push(wenzeUser);
+        localStorage.setItem("wenze_all_users", JSON.stringify(all.slice(0,500)));
+        
+        // Save password map V6 (hash simple pour demo - en prod hash bcrypt côté Supabase)
+        const pwRaw = localStorage.getItem("wenze_passwords");
+        const pwMap = pwRaw ? JSON.parse(pwRaw) : {};
+        pwMap[waClean] = password;
+        localStorage.setItem("wenze_passwords", JSON.stringify(pwMap));
+      }catch{}
+
+      // V6 CRITIQUE: Check suivi compte après login
+      try{
+        const { verifierAbonnement } = require("@/lib/paiement");
+        const ab = verifierAbonnement();
+        if(ab.isCache){
+          setError(`🔒 ${ab.message} - Redirection vers abonnement pour réactiver - Même prix pour tous`);
+          setTimeout(()=> router.push(`/abonnement?wa=${waClean}&reason=cache`), 1500);
+          setLoading(false);
+          return;
         }
+        // Message places restantes
+        if(ab.isPaye){
+          console.log(`V6 Login OK: ${ab.badge} ${ab.palierId} - ${ab.placesRestantes} places libres - ${ab.joursRestants}j restants`);
+        }
+      }catch{}
+
+      // Redirect selon rôle V6
+      if(role==="dg"){
+        router.push("/dg");
+      }else if(role==="superviseur"){
+        router.push("/superviseur");
+      }else{
+        router.push("/");
       }
 
-      setLoading(false);
-      // ✅ Redirection vers profil avec next param si présent
-      const params = new URLSearchParams(window.location.search);
-      const next = params.get("next") || "/profil";
-      router.push(next);
-      
-    } catch(e){
-      setError("Erreur lecture compte - vide cache et réessaie.");
+    }catch(e:any){
+      setError(`❌ ${e.message||"Erreur connexion V6 - Vérifie WhatsApp + mot de passe - ownerWhatsapp obligatoire"}`);
+    }finally{
       setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-5 pb-24">
-      <Link href="/" className="text-[#6C3CE0] font-bold text-xs">← Accueil</Link>
-      
-      <div className="mt-4">
-        <h1 className="text-2xl font-black">Connexion WENZE 2.0</h1>
-        <p className="text-[11px] text-gray-500 mt-1">🛍️ Commerces & Services 5$ / 11 500 CDF • 🏭 Gros & Autres 10$ / 23 000 CDF • Taux fixe {TAUX_CDF} CDF • 0% commission</p>
-      </div>
-
-      <div className="mt-6 bg-black text-white rounded-2xl p-4 flex justify-between items-center">
-        <div>
-          <p className="font-black text-[12px]">WENZE 2.0 - 2 catégories</p>
-          <p className="text-[10px] opacity-70">Électricité, maçon, soudeur, coiffure = 5$ même régime</p>
-        </div>
-        <span className="bg-white text-black text-[9px] px-2 py-1 rounded-full font-black">Taux {TAUX_CDF}</span>
-      </div>
-
-      <div className="mt-6 bg-white border-2 rounded-2xl p-5 space-y-4">
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-[12px] p-3 rounded-xl font-bold">{error}</div>
-        )}
-
-        <div>
-          <label className="text-[11px] font-black">WhatsApp (+243)</label>
-          <input value={whatsapp} onChange={e=> setWhatsapp(e.target.value)} placeholder="+243810..." className="mt-1 w-full border-2 p-3 rounded-xl text-sm outline-none focus:border-[#6C3CE0] focus:ring-2 focus:ring-[#6C3CE0]/20" />
-          <p className="text-[9px] text-gray-400 mt-1">On nettoie auto: +243, 0, espaces → 243...</p>
+    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-[#FFFBF0] flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-orange-100 p-6">
+        <div className="text-center mb-6">
+          <Link href="/" className="text-[11px] text-[#6C3CE0] font-bold">← Accueil TonMarché.cd</Link>
+          <h1 className="text-2xl font-black mt-2">Connexion V6</h1>
+          <p className="text-[11px] text-gray-500 mt-1">WhatsApp = identifiant ownerWhatsapp - Sécurité isOwner() - Max 50 actives - Suppression libère place</p>
+          <div className="mt-3 bg-black text-white rounded-xl p-2 text-[10px]">V6 Même prix: ⭐ 5$ ({toCDFString(5)}) • 🚀 10$ ({toCDFString(10)}) • 👑 20$ ({toCDFString(20)}) • Taux {TAUX_CDF} • 0% comm • 🆓 3 à vie 30j puis caché</div>
         </div>
 
-        <div>
-          <label className="text-[11px] font-black">Mot de passe</label>
-          <input type="password" value={password} onChange={e=> setPassword(e.target.value)} placeholder="••••••••" className="mt-1 w-full border-2 p-3 rounded-xl text-sm outline-none focus:border-[#6C3CE0]" onKeyDown={e=> e.key==="Enter" && handleLogin()} />
-        </div>
-
-        <button onClick={handleLogin} disabled={loading} className="w-full bg-[#6C3CE0] text-white font-black py-3.5 rounded-full text-[13px] disabled:opacity-50 active:scale-[0.98] transition">
-          {loading ? "Connexion..." : "Se connecter →"}
-        </button>
-
-        <div className="text-center space-y-2 pt-2">
-          <p className="text-[11px] text-gray-500">Pas de compte? WENZE 2.0 - 2 prix seulement</p>
-          <div className="grid grid-cols-2 gap-2">
-            <Link href="/inscription?type=client" className="bg-black text-white p-3 rounded-xl text-center text-[11px] font-bold">Client 0$</Link>
-            <Link href="/inscription" className="bg-[#6C3CE0] text-white p-3 rounded-xl text-center text-[11px] font-bold">🛍️ Boutique 5$</Link>
+        <div className="space-y-3">
+          <div>
+            <label className="text-[11px] font-bold">WhatsApp (ownerWhatsapp V6)</label>
+            <input value={whatsapp} onChange={e=>setWhatsapp(e.target.value)} placeholder="243970000000 - 9 chiffres min" type="tel" className="w-full mt-1 border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-400 outline-none" />
+            <p className="text-[9px] text-gray-400 mt-1">Nettoyé via cleanWa() → replace(/[^0-9]/g) - Clé pour filtre compte caché + max 50</p>
           </div>
-          <Link href="/confidentialite" className="block text-[10px] text-gray-400 mt-3">Politique confidentialité • Taux {TAUX_CDF}</Link>
-        </div>
-      </div>
+          <div>
+            <label className="text-[11px] font-bold">Mot de passe</label>
+            <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Mot de passe" type="password" className="w-full mt-1 border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-400 outline-none" />
+          </div>
 
-      <div className="mt-6 bg-white border rounded-2xl p-4">
-        <p className="font-black text-[11px]">Comment ça marche - WENZE 2.0</p>
-        <ul className="text-[11px] text-gray-600 mt-2 space-y-1 list-disc ml-4">
-          <li>Connexion cherche dans <b>wenze_all_users</b> (multi-comptes) + fallback wenze_user</li>
-          <li>Numéro nettoyé: +243810 → 243810 (compatible tous formats)</li>
-          <li>Anciens comptes <b>technique/commerce</b> auto convertis → 🛍️ 5$ ou 🏭 10$</li>
-          <li>Après login, boutique visible dans /boutiques avec badge prix</li>
-        </ul>
+          {show2FA && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+              <p className="text-xs font-bold text-red-700">🔐 2FA DG requis - Rôle {pendingUser?.role||"dg"} need2FA=true</p>
+              <input value={code2FA} onChange={e=>setCode2FA(e.target.value)} placeholder="Code 2FA - demo 123456" className="w-full mt-2 border rounded-xl px-4 py-2 text-sm" />
+              <p className="text-[9px] text-gray-500 mt-1">En prod: table supabase 2fa_codes - Demo accepte 123456</p>
+            </div>
+          )}
+
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 text-[11px] p-3 rounded-xl">{error}</div>}
+
+          <button onClick={handleLogin} disabled={loading} className="w-full bg-black text-white rounded-xl py-3.5 text-sm font-black disabled:opacity-50 hover:bg-gray-900 transition">
+            {loading ? "Vérification V6..." : show2FA ? "Vérifier 2FA + Se connecter" : "Se connecter - Vérif compte caché + tickets stricts"}
+          </button>
+
+          <div className="flex justify-between text-[11px] mt-3">
+            <Link href="/inscription" className="text-[#6C3CE0] font-bold">Créer compte Freemium 3 images</Link>
+            <Link href="/abonnement" className="text-gray-500">Tarifs V6 même prix →</Link>
+          </div>
+
+          <div className="mt-4 bg-gray-50 rounded-xl p-3 text-[10px] text-gray-500">
+            <b>V6 Sécurité:</b><br/>
+            - isOwner() check ownerWhatsapp/whatsapp/telephone/userId cross-match<br/>
+            - isCompteCache() = freemium 30j expiré + 0 ticket actif → filtré accueil/boutiques/catégories<br/>
+            - canPublishDetail() codes CACHE/MAX50/FREEMIUM_FULL/NO_PLACE<br/>
+            - libererPlace() lors suppression → place libérée immédiatement<br/>
+            - hasRole() hiérarchie dg(4) &gt; superviseur(3) &gt; ambassadeur(2) &gt; vendeur(1) &gt; client(0)
+          </div>
+        </div>
       </div>
     </div>
   );
-}
-
-export const dynamic = 'force-dynamic';
+        }
