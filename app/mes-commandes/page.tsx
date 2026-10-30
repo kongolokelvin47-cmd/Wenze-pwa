@@ -1,223 +1,166 @@
 'use client'
 import { useEffect, useState, useMemo } from 'react'
 import Link from 'next/link'
-import { CATEGORIES_WENZE, getCategorieById, normalizeCategorie, getPrixByCategorie } from '@/lib/categories'
-import { TAUX_CDF, toCDF } from '@/lib/paiement'
+import { getCategorieById, normalizeCategorie } from '@/lib/categories'
+import { TAUX_CDF, toCDFString, isCompteCache, checkFreemiumWenze } from '@/lib/paiement'
 
 type Order = {
-  id: string
-  status: string
-  total: number
-  total_cdf?: number
-  created_at: string
-  categorie_id?: string
-  categorieId?: string
-  titre?: string
-  photo?: string
-  vendeur_whatsapp?: string
-  ownerWhatsapp?: string
-  whatsapp?: string
-  user?: string
-  quantite?: number
+  id: string; status: string; total: number; total_cdf?: number; totalUSD?: number;
+  created_at: string; createdAt?: string;
+  categorie_id?: string; categorieId?: string; categorieTitre?: string;
+  titre?: string; title?: string; name?: string; photo?: string; images?: string[];
+  vendeur_whatsapp?: string; ownerWhatsapp?: string; whatsapp?: string; user?: string; nomBoutique?: string;
+  quantite?: number; qty?: number;
+  _isPaye?: boolean; _badge?: string; _palierId?: string; _vendeurCache?: boolean;
 }
 
-const cleanWhatsapp = (n: string) => (n || "").toString().replace(/[^0-9]/g, "");
-
+const cleanWa = (n: string) => (n || "").toString().replace(/[^0-9]/g, "");
 function formatTotal(o: Order){
-  const usd = Number(o.total) || 0
-  const cdf = o.total_cdf || toCDF(usd)
-  return `${usd}$ / ${cdf.toLocaleString("fr-FR")} CDF`
+  const usd = Number(o.totalUSD||o.total)||0;
+  if(usd===0) return "Prix sur demande";
+  return `${usd}$ / ${toCDFString(usd)}`;
 }
-
 function statusConfig(s: string){
-  const low = (s||"").toLowerCase()
-  if(low.includes("paye") || low.includes("payé") || low==="paid") return { label: "Payée", color: "bg-green-500 text-white", icon: "✅" }
-  if(low.includes("expedition") || low.includes("livraison")) return { label: "En expédition", color: "bg-blue-500 text-white", icon: "🚚" }
-  if(low.includes("livre") || low==="delivered") return { label: "Livrée", color: "bg-black text-white", icon: "📦" }
-  if(low.includes("annul")) return { label: "Annulée", color: "bg-red-500 text-white", icon: "❌" }
-  return { label: "En attente", color: "bg-orange-400 text-white", icon: "⏳" }
+  const low=(s||"").toLowerCase();
+  if(low.includes("paye")||low.includes("payé")||low==="paid") return { label:"Payée", color:"bg-green-100 text-green-700 border-green-200", dot:"bg-green-500", icon:"✅" };
+  if(low.includes("livre")||low==="delivered") return { label:"Livrée", color:"bg-blue-100 text-blue-700 border-blue-200", dot:"bg-blue-500", icon:"📦" };
+  if(low.includes("cours")||low==="pending"||low==="en_attente") return { label:"En cours", color:"bg-orange-100 text-orange-700 border-orange-200", dot:"bg-orange-500 animate-pulse", icon:"⏳" };
+  if(low.includes("annule")||low==="cancelled") return { label:"Annulée", color:"bg-red-100 text-red-700 border-red-200", dot:"bg-red-500", icon:"❌" };
+  return { label: s||"En attente", color:"bg-gray-100 text-gray-700 border-gray-200", dot:"bg-gray-400", icon:"🕒" };
 }
 
-export default function CommandesPage() {
-  const [orders, setOrders] = useState<Order[]>([])
-  const [loading, setLoading] = useState(true)
-  const [filter, setFilter] = useState<"all" | "attente" | "paye" | "expedition" | "livre">("all")
-  const [search, setSearch] = useState("")
+export default function MesCommandesPage(){
+  const [loading,setLoading]=useState(true);
+  const [orders,setOrders]=useState<Order[]>([]);
+  const [search,setSearch]=useState("");
+  const [filterStatus,setFilterStatus]=useState<"all"|"pending"|"paid"|"delivered">("all");
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        let list: Order[] = []
-        
-        // 1. Supabase optionnel (si table orders existe)
-        try {
-          const { createClient } = await import('@/utils/supabase/client')
-          const supabase = createClient()
-          const { data } = await supabase.from('orders').select('*').order('created_at', { ascending: false }).limit(50)
-          if(data && data.length>0) list = data
-        } catch(e){
-          // normal si pas de table
-        }
+  useEffect(()=>{
+    try{
+      const raw = localStorage.getItem("wenze_commandes_list") || localStorage.getItem("wenze_orders") || "[]";
+      const list = JSON.parse(raw);
+      const allUsers = JSON.parse(localStorage.getItem("wenze_all_users")||"[]");
+      const userMap = new Map<string,any>();
+      for(const u of allUsers){ const wa=cleanWa(u.ownerWhatsapp||u.whatsapp||""); if(wa) userMap.set(wa,u); }
 
-        // 2. Fallback WENZE 2.0 localStorage - wenze_commandes_list + wenze_cart
-        if(list.length===0){
-          try {
-            const rawCmd = localStorage.getItem("wenze_commandes_list")
-            if(rawCmd){
-              const parsed = JSON.parse(rawCmd)
-              list = parsed
-            } else {
-              // fallback panier converti en commandes démo si vide
-              const cartRaw = localStorage.getItem("wenze_panier")
-              if(cartRaw){
-                const cart = JSON.parse(cartRaw)
-                list = cart.map((c:any, i:number)=> ({
-                  id: c.id || `CMD-${Date.now()}-${i}`,
-                  status: "attente",
-                  total: c.prix || c.price || 0,
-                  total_cdf: toCDF(c.prix || c.price || 0),
-                  created_at: new Date().toISOString(),
-                  categorie_id: normalizeCategorie(c.categorieId || c.categorie || "commerces-services"),
-                  titre: c.titre || c.name,
-                  photo: c.photo,
-                  vendeur_whatsapp: c.ownerWhatsapp || c.vendeur_whatsapp,
-                }))
-              }
-            }
-          } catch {}
-        }
+      let enriched: Order[] = list.map((o:any)=>({
+        id:o.id||o.orderId, status:o.status||"en_attente", total:Number(o.total||o.totalUSD||o.prix||0), totalUSD:Number(o.totalUSD||o.total||0), total_cdf:o.total_cdf,
+        created_at:o.created_at||o.createdAt, createdAt:o.createdAt||o.created_at,
+        categorie_id:o.categorie_id||o.categorieId, categorieId:o.categorieId||o.categorie_id, categorieTitre:o.categorieTitre,
+        titre:o.titre||o.title||o.name||"Produit", title:o.title, name:o.name, photo:o.photo||o.images?.[0], images:o.images,
+        vendeur_whatsapp:o.vendeur_whatsapp||o.ownerWhatsapp||o.whatsapp, ownerWhatsapp:o.ownerWhatsapp||o.vendeur_whatsapp, whatsapp:o.whatsapp, user:o.user||o.nomBoutique, nomBoutique:o.nomBoutique||o.user,
+        quantite:o.quantite||o.qty||1, qty:o.qty,
+      })).map((o:Order)=>{
+        try{
+          const wa=cleanWa(o.ownerWhatsapp||o.vendeur_whatsapp||o.whatsapp||"");
+          const user=userMap.get(wa)||{ ownerWhatsapp:wa, createdAt:o.created_at||o.createdAt, id:wa };
+          const cache=isCompteCache(user);
+          const ab=checkFreemiumWenze(user,0);
+          return { ...o, _vendeurCache:!!cache, _isPaye:!!ab.isPaye, _badge:ab.badge, _palierId:ab.palierId };
+        }catch{ return { ...o, _vendeurCache:false, _isPaye:false, _badge:"🆓" }; }
+      }).sort((a:any,b:any)=> new Date(b.created_at||b.createdAt||0).getTime()-new Date(a.created_at||a.createdAt||0).getTime());
 
-        // Normalise categories 2.0
-        const fixed = list.map(o=> ({
-          ...o,
-          categorie_id: normalizeCategorie(o.categorie_id || o.categorieId || "commerces-services"),
-        }))
-
-        setOrders(fixed)
-      } catch(e){
-        console.log("WENZE commandes - vide")
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [])
+      setOrders(enriched);
+    }catch(e){ console.log("mes-commandes V6",e); } finally{ setLoading(false); }
+  },[]);
 
   const filtered = useMemo(()=>{
-    const q = search.toLowerCase().trim()
-    return orders.filter(o=>{
-      if(filter!=="all"){
-        const st = statusConfig(o.status).label.toLowerCase()
-        if(filter==="attente" && !st.includes("attente")) return false
-        if(filter==="paye" && !st.includes("payée")) return false
-        if(filter==="expedition" && !st.includes("expédition")) return false
-        if(filter==="livre" && !st.includes("livrée")) return false
-      }
-      if(q){
-        const hay = `${o.titre} ${o.id} ${o.categorie_id} ${o.vendeur_whatsapp}`.toLowerCase()
-        if(!hay.includes(q)) return false
-      }
-      return true
-    })
-  }, [orders, filter, search])
+    let list=orders;
+    if(filterStatus!=="all"){
+      list=list.filter(o=>{
+        const s=(o.status||"").toLowerCase();
+        if(filterStatus==="pending") return s.includes("attente")||s.includes("cours")||s==="pending";
+        if(filterStatus==="paid") return s.includes("paye")||s.includes("payé")||s==="paid";
+        if(filterStatus==="delivered") return s.includes("livre")||s==="delivered";
+        return true;
+      });
+    }
+    if(!search.trim()) return list;
+    const q=search.toLowerCase(); const qWa=cleanWa(q);
+    return list.filter(o=> (o.titre||o.title||o.name||"").toLowerCase().includes(q) || (o.user||o.nomBoutique||"").toLowerCase().includes(q) || (qWa&&cleanWa(o.ownerWhatsapp||o.vendeur_whatsapp||"").includes(qWa)));
+  },[orders,search,filterStatus]);
 
-  const totalUSD = filtered.reduce((s,o)=> s + (Number(o.total)||0), 0)
+  const stats = { all:orders.length, pending:orders.filter(o=>{ const s=(o.status||"").toLowerCase(); return s.includes("attente")||s.includes("cours")||s==="pending"; }).length, paid:orders.filter(o=>{ const s=(o.status||"").toLowerCase(); return s.includes("paye")||s.includes("payé"); }).length, delivered:orders.filter(o=>{ const s=(o.status||"").toLowerCase(); return s.includes("livre")||s==="delivered"; }).length };
 
-  if (loading) {
-    return <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6"><div className="h-24 bg-white border rounded-2xl animate-pulse"/><p className="text-[11px] text-gray-400 mt-3">Chargement commandes WENZE 2.0... Taux {TAUX_CDF}</p></div>
-  }
+  if(loading) return <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6"><div className="h-24 bg-white border rounded-2xl animate-pulse"/><p className="text-[11px] text-gray-400 mt-3">Chargement commandes V6 - Taux {TAUX_CDF} - 0% comm...</p></div>;
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-24">
-      <header className="sticky top-0 bg-white z-20 p-4 border-b">
+      <header className="sticky top-0 bg-white/95 backdrop-blur z-20 p-4 border-b">
         <div className="flex items-center gap-3">
-          <Link href="/profil" className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
+          <Link href="/" className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
           <div className="flex-1">
-            <h1 className="font-black text-[16px]">Mes Commandes</h1>
-            <p className="text-[10px] text-gray-500">{filtered.length}/{orders.length} commandes • Total {totalUSD}$ / {toCDF(totalUSD).toLocaleString()} CDF • Taux {TAUX_CDF} • 0% comm</p>
+            <h1 className="font-black text-[16px]">Mes Commandes V6</h1>
+            <p className="text-[10px] text-gray-500">{orders.length} commandes • Taux {TAUX_CDF} • 0% commission • WhatsApp direct</p>
           </div>
-          <span className="text-[9px] bg-black text-white px-2 py-1 rounded-full font-black">{totalUSD}$</span>
+          <span className="text-[10px] bg-black text-white px-2.5 py-1 rounded-full font-bold">{filtered.length} visibles</span>
         </div>
-
         <div className="mt-3 relative">
-          <input value={search} onChange={e=> setSearch(e.target.value)} placeholder="Recherche: titre, vendeur, ID..." className="w-full bg-gray-100 rounded-full py-3 px-5 pl-10 text-sm outline-none focus:ring-2 focus:ring-[#6C3CE0]" />
-          <span className="absolute left-3 top-3.5">🔍</span>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Recherche: produit, boutique, WA..." className="w-full bg-gray-100 rounded-2xl py-3.5 px-5 pl-11 text-sm outline-none focus:ring-2 focus:ring-black" />
+          <span className="absolute left-4 top-3.5">🔍</span>
         </div>
-
-        <div className="mt-3 flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
-          {[
-            { id: "all", label: `Toutes • ${orders.length}` },
-            { id: "attente", label: `⏳ Attente` },
-            { id: "paye", label: `✅ Payées` },
-            { id: "expedition", label: `🚚 Expédition` },
-            { id: "livre", label: `📦 Livrées` },
-          ].map(f=> (
-            <button key={f.id} onClick={()=> setFilter(f.id as any)} className={`whitespace-nowrap px-3 py-2 rounded-full text-[11px] font-bold border-2 ${filter===f.id ? "bg-black text-white border-black" : "bg-white border-gray-200"}`}>{f.label}</button>
+        <div className="mt-3 flex gap-2 overflow-x-auto">
+          {[{id:"all",label:`Tous • ${stats.all}`},{id:"pending",label:`⏳ En cours • ${stats.pending}`},{id:"paid",label:`✅ Payées • ${stats.paid}`},{id:"delivered",label:`📦 Livrées • ${stats.delivered}`}].map(c=>(
+            <button key={c.id} onClick={()=>setFilterStatus(c.id as any)} className={`whitespace-nowrap py-2.5 px-4 rounded-full font-black text-[11px] border-2 ${filterStatus===c.id?"bg-black text-white border-black":"bg-white border-gray-200"}`}>{c.label}</button>
           ))}
+        </div>
+        <div className="mt-3 bg-black text-white rounded-xl p-2.5 text-[9px] flex justify-between">
+          <span><b>V6 Nouvelle Politique:</b> 0% commission • Même prix tickets ⭐5$ ({toCDFString(5)}) 🚀10$ 👑20$ • Max 50 • Suppression libère place • Vendeur caché 🔒 filtré mais commande gardée</span>
+          <span className="bg-white text-black px-2 py-0.5 rounded-full font-black">{TAUX_CDF}</span>
         </div>
       </header>
 
-      <div className="p-4">
-        <div className="bg-black text-white rounded-xl p-3 flex justify-between items-center">
-          <div><p className="font-black text-[12px]">WENZE 2.0 - 2 catégories</p><p className="text-[10px] opacity-70">🛍️ Commerces & Services 5$ • 🏭 Gros & autres 10$ - 0% commission - Paiement direct WhatsApp vendeur</p></div>
-          <span className="bg-white text-black text-[9px] px-2 py-1 rounded-full font-black">Taux {TAUX_CDF}</span>
-        </div>
-
+      <div className="p-3 space-y-3">
         {filtered.length===0 ? (
           <div className="mt-6 bg-white border-2 border-dashed rounded-2xl p-8 text-center">
-            <p className="text-4xl">🛒</p>
-            <p className="font-black mt-2 text-[13px]">{search || filter!=="all" ? `Aucune commande ${filter} pour "${search}"` : "Aucune commande encore"}</p>
-            <p className="text-[11px] text-gray-500 mt-1">Passe commande via WhatsApp direct vendeur - WENZE 0% commission - Taux {TAUX_CDF}</p>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <Link href="/market" className="bg-[#6C3CE0] text-white p-3 rounded-xl text-[12px] font-bold">🏪 Marché</Link>
-              <Link href="/boutiques" className="bg-black text-white p-3 rounded-xl text-[12px] font-bold">🏬 Boutiques</Link>
-            </div>
+            <p className="text-4xl">📦</p>
+            <p className="font-black mt-2 text-[13px]">{search||filterStatus!=="all"?`Pas de commande pour "${search||filterStatus}"`:"Aucune commande - Commence à acheter!"}</p>
+            <p className="text-[11px] text-gray-500 mt-1">Achats directs via WhatsApp - 0% comm - Vendeurs payés d'abord - Taux {TAUX_CDF}</p>
+            <Link href="/market" className="mt-4 inline-block bg-black text-white px-6 py-3 rounded-full font-black text-[12px]">Aller au Marché</Link>
           </div>
         ) : (
-          <div className="grid gap-3 mt-4">
-            {filtered.map((o)=>{
-              const catId = normalizeCategorie(o.categorie_id || o.categorieId || "commerces-services")
-              const catObj = getCategorieById(catId)
-              const prixCat = catObj ? getPrixByCategorie(catObj.id) : { prixUSD: 5, prixCDF: 11500 }
-              const st = statusConfig(o.status)
-              return (
-                <div key={o.id} className="bg-white border rounded-2xl p-3 flex gap-3 shadow-sm">
-                  <div className="w-14 h-14 rounded-xl bg-[#FFFBF0] border flex items-center justify-center overflow-hidden text-xl">
-                    {o.photo ? <img src={o.photo} alt={o.titre} className="w-full h-full object-contain"/> : catObj?.icon || "📦"}
-                  </div>
+          filtered.map(o=>{
+            const st=statusConfig(o.status);
+            const catId=normalizeCategorie(o.categorieId||o.categorie_id||"commerces-services");
+            const catObj=getCategorieById(catId) as any;
+            const wa=cleanWa(o.ownerWhatsapp||o.vendeur_whatsapp||o.whatsapp||"");
+            return (
+              <div key={o.id} className={`bg-white rounded-2xl border overflow-hidden ${o._vendeurCache?"opacity-70 border-dashed":"shadow-sm hover:shadow-md"} transition`}>
+                <div className="p-3 flex gap-3">
+                  <Link href={`/produit/${o.id}`} className="w-[72px] h-[72px] bg-gray-50 rounded-xl flex items-center justify-center overflow-hidden shrink-0">
+                    {o.photo||o.images?.[0]?<img src={o.photo||o.images?.[0]} alt={o.titre} className="w-full h-full object-cover"/>:<span className="text-2xl">{catObj?.icon||"📦"}</span>}
+                  </Link>
                   <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-start gap-2">
-                      <p className="font-bold text-[13px] truncate">{o.titre || `Commande ${o.id.slice(0,8)}`}</p>
-                      <span className={`text-[9px] px-2 py-1 rounded-full font-black whitespace-nowrap ${st.color}`}>{st.icon} {st.label}</span>
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="font-bold text-[13px] truncate">{o.titre||o.title||o.name}</p>
+                      <span className={`text-[9px] px-2 py-1 rounded-full border font-bold flex items-center gap-1 ${st.color}`}><span className={`w-1.5 h-1.5 rounded-full ${st.dot}`}/>{st.icon} {st.label}</span>
                     </div>
-                    <p className="text-[11px] text-gray-500 truncate">{catObj?.icon} {catObj?.titreCourt || catId} • {prixCat.prixUSD}$ boutique • {new Date(o.created_at).toLocaleDateString("fr-FR")} • Qté {o.quantite||1}</p>
-                    <p className="font-black text-[#6C3CE0] text-[13px] mt-1">{formatTotal(o)}</p>
-                    <div className="mt-2 flex gap-2">
-                      <Link href={`/produit/${o.id}`} className="flex-1 bg-black text-white text-[11px] font-bold py-2 rounded-full text-center">Voir</Link>
-                      <a href={`https://wa.me/${cleanWhatsapp(o.vendeur_whatsapp || o.ownerWhatsapp || o.whatsapp || "")}?text=${encodeURIComponent(`Bonjour, commande WENZE ${o.id} - ${o.titre} - ${formatTotal(o)} - Taux ${TAUX_CDF}`)}`} target="_blank" className="flex-1 bg-[#25D366] text-white text-[11px] font-bold py-2 rounded-full text-center">💬 Vendeur</a>
+                    <p className="text-[11px] text-gray-500 truncate">{catObj?.icon} {o.categorieTitre||catObj?.titreCourt||catId} • {o.user||o.nomBoutique||"Boutique"} • Qté {o.quantite||1}</p>
+                    <p className="font-black text-[12px] mt-1">{formatTotal(o)}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[9px] bg-gray-100 px-2 py-0.5 rounded-full">{o._badge} {o._palierId}{o._vendeurCache&&" • 🔒 vendeur caché"}</span>
+                      <span className="text-[9px] text-gray-400">{new Date(o.created_at||o.createdAt||Date.now()).toLocaleDateString("fr-FR")}</span>
                     </div>
                   </div>
                 </div>
-              )
-            })}
-          </div>
+                <div className="px-3 pb-3 flex gap-2">
+                  <a href={`https://wa.me/${wa}?text=${encodeURIComponent(`Bonjour ${o.user||"Boutique"} 👋 Commande WENZE V6 #${o.id} - "${o.titre}" - ${formatTotal(o)} - Status: ${st.label} - Taux ${TAUX_CDF}`)}`} target="_blank" className="flex-1 bg-[#25D366] text-white text-[11px] font-black py-2.5 rounded-full flex justify-center">💬 Contacter vendeur</a>
+                  <Link href={`/produit/${o.id}`} className="px-4 bg-gray-100 text-[11px] font-bold py-2.5 rounded-full">Voir</Link>
+                </div>
+                {o._vendeurCache&&<div className="bg-orange-50 border-t border-orange-100 p-2 text-[9px] text-orange-700">⚠️ Vendeur actuellement 🔒 caché (Freemium 30j expiré + 0 ticket) - Ta commande reste valide - Il réapparaîtra dès qu'il paye ticket 5$ - Même prix pour tous</div>}
+              </div>
+            );
+          })
         )}
-
-        <div className="mt-8 bg-white border rounded-2xl p-4">
-          <p className="font-black text-[12px]">Résumé WENZE 2.0</p>
-          <div className="mt-2 flex justify-between text-[12px]"><span>Total filtré:</span><b>{totalUSD}$ / {toCDF(totalUSD).toLocaleString()} CDF</b></div>
-          <p className="text-[10px] text-gray-500 mt-2">Taux fixe {TAUX_CDF} CDF • 🛍️ 5$ / 11 500 CDF petites activités (électricité, maçon, coiffure) • 🏭 10$ / 23 000 CDF gros - 0% commission - Paiement direct WhatsApp</p>
-        </div>
       </div>
 
-      <nav className="fixed bottom-0 max-w-[430px] w-full bg-white border-t flex justify-around py-2.5 text-[10px] z-30">
+      <nav className="fixed bottom-0 max-w-[430px] w-full bg-white/95 backdrop-blur border-t flex justify-around py-2.5 text-[10px] z-30">
         <Link href="/" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏠</span>Accueil</Link>
         <Link href="/market" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏪</span>Marché</Link>
-        <Link href="/mes-commandes" className="font-bold text-[#6C3CE0] flex flex-col items-center gap-0.5"><span className="text-[18px]">🛒</span>Commandes</Link>
+        <Link href="/mes-commandes" className="font-black text-black flex flex-col items-center gap-0.5"><span className="text-[18px]">📦</span>Commandes</Link>
         <Link href="/boutiques" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏬</span>Boutiques</Link>
         <Link href="/profil" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">👤</span>Profil</Link>
       </nav>
     </div>
   )
-}
-export const dynamic = 'force-dynamic';
+          }
