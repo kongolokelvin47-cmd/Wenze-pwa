@@ -1,163 +1,143 @@
 "use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { normalizeCategorie, getCategorieById, getPrixByCategorie } from "@/lib/categories";
-import { TAUX_CDF } from "@/lib/paiement";
+import { TAUX_CDF, toCDFString } from "@/lib/paiement";
 
 const cleanWa = (n: string) => (n || "").toString().replace(/[^0-9]/g, "");
 
-export default function Connexion() {
-  const router = useRouter();
-  const [whatsapp, setWhatsapp] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  const handleLogin = () => {
-    setError("");
-    const waClean = cleanWa(whatsapp);
-    if (!waClean || !password) { 
-      setError("WhatsApp et mot de passe requis"); 
-      return; 
-    }
-    if(waClean.length < 9){
-      setError("Numéro WhatsApp invalide - ex: +243810...");
-      return;
-    }
-    
-    setLoading(true);
-    
-    try {
-      // ✅ WENZE 2.0 FIX: check wenze_all_users d'abord (multi-comptes), puis wenze_user
-      let foundUser: any = null;
-      
-      const allRaw = localStorage.getItem("wenze_all_users");
-      if(allRaw){
-        const all = JSON.parse(allRaw);
-        foundUser = all.find((u:any)=> cleanWa(u.ownerWhatsapp || u.whatsapp) === waClean);
-      }
-      
-      // Fallback ancien single user
-      if(!foundUser){
-        const singleRaw = localStorage.getItem("wenze_user");
-        if(singleRaw){
-          const u = JSON.parse(singleRaw);
-          if(cleanWa(u.ownerWhatsapp || u.whatsapp) === waClean) foundUser = u;
-        }
-      }
-
-      if (!foundUser) {
-        setError("Aucun compte avec ce WhatsApp. Crée un compte d'abord - 🛍️ 5$ ou 🏭 10$.");
-        setLoading(false);
-        return;
-      }
-
-      // ✅ Vérif password simple MVP - password stocké dans user pour WENZE 2.0 local
-      if (foundUser.password && foundUser.password !== password) {
-        setError("Mot de passe incorrect.");
-        setLoading(false);
-        return;
-      }
-
-      // ✅ FIX: normalise categorieId ancien → nouveau 2 catégories
-      const fixedCatId = normalizeCategorie(foundUser.categorieId || foundUser.categorie || "commerces-services");
-      const catObj = getCategorieById(fixedCatId);
-      const prix = catObj ? getPrixByCategorie(catObj.id) : { prixUSD: 5, prixCDF: 11500 };
-
-      const finalUser = {
-        ...foundUser,
-        categorieId: fixedCatId,
-        ownerWhatsapp: waClean,
-        whatsapp: waClean,
-        categorieTitre: catObj?.titre || fixedCatId,
-        prixUSD: prix.prixUSD,
-        prixCDF: prix.prixCDF,
-      };
-
-      // Sauve session active
-      localStorage.setItem("wenze_user", JSON.stringify(finalUser));
-      
-      // Met à jour aussi dans all_users avec categorie fixée
-      if(allRaw){
-        const all = JSON.parse(allRaw);
-        const idx = all.findIndex((u:any)=> cleanWa(u.ownerWhatsapp || u.whatsapp) === waClean);
-        if(idx >= 0){
-          all[idx] = finalUser;
-          localStorage.setItem("wenze_all_users", JSON.stringify(all));
-        }
-      }
-
-      setLoading(false);
-      // ✅ Redirection vers profil avec next param si présent
-      const params = new URLSearchParams(window.location.search);
-      const next = params.get("next") || "/profil";
-      router.push(next);
-      
-    } catch(e){
-      setError("Erreur lecture compte - vide cache et réessaie.");
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-5 pb-24">
-      <Link href="/" className="text-[#6C3CE0] font-bold text-xs">← Accueil</Link>
-      
-      <div className="mt-4">
-        <h1 className="text-2xl font-black">Connexion WENZE 2.0</h1>
-        <p className="text-[11px] text-gray-500 mt-1">🛍️ Commerces & Services 5$ / 11 500 CDF • 🏭 Gros & Autres 10$ / 23 000 CDF • Taux fixe {TAUX_CDF} CDF • 0% commission</p>
-      </div>
-
-      <div className="mt-6 bg-black text-white rounded-2xl p-4 flex justify-between items-center">
-        <div>
-          <p className="font-black text-[12px]">WENZE 2.0 - 2 catégories</p>
-          <p className="text-[10px] opacity-70">Électricité, maçon, soudeur, coiffure = 5$ même régime</p>
-        </div>
-        <span className="bg-white text-black text-[9px] px-2 py-1 rounded-full font-black">Taux {TAUX_CDF}</span>
-      </div>
-
-      <div className="mt-6 bg-white border-2 rounded-2xl p-5 space-y-4">
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 text-[12px] p-3 rounded-xl font-bold">{error}</div>
-        )}
-
-        <div>
-          <label className="text-[11px] font-black">WhatsApp (+243)</label>
-          <input value={whatsapp} onChange={e=> setWhatsapp(e.target.value)} placeholder="+243810..." className="mt-1 w-full border-2 p-3 rounded-xl text-sm outline-none focus:border-[#6C3CE0] focus:ring-2 focus:ring-[#6C3CE0]/20" />
-          <p className="text-[9px] text-gray-400 mt-1">On nettoie auto: +243, 0, espaces → 243...</p>
-        </div>
-
-        <div>
-          <label className="text-[11px] font-black">Mot de passe</label>
-          <input type="password" value={password} onChange={e=> setPassword(e.target.value)} placeholder="••••••••" className="mt-1 w-full border-2 p-3 rounded-xl text-sm outline-none focus:border-[#6C3CE0]" onKeyDown={e=> e.key==="Enter" && handleLogin()} />
-        </div>
-
-        <button onClick={handleLogin} disabled={loading} className="w-full bg-[#6C3CE0] text-white font-black py-3.5 rounded-full text-[13px] disabled:opacity-50 active:scale-[0.98] transition">
-          {loading ? "Connexion..." : "Se connecter →"}
-        </button>
-
-        <div className="text-center space-y-2 pt-2">
-          <p className="text-[11px] text-gray-500">Pas de compte? WENZE 2.0 - 2 prix seulement</p>
-          <div className="grid grid-cols-2 gap-2">
-            <Link href="/inscription?type=client" className="bg-black text-white p-3 rounded-xl text-center text-[11px] font-bold">Client 0$</Link>
-            <Link href="/inscription" className="bg-[#6C3CE0] text-white p-3 rounded-xl text-center text-[11px] font-bold">🛍️ Boutique 5$</Link>
-          </div>
-          <Link href="/confidentialite" className="block text-[10px] text-gray-400 mt-3">Politique confidentialité • Taux {TAUX_CDF}</Link>
-        </div>
-      </div>
-
-      <div className="mt-6 bg-white border rounded-2xl p-4">
-        <p className="font-black text-[11px]">Comment ça marche - WENZE 2.0</p>
-        <ul className="text-[11px] text-gray-600 mt-2 space-y-1 list-disc ml-4">
-          <li>Connexion cherche dans <b>wenze_all_users</b> (multi-comptes) + fallback wenze_user</li>
-          <li>Numéro nettoyé: +243810 → 243810 (compatible tous formats)</li>
-          <li>Anciens comptes <b>technique/commerce</b> auto convertis → 🛍️ 5$ ou 🏭 10$</li>
-          <li>Après login, boutique visible dans /boutiques avec badge prix</li>
-        </ul>
-      </div>
-    </div>
-  );
+function getTimeLeft(expireAt:string){
+  const diff = new Date(expireAt).getTime() - Date.now();
+  if(diff<=0) return { expired:true, text:"Expiré", h:0,m:0,s:0 };
+  const h = Math.floor(diff/3600000);
+  const m = Math.floor((diff%3600000)/60000);
+  const s = Math.floor((diff%60000)/1000);
+  return { expired:false, text:`${h}h ${m}m ${s}s`, h,m,s, diff };
 }
 
-export const dynamic = 'force-dynamic';
+export default function FlashVentePage() {
+  const [annonces, setAnnonces] = useState<any[]>([]);
+  const [search, setSearch] = useState("");
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(()=>{
+    const id = setInterval(()=> setNow(Date.now()), 1000);
+    return ()=> clearInterval(id);
+  },[]);
+
+  useEffect(()=>{
+    try{
+      const list = JSON.parse(localStorage.getItem("wenze_annonces_list") || "[]");
+      const allUsersRaw = localStorage.getItem("wenze_all_users");
+      const allUsers = allUsersRaw ? JSON.parse(allUsersRaw) : [];
+      const userMap = new Map<string, any>();
+      for(const u of allUsers){
+        const wa = cleanWa(u.ownerWhatsapp||u.whatsapp||"");
+        if(wa) userMap.set(wa, u);
+      }
+
+      // V6: Flash = annonces qui ont flash=true ou promotion ou -20% ou créées <48h + payées
+      let flash = list.filter((a:any)=> a.isFlash || a.flash || a.promotion || a.remise || (Date.now()-new Date(a.createdAt).getTime()<48*3600000));
+
+      // Si pas de flag flash, prends les payées récentes comme flash par défaut V6 pour remplir page
+      if(flash.length===0){
+        flash = list.slice(0,20);
+      }
+
+      // V6 CRITIQUE: Filtre comptes cachés
+      try{
+        const { isCompteCache, checkFreemiumWenze } = require("@/lib/paiement");
+        flash = flash.filter((a:any)=>{
+          const wa = cleanWa(a.ownerWhatsapp||a.whatsapp||a.userId||"");
+          const user = userMap.get(wa) || { ownerWhatsapp: wa, whatsapp: wa, createdAt: a.createdAt, id: wa };
+          if(typeof isCompteCache==="function" && isCompteCache(user)) return false;
+          return true;
+        });
+
+        flash = flash.map((a:any)=>{
+          try{
+            const wa = cleanWa(a.ownerWhatsapp||a.whatsapp||a.userId||"");
+            const user = userMap.get(wa) || { ownerWhatsapp: wa, whatsapp: wa, createdAt: a.createdAt, id: wa };
+            const ab = checkFreemiumWenze(user, 0);
+            // Flash expire = expire du ticket ou +24h si freemium
+            const expireAt = ab.isPaye ? ab.expireAt || new Date(Date.now()+24*3600000).toISOString() : new Date(new Date(a.createdAt).getTime()+24*3600000).toISOString();
+            return { ...a, _isPaye: !!ab.isPaye, _badge: ab.badge, _palierId: ab.palierId, _expireAt: expireAt, _timeLeft: getTimeLeft(expireAt) };
+          }catch{ return { ...a, _isPaye:false, _badge:"🆓", _expireAt: new Date(Date.now()+24*3600000).toISOString() }; }
+        });
+
+        flash.sort((a:any,b:any)=>{
+          if(a._isPaye && !b._isPaye) return -1;
+          if(!a._isPaye && b._isPaye) return 1;
+          return new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime();
+        });
+
+      }catch{}
+
+      setAnnonces(flash);
+    }catch(e){ console.error("flash V6 error", e); }
+  },[now]);
+
+  const filtered = useMemo(()=>{
+    if(!search.trim()) return annonces;
+    const q = search.toLowerCase();
+    return annonces.filter((a:any)=> (a.titre||a.title||"").toLowerCase().includes(q) || (a.description||"").toLowerCase().includes(q));
+  },[annonces, search]);
+
+  return (
+    <div className="min-h-screen bg-[#FFFBF0] pb-20">
+      <div className="sticky top-0 z-10 bg-black text-white p-3">
+        <div className="flex items-center gap-2">
+          <Link href="/" className="p-2 rounded-full bg-white/20">←</Link>
+          <div className="flex-1">
+            <h1 className="font-black text-lg">⚡ Flash Vente V6</h1>
+            <p className="text-[11px] opacity-70">Comptes cachés filtrés • Payés d'abord • 1 ticket = X places strictes sur Y jours • Même prix</p>
+          </div>
+          <span className="text-[10px] bg-white text-black px-2 py-1 rounded-full font-bold">{filtered.length} flash</span>
+        </div>
+        <div className="mt-3 flex gap-2">
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Recherche flash... V6" className="flex-1 bg-white/10 border border-white/20 rounded-xl px-4 py-2 text-sm placeholder:text-white/50 focus:outline-none focus:ring-2 focus:ring-orange-400" />
+          <Link href="/publier" className="bg-white text-black px-4 py-2 rounded-xl text-xs font-black">+ Publier Flash</Link>
+        </div>
+        <div className="mt-2 text-[9px] opacity-60 bg-white/10 p-2 rounded-xl">
+          V6: Flash = annonces -20% ou promotion ou &lt;48h • STANDARD 5$ ({toCDFString(5)}) 4 places strictes • PRO 10$ 10 places • PREMIUM 20$ 30 places • Taux {TAUX_CDF} • Max 50 • Suppression libère place • 0% comm
+        </div>
+      </div>
+
+      <div className="p-3 grid grid-cols-2 gap-3">
+        {filtered.map((a:any)=>{
+          const tl = a._timeLeft || getTimeLeft(a._expireAt);
+          return (
+            <Link key={a.id||a.annonceId} href={`/produit/${a.id||a.annonceId}`} className="bg-white rounded-2xl border overflow-hidden hover:shadow-lg transition relative">
+              <div className="aspect-square bg-gray-100 relative">
+                {a.images?.[0] ? <img src={a.images[0]} alt={a.titre} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">IMG</div>}
+                <div className="absolute top-1.5 left-1.5 bg-red-600 text-white text-[9px] font-black px-2 py-1 rounded-full animate-pulse">⚡ FLASH {tl.expired?"EXPIRÉ":tl.text}</div>
+                <div className="absolute top-1.5 right-1.5 text-[9px] bg-black/70 text-white px-1.5 py-0.5 rounded-full backdrop-blur">{a._badge||"🆓"} {a._palierId||""}</div>
+                {a.prixAncien && <div className="absolute bottom-1.5 left-1.5 bg-yellow-400 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full">-20%</div>}
+              </div>
+              <div className="p-2">
+                <div className="font-bold text-xs line-clamp-2">{a.titre||a.title}</div>
+                <div className="flex items-center gap-1 mt-1">
+                  <span className="text-[12px] font-black text-red-600">{Number(a.prix||a.prixUSD||0)}$</span>
+                  {a.prixAncien && <span className="text-[10px] line-through text-gray-400">{a.prixAncien}$</span>}
+                  <span className="text-[9px] text-gray-400">/ {toCDFString(Number(a.prix||0))}</span>
+                </div>
+                <div className="text-[10px] text-gray-500 mt-0.5">{cleanWa(a.ownerWhatsapp||a.whatsapp||"").slice(-9)} • {a._isPaye?"⭐ Payé":"🆓 Freemium"}</div>
+                <div className="mt-2 w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                  <div className="h-full bg-red-600" style={{ width: `${tl.expired?0: Math.max(5, 100 - (tl.diff ? (24*3600000 - tl.diff)/(24*3600000)*100 : 50))}%` }} />
+                </div>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+
+      {filtered.length===0 && (
+        <div className="text-center py-16 p-4">
+          <div className="text-5xl mb-3">⚡</div>
+          <div className="font-black">Aucun flash vente visible V6</div>
+          <div className="text-[11px] text-gray-500 mt-2">Les comptes cachés 🔒 (Freemium 30j expiré + 0 ticket) sont filtrés • Active ton ticket STANDARD 5$ pour apparaître en flash • 4 places strictes sur 7j • Même prix Détail/Gros/Presta</div>
+          <Link href="/publier" className="inline-block mt-4 bg-black text-white px-6 py-3 rounded-xl text-sm font-black">Publier Flash - 0.2$/j OCC</Link>
+        </div>
+      )}
+    </div>
+  );
+                                           }
