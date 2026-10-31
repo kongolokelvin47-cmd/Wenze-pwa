@@ -2,38 +2,13 @@
 import { useState, useEffect, Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { getCategorieById, normalizeCategorie, CATEGORIES_WENZE } from "@/lib/categories";
-import { FREEMIUM, PALIERS, TAUX_CDF, toCDF, toCDFString, verifierAbonnement, consommerPlace, libererPlace } from "@/lib/paiement";
+import { getCategorieById, normalizeCategorie } from "@/lib/categories";
+import { FREEMIUM, TAUX_CDF, toCDF, toCDFString, verifierAbonnement, consommerPlace, libererPlace } from "@/lib/paiement";
+import { MAX_ACTIVES, MAX_PHOTOS, cleanWa, getUser, readList } from "./helpers";
+import { StatusBanners, TicketPicker, PhotoPicker } from "./Sections";
+import ProductForm from "./ProductForm";
 
 export const dynamic = "force-dynamic";
-
-const DAY_MS = 86400000;
-const MAX_ACTIVES = 50;
-const MAX_PHOTOS = 4;
-
-function cleanWa(n: any): string {
-  return (n || "").toString().replace(/[^0-9]/g, "").replace(/^0+/, "");
-}
-
-function getUser(): any {
-  try {
-    if (typeof window === "undefined") return null;
-    const r = localStorage.getItem("wenze_user");
-    return r ? JSON.parse(r) : null;
-  } catch {
-    return null;
-  }
-}
-
-function readList(key: string): any[] {
-  try {
-    if (typeof window === "undefined") return [];
-    const v = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(v) ? v : [];
-  } catch {
-    return [];
-  }
-}
 
 function PublierContent() {
   const router = useRouter();
@@ -52,7 +27,7 @@ function PublierContent() {
   const [selectedTicketId, setSelectedTicketId] = useState<string>(ticketFromUrl);
   const [isEditMode, setIsEditMode] = useState(false);
   const [original, setOriginal] = useState<any>(null);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<any>({
     titre: "",
     description: "",
     prix: "",
@@ -148,48 +123,6 @@ function PublierContent() {
 
   function setField(key: string, value: string) {
     setForm((f: any) => ({ ...f, [key]: value }));
-  }
-
-  function handlePhotos(e: any) {
-    const files = Array.from(e.target.files || []) as File[];
-    e.target.value = "";
-    if (!files.length) return;
-    const place = MAX_PHOTOS - photos.length;
-    if (place <= 0) {
-      notify("Maximum " + MAX_PHOTOS + " photos par annonce", "error");
-      return;
-    }
-    files.slice(0, place).forEach((file: File) => {
-      if (file.size > 5 * 1024 * 1024) {
-        notify("Photo trop lourde (5 Mo max)", "error");
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = () => {
-        const img = new Image();
-        img.onload = () => {
-          const max = 800;
-          let w = img.width;
-          let h = img.height;
-          if (w > h && w > max) {
-            h = (h * max) / w;
-            w = max;
-          } else if (h >= w && h > max) {
-            w = (w * max) / h;
-            h = max;
-          }
-          const canvas = document.createElement("canvas");
-          canvas.width = w;
-          canvas.height = h;
-          const ctx = canvas.getContext("2d");
-          if (ctx) ctx.drawImage(img, 0, 0, w, h);
-          setPhotos((prev: string[]) => [...prev, canvas.toDataURL("image/jpeg", 0.65)].slice(0, MAX_PHOTOS));
-        };
-        img.onerror = () => notify("Fichier image illisible", "error");
-        img.src = reader.result as string;
-      };
-      reader.readAsDataURL(file);
-    });
   }
 
   function handlePublish() {
@@ -336,7 +269,6 @@ function PublierContent() {
   const needsTicket = !isEditMode && !!ab?.isPaye;
   const blocked = !isEditMode && (!ab || isCache || !ab.peutPublier);
   const photosDisabled = blocked || (needsTicket && !selectedTicketId);
-  const placesTicket = selectedTicket ? selectedTicket.imagesMax - selectedTicket.imagesUsed : 0;
   const headerStatus = !ab
     ? "..."
     : isCache
@@ -370,7 +302,9 @@ function PublierContent() {
           <h1 className="font-black text-[13px] truncate">{isEditMode ? "Modifier l'annonce" : "Publier une annonce"}</h1>
           <p className="text-[9px] text-gray-500 truncate">{headerStatus} - Taux {TAUX_CDF}</p>
         </div>
-        <span className={"text-[10px] px-2.5 py-1 rounded-full font-black text-white " + (isCache ? "bg-red-600" : ab?.isPaye ? "bg-black" : "bg-orange-500")}>{ab?.badge || "..."}</span>
+        <span className={"text-[10px] px-2.5 py-1 rounded-full font-black text-white " + (isCache ? "bg-red-600" : ab?.isPaye ? "bg-black" : "bg-orange-500")}>
+          {ab?.badge || "..."}
+        </span>
       </header>
 
       <div className="p-4 space-y-4">
@@ -380,102 +314,42 @@ function PublierContent() {
           </div>
         ) : null}
 
-        {!isEditMode && isCache ? (
-          <div className="bg-red-600 text-white rounded-2xl p-4 border-2 border-black shadow">
-            <p className="font-black text-[13px]">🔒 Compte caché : les 30 jours gratuits sont expirés</p>
-            <p className="text-[11px] mt-1.5 opacity-90">Vos annonces ne sont plus visibles dans le marché. Achetez un ticket pour réapparaître immédiatement.</p>
-            <Link href="/abonnement" className="mt-3 block w-full bg-white text-black text-center py-3 rounded-full font-black text-[12px]">
-              🎫 Payer 5$ / {toCDFString(5)}
-            </Link>
-          </div>
-        ) : null}
+        <StatusBanners ab={ab} isEditMode={isEditMode} />
 
-        {!isEditMode && !isCache && ab?.isFreemium && ab.imagesRestantes === 0 ? (
-          <div className="bg-yellow-100 border-2 border-yellow-400 rounded-2xl p-4">
-            <p className="font-black text-[12px]">🆓 Limite gratuite atteinte ({FREEMIUM.maxImages}/{FREEMIUM.maxImages})</p>
-            <p className="text-[10px] mt-1">Le ticket ⭐ STANDARD à 5$ ({toCDFString(5)}) donne 4 places sur 7 jours. Cumulable.</p>
-            <Link href="/abonnement" className="mt-3 block w-full bg-black text-white text-center py-2.5 rounded-full font-black text-[11px]">
-              Voir les tickets 5$ / 10$ / 20$
-            </Link>
-          </div>
-        ) : null}
+        {needsTicket ? <TicketPicker tickets={ab?.ticketsActifs || []} selectedId={selectedTicketId} onSelect={setSelectedTicketId} /> : null}
 
-        {!isEditMode && !isCache && ab?.isPaye && !ab.peutPublier ? (
-          <div className="bg-yellow-100 border-2 border-yellow-400 rounded-2xl p-4">
-            <p className="font-black text-[12px]">Plus de places libres</p>
-            <p className="text-[10px] mt-1">Supprimez une annonce vendue pour libérer une place, ou achetez un nouveau ticket.</p>
-            <Link href="/abonnement" className="mt-3 block w-full bg-black text-white text-center py-2.5 rounded-full font-black text-[11px]">
-              Acheter un ticket
-            </Link>
-          </div>
-        ) : null}
+        <PhotoPicker photos={photos} setPhotos={setPhotos} disabled={photosDisabled} notify={notify} />
 
-        {needsTicket && (ab.ticketsActifs || []).length > 0 ? (
-          <div className="bg-white border-2 border-black rounded-2xl p-4 shadow-sm">
-            <p className="font-black text-[13px]">🎫 Choisissez le ticket</p>
-            <p className="text-[9px] text-gray-600 mt-1">Chaque annonce utilise 1 place du ticket. Supprimer une annonce libère sa place.</p>
-            <div className="mt-3 space-y-2 max-h-[220px] overflow-y-auto">
-              {(ab.ticketsActifs || []).map((t: any) => {
-                const selected = selectedTicketId === t.ticketId;
-                const jours = Math.max(0, Math.ceil((new Date(t.expireAt).getTime() - Date.now()) / DAY_MS));
-                const pct = t.imagesMax ? Math.min(100, (t.imagesUsed / t.imagesMax) * 100) : 0;
-                return (
-                  <button
-                    key={t.ticketId}
-                    type="button"
-                    onClick={() => setSelectedTicketId(t.ticketId)}
-                    className={"w-full border-2 rounded-xl p-3 text-left " + (selected ? "border-black bg-black text-white" : "border-gray-200 bg-white")}
-                  >
-                    <div className="flex justify-between items-center">
-                      <div>
-                        <p className="font-black text-[11px]">{(PALIERS as any)[t.palierId]?.badge || "🎫"} {t.palierId} - {t.imagesUsed}/{t.imagesMax} places</p>
-                        <p className="text-[9px] opacity-80 mt-0.5">Expire le {new Date(t.expireAt).toLocaleDateString("fr-FR")} - {jours}j restants</p>
-                      </div>
-                      <p className={"font-black text-[11px] px-2.5 py-1 rounded-full " + (selected ? "bg-white text-black" : "bg-black text-white")}>{t.imagesMax - t.imagesUsed} libres</p>
-                    </div>
-                    <div className="mt-2 w-full bg-gray-300 h-1.5 rounded-full overflow-hidden">
-                      <div className="bg-[#25D366] h-full" style={{ width: pct + "%" }}></div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            {selectedTicket ? (
-              <p className="text-[10px] mt-3 font-bold bg-[#FFFBF0] border rounded-xl p-2.5">
-                ✅ Ticket {selectedTicket.palierId} : il reste {placesTicket} place(s)
-              </p>
-            ) : null}
-          </div>
-        ) : null}
+        <ProductForm form={form} setField={setField} setForm={setForm} prixNum={prixNum} activites={activites} />
+      </div>
 
-        <div className="bg-white border rounded-2xl p-4 shadow-sm">
-          <div className="flex justify-between items-center">
-            <p className="font-black text-[12px]">Photos ({MAX_PHOTOS} max)</p>
-            <p className="text-[10px] bg-black text-white px-2.5 py-1 rounded-full font-bold">{photos.length} / {MAX_PHOTOS}</p>
-          </div>
-          <input
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={handlePhotos}
-            disabled={photosDisabled}
-            className="mt-3 w-full text-[11px] border border-dashed rounded-xl p-3 bg-gray-50 disabled:opacity-50"
-          />
-          {photos.length > 0 ? (
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              {photos.map((p: string, i: number) => (
-                <div key={i} className="relative">
-                  <img src={p} alt={"Photo " + (i + 1)} className="w-full h-28 object-cover rounded-xl border-2" />
-                  <button
-                    type="button"
-                    onClick={() => setPhotos((prev: string[]) => prev.filter((_: any, idx: number) => idx !== i))}
-                    className="absolute top-1.5 right-1.5 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center text-[12px] font-bold"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : null}
+      <div className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t p-3">
+        <div className="max-w-[430px] mx-auto">
+          <button
+            type="button"
+            onClick={handlePublish}
+            disabled={saving || !!showSuccess || blocked}
+            className="w-full bg-black text-white py-3.5 rounded-full font-black text-[13px] disabled:opacity-50"
+          >
+            {saving ? "Enregistrement..." : isEditMode ? "Enregistrer les modifications" : "Publier l'annonce"}
+          </button>
         </div>
-        
+      </div>
+    </div>
+  );
+}
+
+export default function PublierPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6">
+          <div className="h-24 bg-white border rounded-2xl animate-pulse"></div>
+        </div>
+      }
+    >
+      <PublierContent />
+    </Suspense>
+  );
+    }
+    
