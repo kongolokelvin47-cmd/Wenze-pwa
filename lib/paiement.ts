@@ -1,5 +1,5 @@
 /**
- * lib/paiement.ts - WENZE (V7) : achat et usage des tickets, vérification de l'abonnement.
+ * lib/paiement.ts - WENZE WENZE BUSINESS : achat et usage des tickets, vérification de l'abonnement.
  * Point d'entrée unique : ré-exporte aussi lib/paiement-base.ts.
  *
  * ATTENTION : aucun paiement réel n'est vérifié ici (localStorage uniquement).
