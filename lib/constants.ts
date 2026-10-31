@@ -1,4 +1,4 @@
-// lib/constants.ts - V6 FINAL STRICT MULTI-TICKETS - TONMARCHÉ.CD
+// lib/constants.ts - WENZE WENZE BUSINESS MULTI-TICKETS - TON MARCHÉ.CD
 // BCC officiel 2 265,67 / parallèle 2 327,89 - Arrondi 2300 fixe - Source unique TAUX
 // Règle V6: Même prix pour tous - Tickets stricts cumulables - 1 ticket = X places sur Y jours (pas X/j)
 
