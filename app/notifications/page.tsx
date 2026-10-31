@@ -32,6 +32,7 @@ export default function NotificationsPage(){
   const [notifs, setNotifs] = useState<WenzeNotif[]>([]);
   const [filter, setFilter] = useState<"all"|"boutique"|"rappels"|"boost"|"pub-video"|"perso">("all");
   const [abInfo, setAbInfo] = useState<any>(null);
+  const [selected, setSelected] = useState<WenzeNotif | null>(null);
 
   function load(){
     try{
@@ -40,7 +41,6 @@ export default function NotificationsPage(){
       const uid = cleanWa(user.ownerWhatsapp||user.whatsapp||"") || user.id || "guest";
       if(uid==="guest"){ setNotifs([]); return; }
       const list = getNotifications(uid) || [];
-      // V6: tri non lues d'abord + récentes d'abord
       const sorted = [...list].sort((a:any,b:any)=>{
         const aUnread = !a.read ? 1 : 0; const bUnread = !b.read ? 1 : 0;
         if(aUnread!==bUnread) return bUnread-aUnread;
@@ -54,9 +54,7 @@ export default function NotificationsPage(){
   useEffect(()=>{
     try{ checkAndNotifyExpirations(); }catch(e){ console.log("check exp",e); }
     load();
-    // V6 BATTERIE: 1 seul interval 30s, pas 2.5s - cleanup obligatoire
     const interval = setInterval(()=>{ try{ checkAndNotifyExpirations(); }catch{} load(); }, 30000);
-    // Listener storage pour temps réel sans poll
     const onStorage = (e: StorageEvent)=>{ if(e.key?.includes("wenze_notif")||e.key?.includes("wenze_user")) load(); };
     window.addEventListener("storage", onStorage);
     return ()=>{ clearInterval(interval); window.removeEventListener("storage", onStorage); };
@@ -88,8 +86,16 @@ export default function NotificationsPage(){
   },[filtered]);
 
   const handleOpen = (n: WenzeNotif)=>{
-    try{ markAsRead((n as any).id); load(); }catch{}
-    const link=(n as any).link||(n as any).url;
+    try{ markAsRead((n as any).id); }catch{}
+    load();
+    // OUVRE MODAL LECTURE COMPLÈTE AU LIEU DE PARTIR DIRECT
+    setSelected(n);
+  };
+
+  const handleGoLink = ()=>{
+    if(!selected) return;
+    const link=(selected as any).link||(selected as any).url;
+    setSelected(null);
     if(link) router.push(link);
   };
 
@@ -99,7 +105,7 @@ export default function NotificationsPage(){
         <div className="flex items-center gap-3">
           <Link href="/" className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
           <div className="flex-1">
-            <h1 className="font-black text-[16px] flex items-center gap-2">Notifications V6 {stats.unread>0&&<span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full animate-pulse">{stats.unread} non lues</span>}</h1>
+            <h1 className="font-black text-[15px] flex items-center gap-2">Notifications WENZE WENZE BUSINESS {stats.unread>0&&<span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full animate-pulse">{stats.unread} non lues</span>}</h1>
             <p className="text-[10px] text-gray-500">{notifs.length} notifs • Taux {TAUX_CDF} • Même ticket {Object.keys(PALIERS).join("/")} • 0% comm</p>
           </div>
           <button onClick={()=>{ try{ markAllAsRead(cleanWa(JSON.parse(localStorage.getItem("wenze_user")||"{}").ownerWhatsapp||"")||JSON.parse(localStorage.getItem("wenze_user")||"{}").id||"guest"); load(); }catch{} }} className="text-[11px] bg-black text-white px-3 py-1.5 rounded-full font-bold">✓ Tout lire</button>
@@ -119,7 +125,7 @@ export default function NotificationsPage(){
         </div>
 
         <div className="mt-3 bg-black text-white rounded-xl p-2.5 text-[9px] flex justify-between">
-          <span><b>V6 Nouvelle Politique:</b> 1 ticket = X places strictes sur Y jours (pas X/j) - ⭐ 5$ ({toCDFString(5)}) 4pl/7j • 🚀 10$ 10pl • 👑 20$ 30pl • Max 50 • Suppression libère place • Freemium 3 images à vie 30j puis 🔒 caché • 0% comm</span>
+          <span><b>WENZE WENZE BUSINESS Nouvelle Politique:</b> 1 ticket = X places strictes sur Y jours (pas X/j) - ⭐ 5$ ({toCDFString(5)}) 4pl/7j • 🚀 10$ 10pl • 👑 20$ 30pl • Max 50 • Suppression libère place • Freemium 3 images à vie 30j puis 🔒 caché • 0% comm</span>
           <span className="bg-white text-black px-2 py-0.5 rounded-full font-black shrink-0 ml-2">{TAUX_CDF}</span>
         </div>
 
@@ -138,7 +144,7 @@ export default function NotificationsPage(){
           <div className="mt-6 mx-3 bg-white border-2 border-dashed rounded-2xl p-8 text-center">
             <p className="text-4xl">🔔</p>
             <p className="font-black mt-2 text-[13px]">{filter!=="all"?`Pas de notif "${filter}"`:"Aucune notification - Tout est à jour!"}</p>
-            <p className="text-[11px] text-gray-500 mt-1">Tu recevras ici rappels expiration, boosts, ventes - Taux {TAUX_CDF} - Même prix pour tous</p>
+            <p className="text-[11px] text-gray-500 mt-1">Tu recevras ici rappels expiration, boosts, ventes - Taux {TAUX_CDF} - WENZE WENZE BUSINESS</p>
             <Link href="/market" className="mt-4 inline-block bg-black text-white px-6 py-3 rounded-full font-black text-[12px]">Aller au Marché</Link>
           </div>
         ) : (
@@ -158,10 +164,10 @@ export default function NotificationsPage(){
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center text-[16px] shrink-0 border ${cfg.color}`}>{cfg.icon}</div>
                       <div className="flex-1 min-w-0">
                         <div className="flex justify-between gap-2">
-                          <p className={`text-[13px] truncate ${isUnread?"font-black":"font-bold"}`}>{n.titre||n.title||cfg.label}</p>
+                          <p className={`text-[13px] truncate ${isUnread?"font-black":"font-bold"}`}>{(n.titre||n.title||cfg.label||"").toString().replace(/V6/gi,"WENZE WENZE BUSINESS")}</p>
                           <span className="text-[10px] text-gray-400 shrink-0">{formatNotifDate(n.date||n.createdAt)}</span>
                         </div>
-                        <p className={`text-[11px] mt-0.5 line-clamp-2 ${isUnread?"text-black":"text-gray-600"}`}>{n.message||n.text||n.description||""}</p>
+                        <p className={`text-[11px] mt-0.5 line-clamp-2 ${isUnread?"text-black":"text-gray-600"}`}>{(n.message||n.text||n.description||"").toString().replace(/V6/gi,"WENZE WENZE BUSINESS")}</p>
                         <div className="flex gap-2 mt-1.5">
                           <span className="text-[9px] bg-gray-100 px-2 py-0.5 rounded-full">{cfg.label}</span>
                           {n.link&&<span className="text-[9px] bg-black text-white px-2 py-0.5 rounded-full">Voir →</span>}
@@ -177,6 +183,29 @@ export default function NotificationsPage(){
         )}
       </div>
 
+      {/* MODAL LECTURE COMPLÈTE */}
+      {selected && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={()=> setSelected(null)} />
+          <div className="relative bg-white w-full max-w-[430px] rounded-t-[24px] sm:rounded-[24px] p-5 max-h-[85vh] overflow-auto">
+            <div className="flex justify-between items-start gap-3">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center border ${notifConfig((selected as any).type||"").color}`}>{notifConfig((selected as any).type||"").icon}</div>
+              <button onClick={()=> setSelected(null)} className="w-8 h-8 bg-gray-100 rounded-full font-black">×</button>
+            </div>
+            <h2 className="font-black text-[15px] mt-4">{((selected as any).titre||(selected as any).title||"Notification").toString().replace(/V6/gi,"WENZE WENZE BUSINESS")}</h2>
+            <p className="text-[11px] text-gray-400 mt-1">WENZE WENZE BUSINESS • {formatNotifDate((selected as any).date||(selected as any).createdAt)} • Taux {TAUX_CDF}</p>
+            <div className="mt-4 bg-[#FFFBF0] border rounded-2xl p-4">
+              <p className="text-[13px] leading-[19px] whitespace-pre-wrap">{((selected as any).message||(selected as any).text||(selected as any).description||"").toString().replace(/V6/gi,"WENZE WENZE BUSINESS")}</p>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button onClick={()=> setSelected(null)} className="flex-1 bg-gray-100 font-black py-3 rounded-full text-[13px]">Fermer</button>
+              {(selected as any).link && <button onClick={handleGoLink} className="flex-1 bg-black text-white font-black py-3 rounded-full text-[13px]">Ouvrir →</button>}
+            </div>
+            <p className="text-[10px] text-gray-500 mt-3 text-center">✅ Marquée comme lue</p>
+          </div>
+        </div>
+      )}
+
       <nav className="fixed bottom-0 max-w-[430px] w-full bg-white/95 backdrop-blur border-t flex justify-around py-2.5 text-[10px] z-30">
         <Link href="/" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏠</span>Accueil</Link>
         <Link href="/market" className="flex flex-col items-center gap-0.5 text-gray-500"><span className="text-[18px]">🏪</span>Marché</Link>
@@ -186,4 +215,4 @@ export default function NotificationsPage(){
       </nav>
     </div>
   )
-    }
+                  }
