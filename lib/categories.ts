@@ -1,4 +1,4 @@
-// lib/categories.ts - V33 FINAL V6 STRICT - TONMARCHÉ.CD
+// lib/categories.ts - WENZE WENZE BUSINESS - TON MARCHÉ.CD
 // Règle V6: Même prix pour Détail/Gros/Presta/Client - Catégories = filtre seulement - Tickets pub = paliers STANDARD/PRO/PREMIUM
 // Source taux unique = lib/paiement.ts - BUILD VERT
 
