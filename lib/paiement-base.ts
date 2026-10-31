@@ -1,5 +1,5 @@
 /**
- * lib/paiement-base.ts - WENZE (V7) : constantes, formats, stockage, paliers, types.
+ * lib/paiement-base.ts - WENZE WENZE BUSINESS : constantes, formats, stockage, paliers, types.
  * Les fonctions de tickets et de vérification sont dans lib/paiement.ts,
  * qui ré-exporte tout ce fichier : les pages continuent d'importer depuis "@/lib/paiement".
  *
