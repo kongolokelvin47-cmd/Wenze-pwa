@@ -1,6 +1,6 @@
 "use client";
 
-// lib/invitations.ts - V32 STUB BUILD VERT - Invitations désactivées temporairement pour débloquer 500+ deploys
+// lib/invitations.ts - WENZE WENZE BUSINESS- Invitations désactivées temporairement pour débloquer 500+ deploys
 export type Invitation = {
   id:string; fromWa:string; fromName:string; toWa:string; toName:string;
   token:string; status:"pending"|"confirmed"|"expired"|"cancelled";
