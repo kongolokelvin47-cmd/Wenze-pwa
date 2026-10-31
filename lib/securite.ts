@@ -1,4 +1,4 @@
-// lib/securite.ts - V6.1 FINAL STRICT - SÉCURITÉ WENZE - TONMARCHÉ.CD
+// lib/securite.ts - WENZE WENZE BUSINESS - SÉCURITÉ WENZE - TON MARCHÉ.CD
 // V6: Même prix pour tous - Tickets stricts cumulables - Suppression libère place - Max 50 - Compte caché filtré
 
 export const getCurrentUser = () => {
