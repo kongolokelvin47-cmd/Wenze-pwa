@@ -1,4 +1,4 @@
-// lib/auth.ts - V15 PRO FINALE V6 STRICT MULTI-TICKETS - TONMARCHÉ.CD
+// lib/auth.ts - WENZE WENZE BUSINESS MULTI-TICKETS - TON MARCHÉ.CD
 // Règles: Chacun son compte, WhatsApp immutable, Tickets stricts cumulables, Suppression libère place, Max 50 actives
 
 export function cleanWa(n:any){ 
