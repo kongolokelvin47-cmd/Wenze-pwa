@@ -1,4 +1,4 @@
-// lib/roles.ts - V6.1 FINAL STRICT MULTI-TICKETS - TONMARCHÉ.CD
+// lib/roles.ts - WENZE WENZE BUSINESS MULTI-TICKETS - TON MARCHÉ.CD
 // Règle V6: Même prix pour vendeur/prestataire/grossiste/client - On vend tickets pub, pas rôle - Rôles = capacités seulement
 
 export type Role = "client" | "vendeur" | "prestataire" | "grossiste" | "ambassadeur" | "superviseur" | "dg";
