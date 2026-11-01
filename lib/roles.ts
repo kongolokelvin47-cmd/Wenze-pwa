@@ -1,173 +1,245 @@
-// lib/roles.ts - WENZE WENZE BUSINESS MULTI-TICKETS - TON MARCHÉ.CD
-// Règle V6: Même prix pour vendeur/prestataire/grossiste/client - On vend tickets pub, pas rôle - Rôles = capacités seulement
+// lib/roles.ts - WENZE WENZE BUSINESS
+// Les rôles décrivent des capacités. Les abonnements ont le même prix pour tous (voir lib/paiement.ts).
+//
+// ATTENTION : le rôle est lu dans le localStorage du téléphone, donc modifiable par n'importe qui.
+// Ces règles ne protègent rien tant qu'elles ne sont pas aussi appliquées côté serveur (Supabase RLS).
+
+import { verifierAbonnement } from "./paiement";
 
 export type Role = "client" | "vendeur" | "prestataire" | "grossiste" | "ambassadeur" | "superviseur" | "dg";
 
-function cleanWa(n:any){ return (n||"").toString().replace(/[^0-9]/g,""); }
-function safeParse(k:string){ try{ const r=typeof window!=="undefined"?localStorage.getItem(k):null; return r?JSON.parse(r):null; }catch{ return null; } }
+function cleanWa(n: any): string {
+  return (n || "").toString().replace(/[^0-9]/g, "");
+}
 
 export const ROLES = {
-  client: { 
-    canPublish: true, // V6: peut publier avec ticket occasionnel
-    canPublishOccasionnel: true, 
-    canPublishBoutique: false, // doit passer vendeur pour boutique
-    maxAnnonces: 50, // Max 50 actives global V6, pas 0
-    freemium: false, // client n'a pas freemium boutique, a ticket 0.2$/j
-    prix: 0, // même prix, ticket OCC 0.2$/j
-    needsPayment: false, // peut acheter ticket OCC direct
+  client: {
+    canPublish: true, // uniquement en vente occasionnelle (boost)
+    canPublishOccasionnel: true,
+    canPublishBoutique: false, // doit devenir vendeur pour ouvrir une boutique
+    maxAnnonces: 50,
+    freemium: false, // le client n'a pas de freemium
+    prix: 0,
+    needsPayment: false,
     badge: "👤 Client"
   },
-  vendeur: { 
-    canPublish: true, 
+  vendeur: {
+    canPublish: true,
     canPublishOccasionnel: true,
     canPublishBoutique: true,
-    maxAnnonces: 50, // V6 max 50 actives global, pas 3
-    freemium: true, // 3 images à vie strictes 30j puis caché
+    maxAnnonces: 50,
+    freemium: true, // 3 images à vie, visibles 30 jours, puis compte caché
     freemiumMax: 3,
     freemiumDuree: 30,
-    prix: 5, // V6 même prix - STANDARD 5$ = 4 places strictes
+    prix: 5, // valeur indicative de l'ancien système : la grille actuelle est dans PALIERS
     badge: "🛍️ Vendeur"
   },
-  prestataire: { 
-    canPublish: true, 
+  prestataire: {
+    canPublish: true,
     canPublishOccasionnel: true,
     canPublishBoutique: true,
-    maxAnnonces: 50, // même que vendeur V6
-    freemium: true, // même freemium
-    freemiumMax: 3,
-    prix: 5, // V6 MÊME TARIF que vendeur - STANDARD 5$, PRO 10$, PREMIUM 20$ - plus de discrimination
-    badge: "🔧 Prestataire",
-    note: "Même tarif que vendeur - On vend tickets pub, pas rôle"
-  },
-  grossiste: { 
-    canPublish: true, 
-    canPublishOccasionnel: true,
-    canPublishBoutique: true,
-    maxAnnonces: 50, // V6 max 50, pas 9999
+    maxAnnonces: 50,
     freemium: true,
     freemiumMax: 3,
-    prix: 5, // V6: 25$ ancien supprimé -> PREMIUM 20$ max mais même entrée STANDARD 5$ possible
-    canHaveSubAccounts: true, // seul diff V6
-    badge: "🏭 Grossiste",
-    note: "Ex-25$ supprimé - Maintenant PREMIUM 20$ = 30 places strictes - Même prix que détails"
+    prix: 5,
+    badge: "🔧 Prestataire",
+    note: "Même tarif que le vendeur : on vend de la visibilité, pas un rôle"
   },
-  ambassadeur: { 
-    hasCodeParrainage: true, 
+  grossiste: {
+    canPublish: true,
+    canPublishOccasionnel: true,
+    canPublishBoutique: true,
+    maxAnnonces: 50,
+    freemium: true,
+    freemiumMax: 3,
+    prix: 5,
+    canHaveSubAccounts: true, // seule différence avec le vendeur
+    badge: "🏭 Grossiste",
+    note: "Même tarif que le vendeur"
+  },
+  ambassadeur: {
+    hasCodeParrainage: true,
     canPublish: false,
     canPublishOccasionnel: true,
     maxAnnonces: 50,
     badge: "🎖️ Ambassadeur"
   },
-  superviseur: { 
-    canCreateAmbassadeur: true, 
+  superviseur: {
+    canCreateAmbassadeur: true,
     canPublish: true,
     maxAnnonces: 50,
     badge: "👔 Superviseur"
   },
-  dg: { 
-    allAccess: true, 
-    need2FA: true, 
+  dg: {
+    allAccess: true,
+    need2FA: true,
     canPublish: true,
     maxAnnonces: 50,
     badge: "👑 DG"
   }
 } as const;
 
-// V6: Check downgrade = Freemium 30j -> Caché + tickets expirés -> pas de rôle vendeur avec 0 ticket
-export const checkDowngrade = (user:any) => {
-  if(!user) return user;
-  try{
-    if(typeof window==="undefined") return user;
-    const { verifierAbonnement, isCompteCache } = require("./paiement");
-    const ab = verifierAbonnement();
-    const wa = cleanWa(user.ownerWhatsapp||user.whatsapp||user.id||"");
+// ========== PROPRIÉTAIRE D'UNE ANNONCE ==========
 
-    // 1. Si compte caché (Freemium 30j expiré + 0 ticket actif) -> retour vendeur freemium caché
-    if(ab.isCache){
-      return { 
-        ...user, 
-        role: "vendeur" as Role, 
-        type: "freemium_cache", 
-        abonnement: "Freemium Caché - 30j expiré - Paye 5$ pour réapparaître",
+/** Clé de comparaison d'un numéro : 9 derniers chiffres (ignore +243, 243 et le 0 initial). */
+function phoneKey(v: any): string {
+  const d = cleanWa(v);
+  return d.length >= 7 ? d.slice(-9) : "";
+}
+
+/** Numéros et identifiants d'un utilisateur ou d'une annonce (ou d'un simple numéro). */
+function identities(x: any): { phones: string[]; ids: string[] } {
+  const phones: string[] = [];
+  const ids: string[] = [];
+  if (x === null || x === undefined || x === "") return { phones, ids };
+
+  if (typeof x === "string" || typeof x === "number") {
+    const k = phoneKey(x);
+    if (k) phones.push(k);
+    ids.push(String(x));
+    return { phones, ids };
+  }
+
+  const isAnnonce = x.titre !== undefined || x.prix !== undefined || x.prixUSD !== undefined;
+  const fields = isAnnonce ? ["ownerWhatsapp", "whatsapp", "userId"] : ["ownerWhatsapp", "whatsapp", "id"];
+  for (const f of fields) {
+    const v = x[f];
+    if (v === undefined || v === null || v === "") continue;
+    const k = phoneKey(v);
+    if (k) phones.push(k);
+    ids.push(String(v));
+  }
+  return { phones, ids };
+}
+
+function currentUser(): any {
+  try {
+    if (typeof window === "undefined") return null;
+    const raw = localStorage.getItem("wenze_user");
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Vrai si l'utilisateur est le propriétaire de l'annonce.
+ * Accepte isOwner(annonce, user), isOwner(user, annonce) ou isOwner(annonce) :
+ * sans second argument, on compare avec l'utilisateur connecté.
+ */
+export function isOwner(a?: any, b?: any): boolean {
+  try {
+    const first = identities(a);
+    const second = identities(b !== undefined ? b : currentUser());
+    if (first.phones.some((p) => second.phones.includes(p))) return true;
+    return first.ids.some((i) => second.ids.includes(i));
+  } catch {
+    return false;
+  }
+}
+
+// ========== RÔLE SELON L'ABONNEMENT ==========
+
+/** Met à jour le rôle affiché selon l'état de l'abonnement (caché, payé, freemium). */
+export const checkDowngrade = (user: any) => {
+  if (!user) return user;
+  try {
+    if (typeof window === "undefined") return user;
+    const ab: any = verifierAbonnement();
+
+    // 1. Compte caché : 30 jours gratuits expirés et aucun ticket actif
+    if (ab.isCache) {
+      return {
+        ...user,
+        role: "vendeur" as Role,
+        type: "freemium_cache",
+        abonnement: "Compte caché - 30 jours gratuits expirés - achetez un abonnement pour réapparaître",
         isCache: true,
         badge: "🔒",
         placesRestantes: 0,
-        canPublish: false, // bloqué jusqu'à achat ticket
+        canPublish: false,
         message: ab.message
       };
     }
 
-    // 2. Si a des tickets actifs -> garde rôle, mais met à jour places
-    if(ab.isPaye){
+    // 2. Abonnement actif : on garde le rôle et on met à jour les places
+    if (ab.isPaye) {
       return {
         ...user,
         role: user.role || "vendeur",
         type: "paye",
-        abonnement: `${ab.ticketsActifs?.length||1} tickets actifs - ${ab.placesRestantes||0} places libres strictes`,
+        abonnement: (ab.ticketsActifs?.length || 1) + " ticket(s) actif(s) - " + (ab.placesRestantes || 0) + " places libres",
         isCache: false,
-        badge: ab.badge||"⭐",
+        badge: ab.badge || "⭐",
         placesRestantes: ab.placesRestantes,
         ticketsActifs: ab.ticketsActifs,
-        canPublish: ab.peutPublier && (ab.placesRestantes>0 || ab.isPaye),
-        maxAnnonces: 50, // V6 max global
-        palierId: ab.palierId,
+        canPublish: !!ab.peutPublier,
+        maxAnnonces: 50,
+        palierId: ab.palierId
       };
     }
 
-    // 3. Freemium 30j visible - 3 à vie strictes
-    if(ab.isFreemium){
+    // 3. Freemium visible : 3 images à vie
+    if (ab.isFreemium) {
       return {
         ...user,
         role: "vendeur" as Role,
         type: "freemium",
-        abonnement: `Freemium ${ab.count||0}/3 strictes à vie - ${ab.joursRestants||0}j restants avant caché`,
+        abonnement: "Gratuit " + (ab.count || 0) + "/3 - " + (ab.joursRestants || 0) + "j restants avant masquage",
         isCache: false,
         badge: "🆓",
-        placesRestantes: ab.imagesRestantes||0,
-        canPublish: ab.peutPublier,
-        maxAnnonces: 3, // freemium 3 à vie mais max 50 global si paye après
-        joursRestants: ab.joursRestants,
+        placesRestantes: ab.imagesRestantes || 0,
+        canPublish: !!ab.peutPublier,
+        maxAnnonces: 3,
+        joursRestants: ab.joursRestants
       };
     }
 
-    // Fallback ancien système abonnement_expire pour compat
+    // Compatibilité avec l'ancien système d'abonnement
     const expire = localStorage.getItem("abonnement_expire") || localStorage.getItem("wenze_abonnement_expire");
-    if(expire && Date.now() > parseInt(expire) && ["vendeur","prestataire","grossiste"].includes(user.role)){
-      return { ...user, role: "vendeur" as Role, type: "freemium", abonnement: "Freemium - Retour auto non-paiement - V6: Compte caché après 30j", isCache: false, badge: "🆓", canPublish: true, maxAnnonces: 3 };
+    if (expire && Date.now() > parseInt(expire) && ["vendeur", "prestataire", "grossiste"].includes(user.role)) {
+      return { ...user, role: "vendeur" as Role, type: "freemium", abonnement: "Gratuit - abonnement expiré", isCache: false, badge: "🆓", canPublish: true, maxAnnonces: 3 };
     }
 
     return user;
-  }catch{
+  } catch {
     return user;
   }
 };
 
-// Helper V6: peut publier selon rôle + tickets
-export function canPublishByRole(user:any){
-  if(!user) return { ok:false, msg:"Non connecté" };
-  const role = (user.role||"vendeur") as Role;
+/** Peut-il publier ? Selon son rôle et son abonnement. */
+export function canPublishByRole(user: any) {
+  if (!user) return { ok: false, msg: "Non connecté" };
+  const role = (user.role || "vendeur") as Role;
   const roleConfig = ROLES[role] || ROLES.vendeur;
-  
-  // DG et superviseur bypass
-  if(role==="dg" || role==="superviseur") return { ok:true, msg:`${roleConfig.badge} bypass - Max 50`, role, config: roleConfig };
 
-  // Check tickets V6
-  try{
-    const { verifierAbonnement } = require("./paiement");
-    const ab = verifierAbonnement();
-    if(ab.isCache) return { ok:false, msg: ab.message, role, isCache:true, config: roleConfig };
-    if(!ab.peutPublier) return { ok:false, msg: ab.message || "Plus de places strictes - Achète ticket cumulable", role, config: roleConfig, ab };
-    return { ok:true, msg: `${roleConfig.badge} ${role} - ${ab.placesRestantes||ab.imagesRestantes||0} places libres strictes - Max 50 - Même prix pour tous`, role, config: roleConfig, ab };
-  }catch{
-    return { ok: roleConfig.canPublish, msg: `${roleConfig.badge} peut publier - Max ${roleConfig.maxAnnonces}`, role, config: roleConfig };
+  // Le DG et le superviseur ne sont pas limités
+  if (role === "dg" || role === "superviseur") {
+    return { ok: true, msg: roleConfig.badge + " accès complet", role, config: roleConfig };
+  }
+
+  try {
+    const ab: any = verifierAbonnement();
+    if (ab.isCache) return { ok: false, msg: ab.message, role, isCache: true, config: roleConfig };
+    if (!ab.peutPublier) {
+      return { ok: false, msg: ab.message || "Plus de places libres : achetez un abonnement (cumulable)", role, config: roleConfig, ab };
+    }
+    return {
+      ok: true,
+      msg: roleConfig.badge + " " + role + " - " + (ab.placesRestantes || ab.imagesRestantes || 0) + " places libres",
+      role,
+      config: roleConfig,
+      ab
+    };
+  } catch {
+    return { ok: !!roleConfig.canPublish, msg: roleConfig.badge + " peut publier - max " + roleConfig.maxAnnonces, role, config: roleConfig };
   }
 }
 
-export function getMaxAnnoncesForRole(role:Role){
-  // V6: tous 50 max actives global, freemium limité à 3 à vie dans checkFreemiumWenze
-  return 50;
+export function getMaxAnnoncesForRole(_role?: Role): number {
+  return 50; // plafond de 50 annonces actives ; le freemium est limité à 3 dans lib/paiement.ts
 }
 
-export function isSamePriceForAllRoles(){
-  return true; // V6 affirmation
-        }
+export function isSamePriceForAllRoles(): boolean {
+  return true;
+                        }
