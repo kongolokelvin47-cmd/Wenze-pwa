@@ -1,5 +1,5 @@
 /**
- * lib/paiement.ts - WENZE WENZE BUSINESS : achat et usage des tickets, vérification de l'abonnement.
+ * lib/paiement.ts - WENZE (V7) : achat et usage des tickets, vérification de l'abonnement.
  * Point d'entrée unique : ré-exporte aussi lib/paiement-base.ts.
  *
  * ATTENTION : aucun paiement réel n'est vérifié ici (localStorage uniquement).
@@ -11,6 +11,7 @@ import {
   MAX_TICKETS_ACTIFS,
   DAY_MS,
   MAX_TRANSACTIONS,
+  toCDF,
   toCDFString,
   cleanWa,
   hasWindow,
@@ -24,6 +25,8 @@ import {
   PALIERS,
   getPalier,
   OCCASIONNEL,
+  offreDuree,
+  PAIEMENT_MINIMUM_USD,
   sameOwner,
   estActif,
   listeActive,
@@ -38,11 +41,14 @@ import {
 
 export * from "./paiement-base";
 
-/** Acheter AJOUTE un ticket et n'écrase jamais les anciens. Paiement non vérifié ici. */
-export function acheterTicket(palierId: PalierId, _dureeId: DureeId = "7j"): AchatResult {
+/** Acheter AJOUTE un ticket (cumul) et n'écrase jamais les anciens. Paiement non vérifié ici. */
+export function acheterTicket(palierId: PalierId, dureeId: DureeId = "7j"): AchatResult {
   if (!hasWindow()) return { success: false, error: "Indisponible hors navigateur" };
   const palier = getPalier(palierId);
   if (!palier) return { success: false, error: "Palier inconnu" };
+  const offre = offreDuree(palierId, dureeId);
+  if (!offre) return { success: false, error: "Durée inconnue pour ce palier" };
+  if (offre.prixUSD < PAIEMENT_MINIMUM_USD) return { success: false, error: `Paiement minimum : ${PAIEMENT_MINIMUM_USD} $` };
 
   const user = readUser();
   const ownerWa = waOf(user);
@@ -53,19 +59,19 @@ export function acheterTicket(palierId: PalierId, _dureeId: DureeId = "7j"): Ach
     return { success: false, error: `Maximum ${MAX_TICKETS_ACTIFS} tickets actifs : renouvelez un ancien ticket` };
   }
 
-  const jours = palier.jours;
+  const jours = offre.jours;
   const ticket: Ticket = {
     ticketId: `TICKET-${palierId}-${jours}j-${now}-${Math.random().toString(36).slice(2, 4).toUpperCase()}`,
     palierId,
-    dureeId: `${jours}j` as DureeId,
+    dureeId,
     imagesMax: palier.imagesMax,
     imagesUsed: 0,
     imagesIds: [],
     jours,
     startAt: new Date(now).toISOString(),
     expireAt: new Date(now + jours * DAY_MS).toISOString(),
-    prixUSD: palier.prixUSD,
-    prixCDF: palier.prixCDF,
+    prixUSD: offre.prixUSD,
+    prixCDF: toCDF(offre.prixUSD),
     actif: true,
     renouvelable: true,
     ownerWhatsapp: ownerWa,
@@ -77,7 +83,8 @@ export function acheterTicket(palierId: PalierId, _dureeId: DureeId = "7j"): Ach
 
   try {
     if (user) {
-      const maj = { ...user, palierId, palierExpireAt: ticket.expireAt, isCache: false, badge: palier.badge };
+      const plusTard = timeOf(user.palierExpireAt, 0) > timeOf(ticket.expireAt, 0) ? user.palierExpireAt : ticket.expireAt;
+      const maj = { ...user, palierId, palierExpireAt: plusTard, isCache: false, badge: palier.badge };
       safeSet("wenze_user", JSON.stringify(maj));
       const all = readList("wenze_all_users");
       const idx = all.findIndex((u: any) => cleanWa(u.ownerWhatsapp || u.whatsapp) === cleanWa(maj.ownerWhatsapp || maj.whatsapp));
@@ -94,7 +101,7 @@ export function acheterTicket(palierId: PalierId, _dureeId: DureeId = "7j"): Ach
   return {
     success: true,
     ticket,
-    message: `✅ ${palier.badge} ${palier.nom} - ${palier.imagesMax} places strictes sur ${jours}j - ${palier.prixUSD}$ / ${toCDFString(palier.prixUSD)}`
+    message: `✅ ${palier.badge} ${palier.nom} - ${palier.imagesMax} images sur ${jours}j - ${offre.prixUSD}$ / ${toCDFString(offre.prixUSD)}`
   };
 }
 
@@ -161,6 +168,7 @@ export function acheterOccasionnel(offreId: string): AchatResult {
   const ticketOcc = {
     ticketId: `OCC-${offreId}-${now}`,
     offreId,
+    type: offre.type,
     imagesMax: offre.images || 1,
     imagesUsed: 0,
     imagesIds: [] as string[],
@@ -171,7 +179,7 @@ export function acheterOccasionnel(offreId: string): AchatResult {
     prixCDF: offre.prixCDF,
     actif: true,
     ownerWhatsapp: ownerWa,
-    videoMax: 0,
+    videoMax: offre.video ? 1 : 0,
     videoUsed: 0
   };
   const occ = readList("wenze_occasionnel");
@@ -260,7 +268,7 @@ export function checkFreemiumWenze(user: any, annoncesCount: number): Abonnement
     palierId: null, palier: null, joursRestants: 0, joursRestantsFreemium: 0, expireAt: null,
     annoncesRestantes: 0, imagesRestantes: 0, placesRestantes: 0,
     totalAnnonces: annoncesCount, maxPlaces: MAX_ANNONCES_ACTIVES, count: annoncesCount,
-    message: `🔒 Caché - ${FREEMIUM.dureeJours}j gratuits expirés - Payez ${PALIERS.STANDARD.prixUSD}$ / ${toCDFString(PALIERS.STANDARD.prixUSD)} pour réapparaître`,
+    message: `🔒 Caché - ${FREEMIUM.dureeJours}j gratuits expirés - Achetez un abonnement (dès ${PAIEMENT_MINIMUM_USD}$ / ${toCDFString(PAIEMENT_MINIMUM_USD)}) pour réapparaître`,
     badge: "🔒", type: "cache", prixUSD: 0
   };
 }
@@ -319,28 +327,34 @@ export function getBadgeForUser(user: any): string {
   return c.badge + " " + c.message;
 }
 export function getPrixByCategorie(cat: string) {
-  const p = PALIERS.STANDARD;
+  const o = offreDuree("STANDARD", "7j") || PALIERS.STANDARD.durees[0];
   return {
-    prixUSD: p.prixUSD,
-    prixCDF: p.prixCDF,
-    prix: p.prixUSD,
+    prixUSD: o.prixUSD,
+    prixCDF: toCDF(o.prixUSD),
+    prix: o.prixUSD,
     categorie: cat,
-    label: `STANDARD ${p.prixUSD}$ - Même prix pour tous - Taux ${TAUX_CDF}`
+    label: `STANDARD ${o.jours}j ${o.prixUSD}$ - Même prix pour tous - Taux ${TAUX_CDF}`
   };
 }
 export function getSoldeWPay(): number {
   return 0;
 }
 
+function resume(id: PalierId): string {
+  const p = PALIERS[id];
+  const sept = offreDuree(id, "7j");
+  const mois = offreDuree(id, "30j");
+  return `${p.badge} ${id} ${p.imagesMin}-${p.imagesMax} images : ${sept ? sept.prixUSD + "$/7j" : ""} ${mois ? mois.prixUSD + "$/30j" : ""}`.replace("  ", " ");
+}
+
 export const MESSAGE_REGIME =
   `🆓 ${FREEMIUM.maxImages} images à vie ${FREEMIUM.dureeJours}j visibles puis 🔒 caché - ` +
-  `⭐ STANDARD ${PALIERS.STANDARD.prixUSD}$ / ${toCDFString(PALIERS.STANDARD.prixUSD)} ${PALIERS.STANDARD.places} places / ${PALIERS.STANDARD.jours}j - ` +
-  `🚀 PRO ${PALIERS.PRO.prixUSD}$ / ${toCDFString(PALIERS.PRO.prixUSD)} ${PALIERS.PRO.places} places / ${PALIERS.PRO.jours}j - ` +
-  `👑 PREMIUM ${PALIERS.PREMIUM.prixUSD}$ / ${toCDFString(PALIERS.PREMIUM.prixUSD)} ${PALIERS.PREMIUM.places} places / ${PALIERS.PREMIUM.jours}j - ` +
-  `1 ticket = X places strictes sur Y jours (pas X/j) - Cumulable - Max ${MAX_ANNONCES_ACTIVES} - Suppression libère place - 0% comm - Taux ${TAUX_CDF}`;
+  `${resume("STANDARD")} - ${resume("PRO")} - ${resume("PREMIUM")} - ` +
+  `Achats cumulables - Max ${MAX_ANNONCES_ACTIVES} annonces actives - Minimum ${PAIEMENT_MINIMUM_USD}$ - 0% comm - Taux ${TAUX_CDF}`;
 
 export const REGLE_LEGALE =
-  "WENZE plateforme main à main 0% commission. Un ticket = X places strictes sur Y jours (pas X/j). " +
-  `Cumulable, renouvelable, suppression libère place. Max ${MAX_ANNONCES_ACTIVES} actives. ` +
-  `Freemium ${FREEMIUM.maxImages} images à vie visibles ${FREEMIUM.dureeJours}j puis compte caché si 0 ticket. Même ticket pour tous secteurs.`;
-      
+  "WENZE plateforme main à main 0% commission : on vend uniquement de la visibilité. " +
+  `Achats cumulables, renouvelables. Max ${MAX_ANNONCES_ACTIVES} annonces actives. ` +
+  `Freemium ${FREEMIUM.maxImages} images à vie visibles ${FREEMIUM.dureeJours}j puis boutique masquée sans abonnement. ` +
+  "Les publicités non renouvelées sont supprimées après un délai ; la boutique reste masquée jusqu'au prochain achat.";
+    
