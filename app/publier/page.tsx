@@ -138,7 +138,7 @@ function PublierContent() {
       if (!ab.peutPublier) {
         notify(
           ab.isFreemium
-            ? "Limite gratuite atteinte (" + FREEMIUM.maxImages + ") - ticket 5$ (" + toCDFString(5) + ")"
+            ? "Limite gratuite atteinte (" + FREEMIUM.maxImages + " images) : achetez un abonnement dès " + toCDFString(1)
             : "Plus de places libres : achetez un nouveau ticket",
           "error"
         );
@@ -351,5 +351,5 @@ export default function PublierPage() {
       <PublierContent />
     </Suspense>
   );
-    }
-    
+          }
+                                              
