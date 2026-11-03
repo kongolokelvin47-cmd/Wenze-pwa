@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { PALIERS, toCDFString } from "@/lib/paiement";
+import { PALIERS, toCDFString, usd } from "@/lib/paiement";
 import { DAY_MS, MAX_PHOTOS, compressImage } from "./helpers";
 
 /* ---------- Bannières d'état (compte caché, limite atteinte, plus de places) ---------- */
@@ -13,7 +13,7 @@ export function StatusBanners({ ab, isEditMode }: { ab: any; isEditMode: boolean
         <p className="font-black text-[13px]">🔒 Compte caché : les 30 jours gratuits sont expirés</p>
         <p className="text-[11px] mt-1.5 opacity-90">Vos annonces ne sont plus visibles dans le marché. Achetez un ticket pour réapparaître immédiatement.</p>
         <Link href="/abonnement" className="mt-3 block w-full bg-white text-black text-center py-3 rounded-full font-black text-[12px]">
-          🎫 Payer 5$ / {toCDFString(5)}
+          🎫 Voir les abonnements (dès {usd(1)})
         </Link>
       </div>
     );
@@ -23,9 +23,9 @@ export function StatusBanners({ ab, isEditMode }: { ab: any; isEditMode: boolean
     return (
       <div className="bg-yellow-100 border-2 border-yellow-400 rounded-2xl p-4">
         <p className="font-black text-[12px]">🆓 Limite gratuite atteinte</p>
-        <p className="text-[10px] mt-1">Le ticket ⭐ STANDARD à 5$ ({toCDFString(5)}) donne 4 places sur 7 jours. Cumulable.</p>
+        <p className="text-[10px] mt-1">Dès {usd(1)} ({toCDFString(1)}), un abonnement ouvre jusqu'à {PALIERS.STANDARD.imagesMax} images et plus. Les achats sont cumulables.</p>
         <Link href="/abonnement" className="mt-3 block w-full bg-black text-white text-center py-2.5 rounded-full font-black text-[11px]">
-          Voir les tickets 5$ / 10$ / 20$
+          Voir les abonnements
         </Link>
       </div>
     );
@@ -157,4 +157,4 @@ export function PhotoPicker({
       ) : null}
     </div>
   );
-}
+          }
