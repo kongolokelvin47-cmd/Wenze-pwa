@@ -1,5 +1,5 @@
 /**
- * lib/paiement-base.ts - WENZE WENZE BUSINESS : constantes, formats, stockage, paliers, types.
+ * lib/paiement-base.ts - WENZE (V7) : constantes, formats, stockage, paliers, types.
  * Les fonctions de tickets et de vérification sont dans lib/paiement.ts,
  * qui ré-exporte tout ce fichier : les pages continuent d'importer depuis "@/lib/paiement".
  *
@@ -39,6 +39,10 @@ export function toCDFString(usd: number): string {
 }
 export function toUSDString(usd: number): string {
   return `${usd}$`;
+}
+/** 2.5 -> "2,5 $" ; 12 -> "12 $" */
+export function usd(n: number): string {
+  return String(Math.round((Number(n) || 0) * 100) / 100).replace(".", ",") + " $";
 }
 export function formatPrix(usd: number): string {
   return usd === 0 ? "Gratuit" : `${usd}$ / ${toCDFString(usd)}`;
@@ -109,68 +113,174 @@ export const FREEMIUM = {
   message: "3 images à vie, visibles 30j, puis compte caché jusqu'à achat d'un ticket - Panier conservé"
 } as const;
 
-// ========== 3. PALIERS ==========
+// ========== 3. PALIERS ET DURÉES (politique v1.2) ==========
+/** Paiement minimum accepté par FlexPay (frais : 2 % + 0,10 $). */
+export const PAIEMENT_MINIMUM_USD = 1;
+/** Tant que FlexPay n'est pas branché, aucun argent n'est débité : l'application doit le dire. */
+export const PAIEMENT_REEL = false;
+/** Nombre d'emplacements Flash (boost) affichés en même temps en haut de l'accueil. */
+export const EMPLACEMENTS_FLASH = 3;
+
 export type PalierId = "STANDARD" | "PRO" | "PREMIUM";
-export type DureeId = "7j" | "15j" | "30j";
+export type DureeId = "1j" | "3j" | "7j" | "15j" | "30j";
+
+export interface OffreDuree {
+  id: DureeId;
+  /** Jours réellement accordés (peut dépasser la durée affichée à cause du minimum de 1 $). */
+  jours: number;
+  /** Prix facturé en dollars US. */
+  prixUSD: number;
+  /** Prix par jour affiché avant application du minimum de 1 $. */
+  prixAffiche?: number;
+  /** Durée courte : proposée derrière le lien « Besoin de 1 ou 3 jours seulement ? ». */
+  courte?: boolean;
+}
 
 export interface PalierConfig {
   id: PalierId;
   nom: string;
+  imagesMin: number;
   imagesMax: number;
   places: number;
+  /** Durée de référence (abonnement mensuel). */
   jours: number;
+  /** Prix de référence (abonnement mensuel). */
   prixUSD: number;
   prixCDF: number;
   badge: string;
   limiteActives: number;
   videoCount: number;
   videoDuree: string;
+  videos: string;
   description: string;
+  durees: OffreDuree[];
   /** Ancienne grille de prix par durée, conservée pour l'ancien code. */
   prix: Record<string, number>;
 }
 
-function decrire(badge: string, nom: string, usd: number, places: number, jours: number, extra: string): string {
-  return `${badge} ${nom} ${usd}$ (${toCDFString(usd)}) = ${places} places strictes sur ${jours}j${extra}`;
+function creerPalier(p: { id: PalierId; nom: string; imagesMin: number; imagesMax: number; badge: string; videoSecondes: number; durees: OffreDuree[] }): PalierConfig {
+  const mois = p.durees.find((d) => d.id === "30j") as OffreDuree;
+  const prix: Record<string, number> = {};
+  p.durees.forEach((d) => {
+    prix[d.id] = d.prixUSD;
+  });
+  const minimum = Math.min(...p.durees.map((d) => d.prixUSD));
+  return {
+    id: p.id,
+    nom: p.nom,
+    imagesMin: p.imagesMin,
+    imagesMax: p.imagesMax,
+    places: p.imagesMax,
+    jours: mois.jours,
+    prixUSD: mois.prixUSD,
+    prixCDF: toCDF(mois.prixUSD),
+    badge: p.badge,
+    limiteActives: MAX_ANNONCES_ACTIVES,
+    videoCount: 1,
+    videoDuree: `${p.videoSecondes}s`,
+    videos: `1 vidéo ${p.videoSecondes} s`,
+    description: `${p.badge} ${p.id} - ${p.imagesMin} à ${p.imagesMax} images + 1 vidéo ${p.videoSecondes} s - dès ${minimum}$`,
+    durees: p.durees,
+    prix
+  };
 }
 
 export const PALIERS: Record<PalierId, PalierConfig> = {
-  STANDARD: {
-    id: "STANDARD", nom: "STANDARD - Populaire", places: 4, imagesMax: 4, jours: 7,
-    prixUSD: 5, prixCDF: toCDF(5), badge: "⭐", limiteActives: MAX_ANNONCES_ACTIVES,
-    videoCount: 0, videoDuree: "0s",
-    description: decrire("⭐", "STANDARD", 5, 4, 7, " - Idéal pour tester"),
-    prix: { "1j": 0.5, "7j": 5, "15j": 7, "30j": 5 }
-  },
-  PRO: {
-    id: "PRO", nom: "PRO - Boutique Active", places: 10, imagesMax: 10, jours: 15,
-    prixUSD: 10, prixCDF: toCDF(10), badge: "🚀", limiteActives: MAX_ANNONCES_ACTIVES,
-    videoCount: 1, videoDuree: "60s",
-    description: decrire("🚀", "PRO", 10, 10, 15, " + 1 vidéo 60s - Cumulable"),
-    prix: { "1j": 1, "7j": 10, "15j": 10, "30j": 10 }
-  },
-  PREMIUM: {
-    id: "PREMIUM", nom: "PREMIUM - Gros Vendeur", places: 30, imagesMax: 30, jours: 30,
-    prixUSD: 20, prixCDF: toCDF(20), badge: "👑", limiteActives: MAX_ANNONCES_ACTIVES,
-    videoCount: 2, videoDuree: "60s",
-    description: decrire("👑", "PREMIUM", 20, 30, 30, " + 2 vidéos - Max " + MAX_ANNONCES_ACTIVES),
-    prix: { "1j": 1.5, "7j": 20, "15j": 20, "30j": 20 }
-  }
+  STANDARD: creerPalier({
+    id: "STANDARD", nom: "STANDARD - Débutant", imagesMin: 1, imagesMax: 4, badge: "⭐", videoSecondes: 15,
+    durees: [
+      { id: "1j", jours: 2, prixUSD: 1, prixAffiche: 0.5, courte: true },
+      { id: "7j", jours: 7, prixUSD: 3 },
+      { id: "15j", jours: 15, prixUSD: 6 },
+      { id: "30j", jours: 30, prixUSD: 12 }
+    ]
+  }),
+  PRO: creerPalier({
+    id: "PRO", nom: "PRO - Vendeur régulier", imagesMin: 5, imagesMax: 10, badge: "🚀", videoSecondes: 30,
+    durees: [
+      { id: "1j", jours: 1, prixUSD: 1, courte: true },
+      { id: "7j", jours: 7, prixUSD: 5 },
+      { id: "15j", jours: 15, prixUSD: 10 },
+      { id: "30j", jours: 30, prixUSD: 20 }
+    ]
+  }),
+  PREMIUM: creerPalier({
+    id: "PREMIUM", nom: "PREMIUM - Gros vendeur", imagesMin: 11, imagesMax: 30, badge: "👑", videoSecondes: 60,
+    durees: [
+      { id: "1j", jours: 1, prixUSD: 2, courte: true },
+      { id: "3j", jours: 3, prixUSD: 5, courte: true },
+      { id: "7j", jours: 7, prixUSD: 10 },
+      { id: "15j", jours: 15, prixUSD: 15 },
+      { id: "30j", jours: 30, prixUSD: 25 }
+    ]
+  })
 };
 
 export function getPalier(id: any): PalierConfig | null {
   return Object.prototype.hasOwnProperty.call(PALIERS, id) ? PALIERS[id as PalierId] : null;
 }
 
-// ========== 4. VENTE OCCASIONNELLE ==========
+export function offreDuree(palierId: any, dureeId: any): OffreDuree | null {
+  const p = getPalier(palierId);
+  return p ? p.durees.find((d) => d.id === dureeId) || null : null;
+}
+
+// ========== 4. BOOSTS OCCASIONNELS (publicité flash) ==========
+export type TypeOcc = "image" | "pack3" | "video";
+export type DureeOcc = "1j" | "7j" | "15j";
+
+export interface OffreOcc {
+  id: string;
+  type: TypeOcc;
+  dureeId: DureeOcc;
+  label: string;
+  images: number;
+  video: boolean;
+  jours: number;
+  prixUSD: number;
+  prixCDF: number;
+  prixAffiche?: number;
+  badge: string;
+}
+
+export const TYPES_OCC: { id: TypeOcc; prefix: string; label: string; badge: string }[] = [
+  { id: "image", prefix: "1img", label: "1 image", badge: "🖼️" },
+  { id: "pack3", prefix: "3img", label: "3 images", badge: "🗂️" },
+  { id: "video", prefix: "video", label: "1 vidéo 15 s", badge: "🎬" }
+];
+
+function offreOcc(type: TypeOcc, dureeId: DureeOcc, jours: number, prixUSD: number, prixAffiche?: number): OffreOcc {
+  const t = TYPES_OCC.find((x) => x.id === type) as { id: TypeOcc; prefix: string; label: string; badge: string };
+  return {
+    id: `occ-${t.prefix}-${dureeId}`,
+    type,
+    dureeId,
+    label: `${t.label} - ${jours} jour${jours > 1 ? "s" : ""}`,
+    images: type === "pack3" ? 3 : 1,
+    video: type === "video",
+    jours,
+    prixUSD,
+    prixCDF: toCDF(prixUSD),
+    prixAffiche,
+    badge: t.badge
+  };
+}
+
 export const OCCASIONNEL = {
   id: "OCCASIONNEL",
-  nom: "Vente Occasionnelle Client",
+  nom: "Vente occasionnelle et boost flash",
   offres: [
-    { id: "occ-1img-1j", label: "1 image / 1 jour", images: 1, jours: 1, prixUSD: 0.2, prixCDF: 460, badge: "🎟️" },
-    { id: "occ-1img-7j", label: "1 image / 7 jours", images: 1, jours: 7, prixUSD: 1, prixCDF: 2300, badge: "🎟️" }
-  ]
-} as const;
+    offreOcc("image", "1j", 3, 1, 0.3),
+    offreOcc("image", "7j", 7, 2),
+    offreOcc("image", "15j", 15, 4),
+    offreOcc("pack3", "1j", 1, 1, 0.8),
+    offreOcc("pack3", "7j", 7, 5),
+    offreOcc("pack3", "15j", 15, 10),
+    offreOcc("video", "1j", 2, 1, 0.5),
+    offreOcc("video", "7j", 7, 2.5),
+    offreOcc("video", "15j", 15, 4)
+  ] as OffreOcc[]
+};
 
 // ========== 5. TICKETS ==========
 export interface Ticket {
@@ -228,4 +338,3 @@ export function abonnementHeritageActif(user: any, now: number): boolean {
   if (!user) return false;
   return timeOf(user.palierExpireAt, 0) > now || timeOf(user.abonnementExpireAt, 0) > now;
 }
-  
