@@ -2,245 +2,164 @@
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CATEGORIES_WENZE, getCategorieById, normalizeCategorie } from "@/lib/categories";
-import { cleanWhatsapp as cleanWaLib } from "@/lib/securite";
-import { ROLES } from "@/lib/roles";
-import { TAUX_CDF, toCDFString, isCompteCache, checkFreemiumWenze } from "@/lib/paiement";
 
-const cleanWhatsapp = (n: string) => (n || "").toString().replace(/[^0-9]/g, "").replace(/^0+/,"");
+const cleanWa = (n:any)=>(n||"").toString().replace(/[^0-9]/g,"").replace(/^0+/,"");
+const norm = (s:any)=>(s||"").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");
+const safeGet=(k:string)=>{try{return typeof window!=="undefined"?localStorage.getItem(k):null;}catch{return null;}};
+const readList=(k:string):any[]=>{try{const r=safeGet(k);if(!r)return[];const v=JSON.parse(r);return Array.isArray(v)?v:[];}catch{return[];}};
 
-// WENZE WENZE BUSINESS - Fonction nom boutique + marque
-function getBoutiqueIdentite(u:any, wa:string, annonces:any[]=[]){
-  // Champs possibles pour le nom
-  const nomBrut = (u.nomBoutique || u.boutiqueName || u.name || u.nomEtablissement || "").trim();
-  const marqueBrut = (u.marque || u.slogan || u.activite || u.typeBoutique || "").trim();
-  
-  // Si déjà formaté "Boutiques Bilamba (Maison d'habillement)" on garde
-  if(nomBrut.includes("(") && nomBrut.toLowerCase().includes("boutiques")){
-    return { nomComplet: nomBrut, nomCourt: nomBrut.split("(")[0].trim(), marque: nomBrut.match(/\((.*?)\)/)?.[1] || marqueBrut };
-  }
-
-  // Génère nom pro si vide - basé sur exemples Kin
-  let nomBase = nomBrut;
-  if(!nomBase){
-    // Fallback intelligent selon catégorie
-    const cat = (u.categorieId || u.categorie || annonces[0]?.categorieId || "").toLowerCase();
-    if(cat.includes("vetement") || cat.includes("habillement")) nomBase = `Bilamba`;
-    else if(cat.includes("agro") || cat.includes("vivrier")) nomBase = `Mamie Wenze`;
-    else if(cat.includes("electronique") || cat.includes("phone")) nomBase = `TechZone Kin`;
-    else if(cat.includes("beaute")) nomBase = `Beauty Glam`;
-    else nomBase = `Boutique ${wa.slice(-4)}`;
-  }
-
-  let marqueFinale = marqueBrut;
-  if(!marqueFinale){
-    const cat = (u.categorieId || "").toLowerCase();
-    if(nomBase.toLowerCase().includes("bilamba")) marqueFinale = "Maison d'habillement";
-    else if(nomBase.toLowerCase().includes("mamie")) marqueFinale = "Agro & Vivrier";
-    else if(nomBase.toLowerCase().includes("techzone")) marqueFinale = "Téléphonie & Accessoires";
-    else marqueFinale = u.categorieLabel || "Commerce général";
-  }
-
-  const nomComplet = `Boutiques ${nomBase.replace(/^Boutiques\s*/i,"")} (${marqueFinale})`;
-  return { nomComplet, nomCourt: `Boutiques ${nomBase.replace(/^Boutiques\s*/i,"")}`, marque: marqueFinale };
+// FIX TAUTOLOGIE
+function boutiqueName(u:any){
+  if(!u) return "Bilamba";
+  const brut=(u?.nomBoutique||u?.boutiqueName||u?.name||u?.nomEtablissement||"").trim();
+  if(brut.toLowerCase().includes("boutiques") && brut.includes("(")) return brut.replace(/Boutiques\s+Boutiques/i,"Boutiques").trim();
+  const base=brut.replace(/^Boutiques\s*/i,"").split("(")[0].trim()||"Bilamba";
+  const marque=(u?.marque||u?.slogan||"").replace(/^Boutiques\s*/i,"").trim() || (base.toLowerCase().includes("bilamba")?"Maison d'habillement":"Commerce général");
+  return `Boutiques ${base} (${marque})`;
 }
 
-export default function BoutiquesPage() {
-  const router = useRouter();
-  const [boutiques, setBoutiques] = useState<any[]>([]);
-  const [filter, setFilter] = useState<"all" | "commerces-services" | "gros-autres">("all");
-  const [search, setSearch] = useState("");
-  const [currentUser, setCurrentUser] = useState<any>(null);
-  const [annoncesList, setAnnoncesList] = useState<any[]>([]);
+export default function BoutiquesPage(){
+  const router=useRouter();
+  const [users,setUsers]=useState<any[]>([]);
+  const [annonces,setAnnonces]=useState<any[]>([]);
+  const [q,setQ]=useState("");
+  const [cat,setCat]=useState("tout");
+  const [selectedWa,setSelectedWa]=useState<string|null>(null);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("wenze_user");
-      if (raw) setCurrentUser(JSON.parse(raw));
-      const listRaw = localStorage.getItem("wenze_annonces_list");
-      const list = listRaw ? JSON.parse(listRaw) : [];
-      setAnnoncesList(list);
-
-      const allUsersRaw = localStorage.getItem("wenze_all_users");
-      const allUsers = allUsersRaw ? JSON.parse(allUsersRaw) : (raw ? [JSON.parse(raw)] : []);
-      
-      const boutiqueMap = new Map<string, any>();
-      
-      for(const u of allUsers){
-        const wa = cleanWhatsapp(u.ownerWhatsapp||u.whatsapp||u.telephone||u.id||"");
-        if(!wa) continue;
-        if(!boutiqueMap.has(wa)){
-          boutiqueMap.set(wa, {
-            id: wa,
-            ownerWhatsapp: wa,
-            whatsapp: wa,
-            role: u.role || "vendeur",
-            user_type: u.user_type || u.role || "vendeur",
-            badge: u.badge || (ROLES as any)[u.role||"vendeur"]?.badge || "🛍️",
-            createdAt: u.createdAt || u.created_at || new Date().toISOString(),
-            avatar: u.avatar || u.photo || null,
-            categorie: u.categorie || u.categorieId || "commerces-services",
-            categorieId: u.categorieId || "commerces-services",
-            verified: !!u.verified,
-            rawUser: u,
-          });
-        }
-      }
-
-      for(const a of list){
-        const wa = cleanWhatsapp(a.ownerWhatsapp||a.whatsapp||a.telephone||a.userId||"");
-        if(!wa) continue;
-        if(!boutiqueMap.has(wa)){
-          boutiqueMap.set(wa, {
-            id: wa,
-            ownerWhatsapp: wa,
-            whatsapp: wa,
-            role: "vendeur",
-            badge: "🛍️",
-            createdAt: a.createdAt || new Date().toISOString(),
-            categorie: normalizeCategorie(a.categorieId || a.category || "commerces-services"),
-            categorieId: a.categorieId || "commerces-services",
-            rawUser: { ownerWhatsapp: wa, nomBoutique: a.boutiqueName || a.ownerName, marque: a.marque || "", createdAt: a.createdAt },
-          });
-        }
-      }
-
-      let boutiquesArr = Array.from(boutiqueMap.values());
-
-      // WENZE WENZE BUSINESS: Filtre comptes cachés
-      boutiquesArr = boutiquesArr.filter((b:any)=>{
-        if(b.role==="dg" || b.role==="superviseur") return true;
-        try{
-          const userToCheck = b.rawUser || { ownerWhatsapp: b.ownerWhatsapp, whatsapp: b.whatsapp, createdAt: b.createdAt, id: b.id };
-          if(isCompteCache(userToCheck)) return false;
-        }catch{}
-        return true;
+  useEffect(()=>{
+    const allUsers=readList("wenze_all_users");
+    const allAnnonces=readList("wenze_annonces_list");
+    // Si pas de users, construit boutiques depuis annonces
+    if(allUsers.length===0 && allAnnonces.length>0){
+      const map=new Map();
+      allAnnonces.forEach((a:any)=>{
+        const wa=cleanWa(a.ownerWhatsapp||a.whatsapp);
+        if(!map.has(wa)) map.set(wa,{ownerWhatsapp:wa,whatsapp:wa,nomBoutique:a.boutiqueName||a.nomEtablissement||`Boutique ${wa.slice(-4)}`,marque:a.marque||"Commerce général",photo:a.photo});
       });
+      setUsers(Array.from(map.values()));
+    } else setUsers(allUsers);
+    setAnnonces(allAnnonces);
+  },[]);
 
-      boutiquesArr = boutiquesArr.map((b:any)=>{
-        const wa = b.ownerWhatsapp;
-        const myAnnonces = list.filter((a:any)=> cleanWhatsapp(a.ownerWhatsapp||a.whatsapp||a.userId||"")===wa);
-        
-        let abonnementInfo: any = null;
-        let placesRestantes = 0;
-        let badge = b.badge;
-        let palierId: any = null;
-        try{
-          const userToCheck = b.rawUser || { ownerWhatsapp: wa, whatsapp: wa, createdAt: b.createdAt, id: b.id };
-          abonnementInfo = checkFreemiumWenze(userToCheck, myAnnonces.length);
-          placesRestantes = abonnementInfo.placesRestantes||0;
-          badge = abonnementInfo.badge || badge;
-          palierId = abonnementInfo.palierId || null;
-        }catch{}
+  // RECHERCHE INTELLIGENTE - dès 1 lettre / 1 chiffre
+  const filtered = useMemo(()=>{
+    const query = q.trim();
+    const nq = norm(query);
+    let list = users.filter(u=>{
+      const wa = cleanWa(u.ownerWhatsapp||u.whatsapp||u.id);
+      const nom = boutiqueName(u);
+      const produits = annonces.filter(a=>cleanWa(a.ownerWhatsapp||a.whatsapp)===wa).map(a=>a.titre||"").join(" ");
+      const hay = norm(`${nom} ${u.marque||""} ${u.commune||""} ${wa} 0${wa.slice(-9)} ${produits} ${u.nom||""}`);
+      // Si query vide -> tout
+      if(!nq) return true;
+      // Si query = 1 lettre -> cherche lettre dans nom
+      // Si query = chiffre -> cherche dans WA + nom
+      return hay.includes(nq);
+    });
+    if(cat!=="tout") list=list.filter(u=> norm(u.categorieId||"commerces-services").includes(norm(cat)) || norm(u.marque||"").includes(norm(cat)));
+    return list;
+  },[users,annonces,q,cat]);
 
-        const identite = getBoutiqueIdentite(b.rawUser||{}, wa, myAnnonces);
+  const selectedUser = selectedWa ? users.find(u=>cleanWa(u.ownerWhatsapp||u.whatsapp)===selectedWa) : null;
+  const selectedAnnonces = selectedWa ? annonces.filter(a=>cleanWa(a.ownerWhatsapp||a.whatsapp)===cleanWa(selectedWa)) : [];
 
-        return {
-          ...b,
-          ...identite,
-          annoncesCount: myAnnonces.length,
-          annonces: myAnnonces.slice(0,3),
-          abonnementInfo,
-          placesRestantes,
-          badge,
-          palierId,
-          isFreemium: !!abonnementInfo?.isFreemium,
-          isPaye: !!abonnementInfo?.isPaye,
-          isCache: !!abonnementInfo?.isCache,
-          lastActive: myAnnonces.length>0 ? myAnnonces.sort((a:any,b:any)=> new Date(b.createdAt).getTime()-new Date(a.createdAt).getTime())[0].createdAt : b.createdAt,
-        };
-      });
-
-      boutiquesArr.sort((a:any,b:any)=>{
-        if(a.isPaye && !b.isPaye) return -1;
-        if(!a.isPaye && b.isPaye) return 1;
-        if(b.annoncesCount!==a.annoncesCount) return b.annoncesCount-a.annoncesCount;
-        return new Date(b.lastActive).getTime()-new Date(a.lastActive).getTime();
-      });
-
-      setBoutiques(boutiquesArr);
-    } catch (e) {
-      console.error("BoutiquesPage load error WENZE WENZE BUSINESS", e);
-    }
-  }, []);
-
-  const filteredBoutiques = useMemo(()=>{
-    let arr = [...boutiques];
-    if(filter!=="all"){
-      arr = arr.filter((b:any)=>{
-        const cat = normalizeCategorie(b.categorie||"");
-        if(filter==="commerces-services") return true;
-        if(filter==="gros-autres") return cat.includes("gros") || cat.includes("agro");
-        return true;
-      });
-    }
-    if(search.trim()){
-      const s = search.toLowerCase();
-      arr = arr.filter((b:any)=> 
-        b.nomComplet?.toLowerCase().includes(s) ||
-        b.nomCourt?.toLowerCase().includes(s) ||
-        b.marque?.toLowerCase().includes(s) ||
-        b.ownerWhatsapp?.includes(cleanWhatsapp(s)) ||
-        b.annonces?.some((a:any)=> a.titre?.toLowerCase().includes(s))
-      );
-    }
-    return arr;
-  }, [boutiques, filter, search]);
+  // DETAIL BOUTIQUE - MODAL QUI S'OUVRE AU CLIC, PLUS DE 404
+  const openBoutique = (wa:string)=>{ setSelectedWa(wa); };
+  const goDetailPage = (wa:string)=>{ router.push(`/boutique/${wa}`); };
 
   return (
-    <div className="min-h-screen bg-[#FFFBF0] pb-20">
-      <div className="sticky top-0 z-10 bg-white border-b p-3">
-        <div className="flex items-center gap-2 mb-3">
-          <Link href="/" className="p-2 rounded-full bg-gray-100">←</Link>
-          <h1 className="font-black text-[16px]">Boutiques WENZE WENZE BUSINESS</h1>
-          <span className="ml-auto text-[10px] bg-[#FFF2CC] text-[#8B5A00] px-2.5 py-1 rounded-full font-bold">{filteredBoutiques.length} visibles - Cachés filtrés</span>
+    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-24">
+      <header className="sticky top-0 bg-white/95 backdrop-blur z-20 p-4 border-b">
+        <div className="flex items-center gap-3">
+          <Link href="/" className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
+          <div className="flex-1 min-w-0">
+            <h1 className="font-black text-[17px] leading-tight">Boutiques WENZE WENZE BUSINESS</h1>
+            <p className="text-[10px] text-gray-500">{filtered.length} visibles {q && `pour "${q}"`}</p>
+          </div>
+          <Link href="/tarif" className="text-[10px] font-black bg-black text-white px-3 py-1.5 rounded-full">Tarifs</Link>
         </div>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Recherche boutique, marque, WhatsApp, produit... Ex: Bilamba" className="w-full border rounded-xl px-4 py-3 text-[13px] focus:ring-2 focus:ring-black outline-none" />
-        <div className="flex gap-2 mt-3 overflow-x-auto">
-          <button onClick={()=>setFilter("all")} className={`whitespace-nowrap px-4 py-2 rounded-full text-[11px] font-black border ${filter==="all"?"bg-black text-white border-black":"bg-white"}`}>Tout - Même prix</button>
-          <button onClick={()=>setFilter("commerces-services")} className={`whitespace-nowrap px-4 py-2 rounded-full text-[11px] font-black border ${filter==="commerces-services"?"bg-black text-white":"bg-white"}`}>Commerces/Services</button>
-          <button onClick={()=>setFilter("gros-autres")} className={`whitespace-nowrap px-4 py-2 rounded-full text-[11px] font-black border ${filter==="gros-autres"?"bg-black text-white":"bg-white"}`}>Gros/Agro</button>
+
+        {/* RECHERCHE INTELLIGENTE */}
+        <div className="relative mt-3">
+          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Recherche boutique, marque, WhatsApp, produit... Ex: B, 8, Bilamba, 0825" className="w-full p-3.5 pl-10 rounded-full border-2 border-black text-[13px] font-bold bg-white outline-none" autoFocus />
+          <span className="absolute left-3.5 top-3.5">🔍</span>
+          {q && <button onClick={()=>setQ("")} className="absolute right-3 top-3 w-6 h-6 bg-black text-white rounded-full text-[11px]">✕</button>}
         </div>
-        <p className="text-[9px] text-gray-500 mt-2 leading-[13px]"><b className="text-black">WENZE WENZE BUSINESS:</b> Comptes 🔒 cachés filtrés - Freemium 3 à vie 30j puis caché - ⭐ STANDARD 0.5$/1j (4pl/1vid 15s) - 🚀 PRO 1$/1j (10pl/1vid 30s) - 👑 PREMIUM 2$/1j (30pl/1vid 60s) - Max 50 - Suppression libère place - Taux {TAUX_CDF} - 0% comm - Min 1$ - Même prix Détail/Gros</p>
+        {q && <p className="text-[10px] mt-1.5 text-gray-600">🔍 {filtered.length} boutique{filtered.length>1?"s":""} contenant <b>"{q}"</b> - Tape 1 lettre = filtre instantané</p>}
+
+        <div className="flex gap-2 overflow-x-auto mt-3 pb-1">
+          {["tout","Commerces/Services","Gros/Agence","Habillement"].map(c=>(
+            <button key={c} onClick={()=>setCat(c)} className={`shrink-0 px-4 py-2 rounded-full text-[11px] font-black border-2 ${cat===c?"bg-black text-white border-black":"bg-white"}`}>{c==="tout"?"Tout - Même prix":c}</button>
+          ))}
+        </div>
+      </header>
+
+      {/* PANNEAU PRIX SUPPRIME - RESTE QUE DANS /tarif - PLUS DE: STANDARD 0.5$ PRO 1$ etc */}
+
+      <div className="p-3 space-y-3">
+        {filtered.length===0 ? (
+          <div className="bg-white border rounded-2xl p-8 text-center">
+            <p className="text-3xl">🔍</p><p className="font-black text-[13px] mt-2">Aucune boutique pour "{q}"</p><p className="text-[11px] text-gray-500 mt-1">Essaie une autre lettre: B, 8, 0, Bilamba...</p>
+            <button onClick={()=>setQ("")} className="mt-3 bg-black text-white px-4 py-2 rounded-full text-[11px] font-black">Voir tout</button>
+          </div>
+        ) : filtered.map((u:any)=>{
+          const wa=cleanWa(u.ownerWhatsapp||u.whatsapp||u.id);
+          const myAnnonces=annonces.filter(a=>cleanWa(a.ownerWhatsapp||a.whatsapp)===wa);
+          return (
+            <div key={wa} onClick={()=>openBoutique(wa)} className="bg-white border rounded-2xl p-3 flex gap-3 cursor-pointer active:scale-[0.99]">
+              <div className="w-14 h-14 bg-black text-white rounded-full flex items-center justify-center font-black text-[20px] overflow-hidden shrink-0">
+                {u.photo ? <img src={u.photo} alt="" className="w-full h-full object-cover"/> : boutiqueName(u).replace("Boutiques ","").slice(0,1)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-black text-[13px] truncate">{boutiqueName(u)}</p>
+                <p className="text-[11px] text-gray-600 truncate">{u.marque||"Commerce général"} • 0{wa.slice(-9)} • {myAnnonces.length}/50 actives</p>
+                <div className="flex gap-1.5 mt-2 overflow-hidden">
+                  {myAnnonces.slice(0,3).map((a:any)=>(
+                    <div key={a.id} className="w-10 h-10 bg-[#FFFBF0] border rounded-lg overflow-hidden flex items-center justify-center text-[9px]">{a.photo?<img src={a.photo} className="w-full h-full object-cover"/>:a.video?<span>🎬</span>:<span>IMG</span>}</div>
+                  ))}
+                  {myAnnonces.length>3 && <div className="w-10 h-10 bg-black text-white rounded-lg flex items-center justify-center text-[10px] font-black">+{myAnnonces.length-3}</div>}
+                </div>
+              </div>
+              <span className="text-gray-400">›</span>
+            </div>
+          );
+        })}
       </div>
 
-      <div className="p-3 grid grid-cols-1 gap-3">
-        {filteredBoutiques.map((b:any)=>(
-          <Link key={b.id} href={`/boutiques/${b.ownerWhatsapp}`} className="bg-white rounded-[20px] border p-3 flex gap-3 hover:shadow-lg transition">
-            <div className="w-14 h-14 rounded-full bg-gradient-to-br from-orange-200 to-orange-100 flex items-center justify-center text-[16px] font-black shrink-0 overflow-hidden border">
-              {b.avatar ? <img src={b.avatar} alt={b.nomComplet} className="w-full h-full object-cover" /> : (b.nomCourt?.replace("Boutiques","").trim()[0]||"B").toUpperCase()}
+      {/* DETAIL BOUTIQUE - OUVERT AU CLIC - ACTIVITES IMAGES + VIDEOS */}
+      {selectedUser && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center" onClick={()=>setSelectedWa(null)}>
+          <div className="bg-white w-full max-w-[430px] max-h-[85vh] overflow-y-auto rounded-t-[24px] p-4" onClick={e=>e.stopPropagation()}>
+            <div className="flex justify-between items-start">
+              <div className="flex gap-3">
+                <div className="w-16 h-16 bg-black text-white rounded-[16px] flex items-center justify-center font-black text-[22px] overflow-hidden">{selectedUser.photo?<img src={selectedUser.photo} className="w-full h-full object-cover"/>:boutiqueName(selectedUser).replace("Boutiques ","").slice(0,1)}</div>
+                <div>
+                  <p className="font-black text-[15px] leading-tight">{boutiqueName(selectedUser)}</p>
+                  <p className="text-[11px] text-gray-500">0{cleanWa(selectedUser.ownerWhatsapp).slice(-9)} • {selectedUser.commune||"Kinshasa"}</p>
+                  <p className="text-[10px] mt-1 bg-black text-white inline-block px-2 py-0.5 rounded-full font-bold">{selectedAnnonces.length} activités</p>
+                </div>
+              </div>
+              <button onClick={()=>setSelectedWa(null)} className="w-8 h-8 bg-gray-100 rounded-full">✕</button>
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="font-black text-[13px] truncate">{b.nomComplet}</span>
-                <span className="text-[11px]">{b.badge}</span>
-                {b.isPaye && <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${b.palierId==="PREMIUM"?"bg-black text-white": b.palierId==="PRO"?"bg-green-100 text-green-700":"bg-[#FFF2CC] text-[#8B5A00]"}`}>{b.palierId} {b.abonnementInfo?.joursRestants||0}j</span>}
-                {b.isFreemium && <span className="text-[9px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">🆓 {b.annoncesCount}/3</span>}
-              </div>
-              <div className="text-[11px] text-gray-500 mt-1 truncate">
-                <span className="font-bold text-black">{b.marque}</span> • 0{b.ownerWhatsapp.slice(-9)} • {b.annoncesCount}/{b.abonnementInfo?.maxPlaces||50} actives • {b.placesRestantes} places libres strictes
-              </div>
-              <div className="text-[10px] text-gray-400 mt-0.5 truncate">{b.isPaye ? `${b.badge} ${b.palierId} - ${b.abonnementInfo?.joursRestants}j restants` : `🆓 Gratuit ${b.annoncesCount}/3 - ${b.abonnementInfo?.joursRestants||30}j restants`}</div>
-              <div className="flex gap-1.5 mt-2">
-                {b.annonces?.map((a:any)=>(
-                  <div key={a.id||a.annonceId} className="w-11 h-11 rounded-xl bg-gray-100 shrink-0 overflow-hidden border">
-                    {a.images?.[0] ? <img src={a.images[0]} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-[8px]">IMG</div>}
-                  </div>
-                ))}
-                {b.annoncesCount>3 && <div className="w-11 h-11 rounded-xl bg-black text-white flex items-center justify-center text-[10px] font-black">+{b.annoncesCount-3}</div>}
-              </div>
+
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              <a href={`https://wa.me/${cleanWa(selectedUser.ownerWhatsapp)}?text=${encodeURIComponent(`Bonjour ${boutiqueName(selectedUser)} ! Je viens de WENZE`)}`} target="_blank" className="bg-[#25D366] text-white py-3 rounded-full text-center font-black text-[12px]">💬 WhatsApp</a>
+              <button onClick={()=>goDetailPage(cleanWa(selectedUser.ownerWhatsapp))} className="bg-black text-white py-3 rounded-full font-black text-[12px]">Voir page complète →</button>
             </div>
-            <div className="text-gray-300 font-bold">›</div>
-          </Link>
-        ))}
-        {filteredBoutiques.length===0 && (
-          <div className="text-center py-16 bg-white rounded-[20px] border border-dashed">
-            <p className="text-4xl">🏪</p>
-            <p className="font-black mt-2 text-[13px]">Aucune boutique visible</p>
-            <p className="text-[11px] text-gray-500 mt-1 max-w-[260px] mx-auto">WENZE WENZE BUSINESS filtre les 🔒 cachés (Freemium 30j expiré). Ex: Boutiques Bilamba (Maison d'habillement) réapparaît après paiement STANDARD 0.5$.</p>
+
+            <p className="font-black text-[13px] mt-5 mb-2">Activités - Publicités images & vidéos</p>
+            {selectedAnnonces.length===0 ? <p className="text-[11px] text-gray-500 bg-[#FFFBF0] p-4 rounded-xl text-center">Aucune publicité pour le moment</p> :
+            <div className="grid grid-cols-2 gap-2">
+              {selectedAnnonces.map((a:any)=>(
+                <div key={a.id} className="border rounded-xl overflow-hidden">
+                  <div className="aspect-square bg-[#FFFBF0] flex items-center justify-center overflow-hidden">{a.video ? <video src={a.video} controls className="w-full h-full object-cover"/> : a.photo ? <img src={a.photo} className="w-full h-full object-cover"/> : <span>📦</span>}</div>
+                  <div className="p-2"><p className="font-bold text-[11px] truncate">{a.titre}</p><p className="text-[10px] text-gray-500">{a.prixUSD||a.prix}$</p></div>
+                </div>
+              ))}
+            </div>}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
-      }
+                                                                                                                                            }
