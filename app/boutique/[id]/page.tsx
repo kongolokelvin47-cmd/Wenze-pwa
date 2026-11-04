@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { TAUX_CDF, toCDF } from "@/lib/paiement";
@@ -8,16 +8,12 @@ import { getCategorieById, normalizeCategorie } from "@/lib/categories";
 export const dynamic = "force-dynamic";
 
 function cleanWa(n:any){ return (n||"").toString().replace(/[^0-9]/g,"").replace(/^0+/,""); }
-function formatDate(d:any){ try{ return new Date(d).toLocaleDateString("fr-FR",{day:"2-digit",month:"short",year:"numeric"}); }catch{ return ""; } }
 function getCurrentUser(){ try{ const r=localStorage.getItem("wenze_user"); return r?JSON.parse(r):null; }catch{ return null; } }
 function readList(k:string):any[]{ try{ const r=localStorage.getItem(k); const v=r?JSON.parse(r):[]; return Array.isArray(v)?v:[]; }catch{ return []; } }
 
-// FIX TAUTOLOGIE EXPERT - Boutiques Boutique 8889 -> Boutiques 8889
 function getBoutiqueIdentite(u:any, wa:string){
   const nomBrut = (u?.nomBoutique || u?.boutiqueName || u?.nomEtablissement || u?.name || "").trim();
   const marqueBrut = (u?.marque || u?.slogan || u?.activite || "").trim();
-
-  // Cas déjà bon: "Boutiques Bilamba (Maison d'habillement)" -> garde, nettoie double
   if(nomBrut.toLowerCase().includes("boutiques") && nomBrut.includes("(")){
     const cleaned = nomBrut.replace(/Boutiques\s+Boutiques/i,"Boutiques").replace(/Boutique\s+Boutiques/i,"Boutiques").trim();
     return {
@@ -27,8 +23,6 @@ function getBoutiqueIdentite(u:any, wa:string){
       initial: cleaned.replace(/^Boutiques\s*/i,"").trim()[0]?.toUpperCase() || "B"
     };
   }
-
-  // Nettoie Boutiques + Boutique au singulier
   let nomBase = nomBrut.replace(/^Boutiques\s*/i,"").replace(/^Boutique\s*/i,"").split("(")[0].trim();
   if(!nomBase){
     const cat = (u?.categorieId || "").toLowerCase();
@@ -36,11 +30,8 @@ function getBoutiqueIdentite(u:any, wa:string){
     else if(cat.includes("agro")) nomBase = "Mamie Wenze";
     else if(cat.includes("electronique")) nomBase = "TechZone Kin";
     else if(cat.includes("beaute")) nomBase = "Beauty Glam";
-    else nomBase = wa ? `8889`.length ? `${wa.slice(-4)}` : "Wenze Shop" : "Wenze Shop";
-    // Si wa existe, on met le numéro: ex 8889
-    if(wa && nomBase === wa.slice(-4)) nomBase = wa.slice(-4);
+    else nomBase = wa ? wa.slice(-4) : "Wenze Shop";
   }
-
   let marqueFinale = marqueBrut.replace(/^Boutiques\s*/i,"").replace(/^Boutique\s*/i,"").trim();
   if(!marqueFinale){
     if(nomBase.toLowerCase().includes("bilamba")) marqueFinale = "Maison d'habillement";
@@ -49,7 +40,6 @@ function getBoutiqueIdentite(u:any, wa:string){
     else if(nomBase.toLowerCase().includes("beauty")) marqueFinale = "Cosmétiques & Mèches";
     else marqueFinale = "Commerce général";
   }
-
   return {
     nomComplet: `Boutiques ${nomBase} (${marqueFinale})`,
     nomCourt: `Boutiques ${nomBase}`,
@@ -64,6 +54,7 @@ export default function BoutiquePage(){
   let idParam = rawId;
   try{ idParam = decodeURIComponent(rawId); }catch{}
   const waSearch = cleanWa(idParam);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const [boutique, setBoutique] = useState<any>(null);
   const [annonces, setAnnonces] = useState<any[]>([]);
@@ -80,7 +71,6 @@ export default function BoutiquePage(){
       let found = allUsers.find((x:any)=> cleanWa(x.ownerWhatsapp||x.whatsapp||x.id)===waSearch || x.id===idParam);
       if(!found && u && cleanWa(u.ownerWhatsapp||u.whatsapp||u.id)===waSearch) found = u;
       if(!found) found = { nom:idParam, nomEtablissement:idParam, ownerWhatsapp:waSearch, whatsapp:waSearch, categorieId:"commerces-services", ville:"Kinshasa", createdAt: new Date().toISOString() };
-      
       if(found){
         const fixedCat = normalizeCategorie(found.categorieId||"commerces-services");
         const catObj = getCategorieById(fixedCat);
@@ -88,7 +78,6 @@ export default function BoutiquePage(){
         found = {...found, ...identite, categorieId:fixedCat, categorieTitre:catObj?.titre||fixedCat, photo: found.photo || found.avatar || "" };
       }
       setBoutique(found);
-
       const list = readList("wenze_annonces_list");
       const res = list.filter((a:any)=> cleanWa(a.ownerWhatsapp||a.whatsapp||a.userId)===waSearch);
       res.sort((a:any,b:any)=> new Date(b.createdAt||0).getTime() - new Date(a.createdAt||0).getTime());
@@ -105,7 +94,29 @@ export default function BoutiquePage(){
   },[currentUser, waSearch, idParam]);
 
   const videos = useMemo(()=> annonces.filter(a=> a.video || a.videoUrl || a.mediaType==="video"), [annonces]);
-  const images = useMemo(()=> annonces.filter(a=> !a.video && !a.videoUrl), [annonces]);
+
+  // PHOTO MODIFIABLE - COMME DANS PROFIL
+  const handlePhoto = (e:any)=>{
+    const file = e.target.files?.[0];
+    if(!file) return;
+    if(!isOwner){ setToast("⛔ Pas ta boutique"); setTimeout(()=>setToast(null),2500); return; }
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const url = reader.result as string;
+      const updated = { ...boutique, photo: url, avatar: url };
+      setBoutique(updated);
+      try{
+        const me = getCurrentUser();
+        if(me){ localStorage.setItem("wenze_user", JSON.stringify({...me, photo:url, avatar:url})); }
+        const all = readList("wenze_all_users");
+        const idx = all.findIndex((u:any)=> cleanWa(u.ownerWhatsapp||u.whatsapp||u.id)===waSearch);
+        if(idx>=0){ all[idx] = {...all[idx], photo:url, avatar:url}; localStorage.setItem("wenze_all_users", JSON.stringify(all)); }
+      }catch{}
+      setToast("✅ Photo boutique mise à jour");
+      setTimeout(()=>setToast(null),2500);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleWhatsApp = (annonce:any)=>{
     const phone = cleanWa(boutique?.ownerWhatsapp||boutique?.whatsapp||waSearch);
@@ -141,10 +152,18 @@ export default function BoutiquePage(){
       </header>
 
       <div className="p-4">
-        {/* BANDE PROFIL AGRANDIE - PHOTO VISIBLE + NOM GRAS */}
+        {/* BANDE PROFIL AGRANDIE - PHOTO VISIBLE + MODIFIABLE SI OWNER + NOM GRAS */}
         <div className="bg-white border-2 border-black rounded-[20px] p-4 mb-4 flex gap-3">
-          <div className="w-20 h-20 rounded-[18px] bg-black text-white flex items-center justify-center text-[26px] font-black border-2 border-black overflow-hidden shrink-0">
-            {boutique?.photo ? <img src={boutique.photo} className="w-full h-full object-cover"/> : boutique?.initial || "B"}
+          <div className="relative shrink-0">
+            <div className="w-20 h-20 rounded-[18px] bg-black text-white flex items-center justify-center text-[26px] font-black border-2 border-black overflow-hidden">
+              {boutique?.photo ? <img src={boutique.photo} className="w-full h-full object-cover"/> : boutique?.initial || "B"}
+            </div>
+            {isOwner && (
+              <>
+                <button onClick={()=> fileRef.current?.click()} className="absolute -bottom-2 -right-2 bg-white border-2 border-black w-7 h-7 rounded-full flex items-center justify-center text-[12px]">📷</button>
+                <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
+              </>
+            )}
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-black text-[15px] leading-tight uppercase">{boutique?.nomComplet}</p>
@@ -154,10 +173,9 @@ export default function BoutiquePage(){
               <a href={`https://wa.me/${waSearch}`} target="_blank" className="bg-[#25D366] text-white px-3 py-1.5 rounded-full text-[10px] font-black">💬 WhatsApp</a>
               {isOwner && <Link href="/publier" className="bg-black text-white px-3 py-1.5 rounded-full text-[10px] font-black">+ Publier</Link>}
             </div>
+            {isOwner && <p className="text-[9px] text-gray-400 mt-1.5">Clique 📷 pour changer ta photo boutique</p>}
           </div>
         </div>
-
-        {/* PANNEAU PRIX ABONNEMENT SUPPRIME - RESTE QUE DANS /tarif */}
 
         {toast && <div className="mb-3 bg-black text-white p-3 rounded-xl text-[10px] font-bold text-center">{toast}</div>}
 
@@ -171,9 +189,9 @@ export default function BoutiquePage(){
             {annonces.length===0 ? <div className="bg-white border-2 border-dashed rounded-[20px] p-6 text-center"><p className="font-black text-[11px]">Pas d'activités pour {boutique?.nomComplet}</p></div> :
               annonces.map((a:any)=>(
                 <div key={a.id} className="bg-white border-2 rounded-[20px] p-3 flex gap-3">
-                  <div className="w-24 h-24 bg-gray-50 rounded-xl overflow-hidden border shrink-0 cursor-pointer" onClick={()=>setLightbox(a)}>
+                  <div className="relative w-24 h-24 bg-gray-50 rounded-xl overflow-hidden border shrink-0 cursor-pointer" onClick={()=>setLightbox(a)}>
                     {a.video || a.videoUrl ? <video src={a.video||a.videoUrl} className="w-full h-full object-cover" muted playsInline preload="metadata"/> : a.photo ? <img src={a.photo} className="w-full h-full object-cover"/> : <div className="w-full h-full flex items-center justify-center">📦</div>}
-                    {(a.video||a.videoUrl) && <span className="absolute -mt-6 ml-1 bg-black/70 text-white text-[8px] px-1.5 py-0.5 rounded-full">▶ VIDEO</span>}
+                    {(a.video||a.videoUrl) && <span className="absolute bottom-1 left-1 bg-black/70 text-white text-[8px] px-1.5 py-0.5 rounded-full">▶ VIDEO</span>}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-[11px] font-black truncate">{a.titre}</p>
@@ -204,7 +222,6 @@ export default function BoutiquePage(){
         )}
       </div>
 
-      {/* LIGHTBOX IMAGE / VIDEO PLEIN ECRAN AU CLIC */}
       {lightbox && (
         <div className="fixed inset-0 bg-black/90 z-50 flex flex-col items-center justify-center p-4" onClick={()=>setLightbox(null)}>
           <button className="self-end bg-white w-9 h-9 rounded-full font-black mb-2">✕</button>
@@ -217,4 +234,4 @@ export default function BoutiquePage(){
       <div className="fixed bottom-3 left-1/2 -translate-x-1/2 bg-black text-white px-4 py-2 rounded-full text-[9px] font-bold whitespace-nowrap">WENZE WENZE BUSINESS • {boutique?.nomComplet}</div>
     </div>
   );
-        }
+          }
