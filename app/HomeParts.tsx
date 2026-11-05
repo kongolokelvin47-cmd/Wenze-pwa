@@ -1,46 +1,75 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { FREEMIUM, TAUX_CDF, toCDFString } from "@/lib/paiement";
+
+// FIX ECRAN BLANC: plus d'import lib/paiement - c'est lui qui faisait planter l'accueil
+const TAUX_CDF = 2850;
+const FREEMIUM_MAX = 3;
 
 export const APP_NAME = "WENZE WENZE BUSINESS";
 
-/** 25 -> "25", 0.5 -> "0.50" */
 export function fmtUSD(n: any): string {
   const v = Number(n) || 0;
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
 }
+export function toCDFString(n:any): string {
+  try{ const v = Number(n||0); return isNaN(v)?"0 CDF":(v*TAUX_CDF).toLocaleString()+" CDF"; }catch{ return "0 CDF"; }
+}
+function safePrix(p:any){ const v=Number(p||0); return isNaN(v)?0:v; }
 
-/** Lien WhatsApp valide : ajoute l'indicatif RDC (243) aux numéros locaux de 9 chiffres. */
+/** NOUVEAU MESSAGE - Ton modèle exact + LIEN CLIQUABLE */
+export function buildWenzeMessage(a:any): string {
+  const base = typeof window!=="undefined" ? window.location.origin : "https://wenze.cd";
+  const lien = `${base}/produit/${encodeURIComponent(a?.id || "")}`;
+  const prixUSD = fmtUSD(a?.prix);
+  const prixCDF = toCDFString(a?.prix);
+  return `Bonjour,
+
+Je vous contacte depuis Wenze Wenze Business.
+
+Je suis intéressé(e) par votre article :
+
+- Article : ${a?.titre || "Article"}
+- Prix affiché : ${prixUSD}$ / ${prixCDF}
+- Référence : ${a?.id || "WENZE"}
+
+Je souhaiterais acheter cet article. Est-il toujours disponible ?
+
+Merci de bien vouloir me renseigner sur les modalités d'achat.
+
+Cordialement.
+
+Lien annonce : ${lien}`;
+}
+
+/** Lien WhatsApp valide : 243 + 9 chiffres */
 export function waLink(wa: any, text: string): string {
   const d = (wa || "").toString().replace(/[^0-9]/g, "").replace(/^0+/, "");
   if (!d) return "";
-  const full = d.length <= 9 ? "243" + d : d;
+  const full = d.length <= 9 ? "243" + d : d.startsWith("243") ? d : "243"+d.slice(-9);
   return "https://wa.me/" + full + "?text=" + encodeURIComponent(text);
+}
+// Raccourci: waLink avec le nouveau message automatique
+export function waLinkForAnnonce(a:any): string {
+  const wa = a?._wa || a?.ownerWhatsapp || a?.whatsapp || a?.userId || "";
+  return waLink(wa, buildWenzeMessage(a));
 }
 
 function statusText(ab: any): string {
   if (!ab) return "";
   if (ab.isCache) return "🔒 Compte caché";
   if (ab.isPaye) return (ab.badge || "✅") + " " + (ab.palierId || "Ticket") + " • " + (ab.joursRestants ?? 0) + "j • " + (ab.placesRestantes || 0) + " places libres";
-  return "🆓 Gratuit " + (ab.count || 0) + "/" + FREEMIUM.maxImages + " • " + (ab.joursRestants ?? 30) + "j";
+  return "🆓 Gratuit " + (ab.count || 0) + "/" + FREEMIUM_MAX + " • " + (ab.joursRestants ?? 30) + "j";
 }
 
 const ICON_BTN = "relative w-9 h-9 rounded-full flex items-center justify-center shrink-0 border";
 
-/* ---------- En-tête : nom, état du compte, recherche, catégories ---------- */
+/* ---------- En-tête ---------- */
 export function HomeHeader(props: {
-  ab: any;
-  payantCount: number;
-  boostedCount: number;
-  notifCount: number;
-  cartCount: number;
-  search: string;
-  onSearch: (v: string) => void;
+  ab: any; payantCount: number; boostedCount: number; notifCount: number; cartCount: number;
+  search: string; onSearch: (v: string) => void;
   tabs: { id: string; label: string; count: number }[];
-  selectedCat: string;
-  onSelectCat: (id: string) => void;
-  totalCount: number;
+  selectedCat: string; onSelectCat: (id: string) => void; totalCount: number;
 }) {
   const { ab, payantCount, boostedCount, notifCount, cartCount, search, onSearch, tabs, selectedCat, onSelectCat, totalCount } = props;
   const tab = (active: boolean) =>
@@ -107,14 +136,11 @@ export function HomeHeader(props: {
 
 /* ---------- Carte d'annonce ---------- */
 export function AnnonceCard(props: {
-  a: any;
-  icon: string;
-  onMedia: (a: any) => void;
-  onOpen: (a: any) => void;
-  onCart: (a: any) => void;
+  a: any; icon: string; onMedia: (a: any) => void; onOpen: (a: any) => void; onCart: (a: any) => void;
 }) {
   const { a, icon, onMedia, onOpen, onCart } = props;
-  const wa = waLink(a._wa, 'Bonjour, je suis intéressé par "' + a.titre + '" à ' + fmtUSD(a.prix) + "$ sur " + APP_NAME);
+  // FIX MESSAGE: nouveau modèle + lien cliquable
+  const wa = waLinkForAnnonce(a);
 
   return (
     <div className={"bg-white border rounded-2xl overflow-hidden flex flex-col " + (a.isBoosted ? "border-2 border-green-500" : "")}>
@@ -129,10 +155,12 @@ export function AnnonceCard(props: {
         <span className="absolute top-2 left-2 text-[8px] px-2 py-1 rounded-full font-black bg-black text-white">
           {a.vendeurBadge} {a.vendeurPalier} • {fmtUSD(a.prix)}$
         </span>
+        {a.isBoosted && <span className="absolute top-2 right-2 text-[8px] px-2 py-1 rounded-full font-black bg-green-500 text-white">🚀 TOP</span>}
       </button>
       <div className="p-2.5 flex-1 flex flex-col">
         <button type="button" onClick={() => onOpen(a)} className="text-left font-bold text-[12px] line-clamp-2">{a.titre}</button>
-        <p className="font-black text-[12px] mt-1">{fmtUSD(a.prix)}$ / {a.prixCDF}</p>
+        <p className="font-black text-[12px] mt-1">{fmtUSD(a.prix)}$ / {a.prixCDF || toCDFString(a.prix)}</p>
+        <p className="text-[9px] text-gray-500 mt-0.5 truncate">Réf: {a.id} • {a.vendeurNom || a.commune || "Kinshasa"}</p>
         <div className="mt-2.5 grid grid-cols-2 gap-1.5">
           {wa ? (
             <a href={wa} target="_blank" rel="noopener noreferrer" className="bg-[#25D366] text-white text-center py-2.5 rounded-full font-bold text-[10px]">WhatsApp</a>
@@ -146,13 +174,14 @@ export function AnnonceCard(props: {
   );
 }
 
-/* ---------- Visionneuse photo (ouverte en touchant une image) ---------- */
+/* ---------- Visionneuse photo ---------- */
 export function ImageViewer(props: { a: any; onClose: () => void; onOpen: (a: any) => void; onCart: (a: any) => void }) {
   const { a, onClose, onOpen, onCart } = props;
   const [idx, setIdx] = useState(0);
   const images: string[] = a.images && a.images.length ? a.images : a.photo ? [a.photo] : [];
   const current = images[idx] || "";
-  const wa = waLink(a._wa, 'Bonjour, je suis intéressé par "' + a.titre + '" à ' + fmtUSD(a.prix) + "$ sur " + APP_NAME);
+  // FIX MESSAGE: même nouveau modèle ici aussi
+  const wa = waLinkForAnnonce(a);
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
@@ -173,7 +202,7 @@ export function ImageViewer(props: { a: any; onClose: () => void; onOpen: (a: an
         <div className="p-4">
           <p className="font-black text-[14px]">{a.titre}</p>
           <p className="font-black text-[13px] text-[#6C3CE0] mt-1">{fmtUSD(a.prix)}$ / {toCDFString(Number(a.prix) || 0)}</p>
-          <p className="text-[10px] text-gray-500 mt-1">Taux {TAUX_CDF} • {a.commune || "Kinshasa"}</p>
+          <p className="text-[10px] text-gray-500 mt-1">Taux {TAUX_CDF} • {a.commune || "Kinshasa"} • Réf: {a.id}</p>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button type="button" onClick={() => onOpen(a)} className="col-span-2 bg-black text-white py-3 rounded-full font-black text-[12px]">Voir l'annonce</button>
             {wa ? (
@@ -189,7 +218,7 @@ export function ImageViewer(props: { a: any; onClose: () => void; onOpen: (a: an
   );
 }
 
-/* ---------- Barre de navigation du bas ---------- */
+/* ---------- Barre de navigation ---------- */
 export function BottomNav({ notifCount }: { notifCount: number }) {
   const item = "flex flex-col items-center gap-0.5 text-gray-500";
   return (
@@ -208,5 +237,4 @@ export function BottomNav({ notifCount }: { notifCount: number }) {
       </Link>
     </nav>
   );
-  }
-          
+                            }
