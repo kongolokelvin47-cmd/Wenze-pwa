@@ -1,14 +1,11 @@
 "use client";
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 
 const cleanWa = (n:any)=>(n||"").toString().replace(/[^0-9]/g,"").replace(/^0+/,"");
-// Normalise: enlève accents, espaces, tirets -> "Bilamba" = "bilamba", "Boutiques" = "boutiques"
 const norm = (s:any)=>(s||"").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");
 const readList=(k:string):any[]=>{ try{ const r=localStorage.getItem(k); const v=r?JSON.parse(r):[]; return Array.isArray(v)?v:[]; }catch{ return []; } };
 
-// FIX TAUTOLOGIE - Boutiques Boutique 8889 -> Boutiques 8889
 function boutiqueName(u:any){
   if(!u) return "Bilamba";
   const brut=(u?.nomBoutique||u?.boutiqueName||u?.name||u?.nomEtablissement||"").trim();
@@ -19,7 +16,6 @@ function boutiqueName(u:any){
 }
 
 export default function BoutiquesPage(){
-  const router=useRouter();
   const [users,setUsers]=useState<any[]>([]);
   const [annonces,setAnnonces]=useState<any[]>([]);
   const [q,setQ]=useState("");
@@ -41,18 +37,14 @@ export default function BoutiquesPage(){
     setAnnonces(allAnnonces);
   },[]);
 
-  // RECHERCHE INTELLIGENTE - dès 1 lettre / 1 chiffre
   const filtered = useMemo(()=>{
     const query = q.trim();
     const nq = norm(query);
-    // Si vide -> tout
     if(!nq) {
       let all = [...users];
       if(cat!=="tout") all = all.filter(u=> norm(u.categorieId||"")===norm(cat) || norm(u.marque||"").includes(norm(cat)) || norm(u.commune||"").includes(norm(cat)));
       return all;
     }
-
-    // Cherche dans: nom, marque, commune, WA complet, WA sans 243, WA derniers 9 chiffres, produits
     const res = users.filter(u=>{
       const wa = cleanWa(u.ownerWhatsapp||u.whatsapp||u.id||"");
       const wa9 = wa.slice(-9);
@@ -60,18 +52,12 @@ export default function BoutiquesPage(){
       const nom = boutiqueName(u);
       const produits = annonces.filter(a=>cleanWa(a.ownerWhatsapp||a.whatsapp||a.userId)===wa).map(a=>a.titre||"").join(" ");
       const hay = norm(`${nom} ${u.marque||""} ${u.slogan||""} ${u.commune||""} ${u.ville||""} ${wa} ${wa9} 0${wa9} ${waSans243} ${produits} ${u.nom||""}`);
-
-      // Cas spécial: query = "8" doit trouver "0825888889" et "Boutique 8889"
-      // Cas spécial: query = "b" doit trouver "Bilamba", "Boutique 8889", "Beauty"
-      // Cas spécial: query = "bilamba" doit trouver Bilamba
       return hay.includes(nq);
     });
-
     if(cat!=="tout") return res.filter(u=> norm(u.categorieId||"").includes(norm(cat)) || norm(u.marque||"").includes(norm(cat)));
     return res;
   },[users,annonces,q,cat]);
 
-  // Suggestions rapides quand on tape 1 lettre
   const suggestions = useMemo(()=>{
     if(q.trim().length!==1) return [];
     const nq = norm(q);
@@ -90,14 +76,12 @@ export default function BoutiquesPage(){
           <Link href="/tarif" className="text-[10px] font-black bg-black text-white px-3 py-1.5 rounded-full whitespace-nowrap">Tarifs</Link>
         </div>
 
-        {/* RECHERCHE INTELLIGENTE */}
         <div className="relative mt-3">
           <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Recherche: B, 8, Bilamba, 0825, pagne..." className="w-full p-3.5 pl-10 pr-10 rounded-full border-2 border-black text-[13px] font-bold bg-white outline-none" />
           <span className="absolute left-3.5 top-3.5">🔍</span>
           {q && <button onClick={()=>setQ("")} className="absolute right-3 top-3 w-6 h-6 bg-black text-white rounded-full text-[11px] flex items-center justify-center">✕</button>}
         </div>
 
-        {/* EXEMPLES CLIQUABLES - Pour tester en 1 clic */}
         {!q && (
           <div className="flex gap-1.5 mt-2 flex-wrap">
             <span className="text-[9px] text-gray-500 py-1">Essaie:</span>
@@ -121,20 +105,21 @@ export default function BoutiquesPage(){
         </div>
       </header>
 
-      {/* PANNEAU PRIX SUPPRIME - RESTE QUE DANS /tarif */}
-
       <div className="p-3 space-y-3">
         {filtered.length===0 ? (
           <div className="bg-white border rounded-2xl p-8 text-center">
             <p className="text-3xl">🔍</p><p className="font-black text-[13px] mt-2">Aucune boutique pour "{q}"</p><p className="text-[11px] text-gray-500 mt-1">Essaie: B, 8, Bilamba, 0825, pagne...</p>
             <button onClick={()=>setQ("")} className="mt-3 bg-black text-white px-4 py-2 rounded-full text-[11px] font-black">Voir tout</button>
           </div>
-        ) : filtered.map((u:any)=>{
+        ) : filtered.map((u:any, idx:number)=>{
           const wa=cleanWa(u.ownerWhatsapp||u.whatsapp||u.id);
+          // FIX ECRAN BLANC: si pas de WA, on n'affiche pas de lien cliquable
+          if(!wa) return null;
           const myAnnonces=annonces.filter(a=>cleanWa(a.ownerWhatsapp||a.whatsapp||a.userId)===wa);
           const hasVideo = myAnnonces.some(a=> a.video || a.videoUrl);
           return (
-            <div key={wa} onClick={()=>router.push(`/boutiques/${wa}`)} className="bg-white border rounded-2xl p-3 flex gap-3 cursor-pointer active:scale-[0.99] hover:border-black">
+            // FIX PRINCIPAL: Link au lieu de div + router.push
+            <Link key={`${wa}-${idx}`} href={`/boutiques/${wa}`} className="bg-white border rounded-2xl p-3 flex gap-3 cursor-pointer active:scale-[0.99] hover:border-black block">
               <div className="w-14 h-14 bg-black text-white rounded-full flex items-center justify-center font-black text-[20px] overflow-hidden shrink-0">
                 {u.photo ? <img src={u.photo} alt="" className="w-full h-full object-cover"/> : boutiqueName(u).replace(/^Boutiques\s*/i,"").slice(0,1)}
               </div>
@@ -151,10 +136,10 @@ export default function BoutiquesPage(){
                 </div>
               </div>
               <span className="text-gray-400 text-[18px]">›</span>
-            </div>
+            </Link>
           );
         })}
       </div>
     </div>
   );
-}
+            }
