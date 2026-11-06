@@ -1,145 +1,137 @@
 "use client";
-import { useState, useEffect, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 
-const cleanWa = (n:any)=>(n||"").toString().replace(/[^0-9]/g,"").replace(/^0+/,"");
-const norm = (s:any)=>(s||"").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");
-const readList=(k:string):any[]=>{ try{ const r=localStorage.getItem(k); const v=r?JSON.parse(r):[]; return Array.isArray(v)?v:[]; }catch{ return []; } };
+// ✅ TAUX LOCAL - Pas de lib/paiement
+const TAUX_CDF = 2300;
+const toCDF = (p:any)=>{ const v=Number(p||0); return isNaN(v)?0:Math.round(v*TAUX_CDF); };
+const toCDFString = (p:any)=> toCDF(p).toLocaleString()+" CDF";
 
-function boutiqueName(u:any){
-  if(!u) return "Bilamba";
-  const brut=(u?.nomBoutique||u?.boutiqueName||u?.name||u?.nomEtablissement||"").trim();
-  if(brut.toLowerCase().includes("boutiques") && brut.includes("(")) return brut.replace(/Boutiques\s+Boutiques/i,"Boutiques").replace(/Boutique\s+Boutiques/i,"Boutiques").trim();
-  const base=brut.replace(/^Boutiques\s*/i,"").replace(/^Boutique\s*/i,"").split("(")[0].trim() || "Bilamba";
-  const marque=(u?.marque||u?.slogan||"").replace(/^Boutiques\s*/i,"").replace(/^Boutique\s*/i,"").trim() || (base.toLowerCase().includes("bilamba")?"Maison d'habillement":"Commerce général");
-  return `Boutiques ${base} (${marque})`;
+function cleanWa(n:any){ return (n||"").toString().replace(/[^0-9]/g,"").replace(/^0+/,""); }
+function readList(k:string):any[]{ try{ const v=JSON.parse(localStorage.getItem(k)||"[]"); return Array.isArray(v)?v:[]; }catch{ return []; } }
+function readUser(){ try{ const r=localStorage.getItem("wenze_user"); return r?JSON.parse(r):null; }catch{ return null; } }
+
+function getBoutiqueIdentite(u:any, wa:string){
+  const nomBrut = (u?.nomBoutique||u?.boutiqueName||u?.nomEtablissement||u?.name||"").trim();
+  const marqueBrut = (u?.marque||"").trim();
+  if(nomBrut.toLowerCase().includes("boutiques") && nomBrut.includes("(")){
+    const cleaned = nomBrut.replace(/Boutiques\s+Boutiques/i,"Boutiques").trim();
+    return { nomComplet: cleaned, nomCourt: cleaned.split("(")[0].trim(), marque: cleaned.match(/\((.*?)\)/)?.[1]||marqueBrut||"Commerce général", initial: cleaned.replace(/^Boutiques\s*/i,"").trim()[0]?.toUpperCase()||"B" };
+  }
+  let nomBase = nomBrut.replace(/^Boutiques\s*/i,"").replace(/^Boutique\s*/i,"").split("(")[0].trim() || wa.slice(-4);
+  let marqueFinale = marqueBrut || "Commerce général";
+  return { nomComplet: `Boutiques ${nomBase} (${marqueFinale})`, nomCourt: `Boutiques ${nomBase}`, marque: marqueFinale, initial: nomBase[0]?.toUpperCase()||"B" };
 }
 
 export default function BoutiquesPage(){
-  const [users,setUsers]=useState<any[]>([]);
-  const [annonces,setAnnonces]=useState<any[]>([]);
-  const [q,setQ]=useState("");
-  const [cat,setCat]=useState("tout");
+  const [boutiques, setBoutiques] = useState<any[]>([]);
+  const [search, setSearch] = useState("");
+  const [filleulsWas, setFilleulsWas] = useState<Set<string>>(new Set());
+  const [myInvitations, setMyInvitations] = useState<any[]>([]);
 
   useEffect(()=>{
-    const allUsers=readList("wenze_all_users");
-    const allAnnonces=readList("wenze_annonces_list");
-    if(allUsers.length===0 && allAnnonces.length>0){
-      const map=new Map();
-      allAnnonces.forEach((a:any)=>{
-        const wa=cleanWa(a.ownerWhatsapp||a.whatsapp||a.userId);
-        if(wa && !map.has(wa)) map.set(wa,{ownerWhatsapp:wa,whatsapp:wa,nomBoutique:a.boutiqueName||a.nomEtablissement||`Boutique ${wa.slice(-4)}`,marque:a.marque||"Commerce général",photo:a.photo,commune:a.commune||"Kinshasa",categorieId:a.categorieId||"commerces-services"});
-      });
-      setUsers(Array.from(map.values()));
-    } else {
-      setUsers(allUsers);
+    const users = readList("wenze_all_users");
+    const cur = readUser();
+    if(cur){
+      const waCur = cleanWa(cur.ownerWhatsapp||cur.whatsapp||cur.id);
+      if(waCur && !users.find((u:any)=>cleanWa(u.ownerWhatsapp||u.whatsapp||u.id)===waCur)) users.push(cur);
     }
-    setAnnonces(allAnnonces);
+    const annonces = readList("wenze_annonces_list");
+    const list = users.map((u:any)=>{
+      const wa = cleanWa(u.ownerWhatsapp||u.whatsapp||u.id);
+      const ident = getBoutiqueIdentite(u, wa);
+      const count = annonces.filter((a:any)=>cleanWa(a.ownerWhatsapp||a.whatsapp||a.userId)===wa).length;
+      return { ...u, ...ident, wa, annoncesCount: count };
+    }).filter((b:any)=>b.wa);
+    setBoutiques(list);
+
+    // 🎁 Mes filleuls
+    const me = readUser();
+    const myWa = me ? cleanWa(me.ownerWhatsapp||me.whatsapp||me.id) : "";
+    const invs = readList("wenze_invitations").filter((x:any)=> !myWa || cleanWa(x.parrain_wa||x.parrainWa)===myWa);
+    setMyInvitations(invs);
+    setFilleulsWas(new Set(invs.filter((x:any)=>x.statut==="accepte").map((x:any)=>cleanWa(x.invite_wa||x.inviteWa))));
   },[]);
 
   const filtered = useMemo(()=>{
-    const query = q.trim();
-    const nq = norm(query);
-    if(!nq) {
-      let all = [...users];
-      if(cat!=="tout") all = all.filter(u=> norm(u.categorieId||"")===norm(cat) || norm(u.marque||"").includes(norm(cat)) || norm(u.commune||"").includes(norm(cat)));
-      return all;
-    }
-    const res = users.filter(u=>{
-      const wa = cleanWa(u.ownerWhatsapp||u.whatsapp||u.id||"");
-      const wa9 = wa.slice(-9);
-      const waSans243 = wa.replace(/^243/,"");
-      const nom = boutiqueName(u);
-      const produits = annonces.filter(a=>cleanWa(a.ownerWhatsapp||a.whatsapp||a.userId)===wa).map(a=>a.titre||"").join(" ");
-      const hay = norm(`${nom} ${u.marque||""} ${u.slogan||""} ${u.commune||""} ${u.ville||""} ${wa} ${wa9} 0${wa9} ${waSans243} ${produits} ${u.nom||""}`);
-      return hay.includes(nq);
+    const s = search.toLowerCase();
+    return boutiques.filter(b=>{
+      if(!s) return true;
+      return (b.nomComplet||"").toLowerCase().includes(s) || (b.marque||"").toLowerCase().includes(s) || b.wa.includes(s) || ("0"+b.wa.slice(-9)).includes(s);
+    }).sort((a,b)=>{
+      // Filleuls juste après, pas de TOP gratuit, juste visibilité réseau
+      const aF = filleulsWas.has(a.wa)?1:0;
+      const bF = filleulsWas.has(b.wa)?1:0;
+      if(aF!==bF) return bF-aF;
+      return b.annoncesCount - a.annoncesCount;
     });
-    if(cat!=="tout") return res.filter(u=> norm(u.categorieId||"").includes(norm(cat)) || norm(u.marque||"").includes(norm(cat)));
-    return res;
-  },[users,annonces,q,cat]);
+  },[boutiques, search, filleulsWas]);
 
-  const suggestions = useMemo(()=>{
-    if(q.trim().length!==1) return [];
-    const nq = norm(q);
-    return users.filter(u=> norm(boutiqueName(u)).startsWith(nq)).slice(0,3).map(u=> boutiqueName(u));
-  },[q,users]);
+  const shareBoutique = (b:any)=>{
+    const lien = `${window.location.origin}/boutiques/${b.wa}`;
+    const text = `🏬 ${b.nomComplet} sur Wenze ! ${b.annoncesCount} annonce(s) • ${b.marque}\n\n👉 ${lien}`;
+    if(navigator.share){
+      navigator.share({ title: b.nomComplet, text }).catch(()=>{});
+    } else {
+      navigator.clipboard.writeText(text);
+      alert("Lien boutique copié !");
+    }
+  };
 
   return (
-    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-24">
-      <header className="sticky top-0 bg-white/95 backdrop-blur z-20 p-4 border-b">
-        <div className="flex items-center gap-3">
-          <Link href="/" className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
-          <div className="flex-1 min-w-0">
-            <h1 className="font-black text-[17px] leading-tight">Boutiques WENZE WENZE BUSINESS</h1>
-            <p className="text-[10px] text-gray-500">{filtered.length} visibles {q && `pour "${q}"`}</p>
-          </div>
-          <Link href="/tarif" className="text-[10px] font-black bg-black text-white px-3 py-1.5 rounded-full whitespace-nowrap">Tarifs</Link>
-        </div>
-
-        <div className="relative mt-3">
-          <input value={q} onChange={e=>setQ(e.target.value)} placeholder="Recherche: B, 8, Bilamba, 0825, pagne..." className="w-full p-3.5 pl-10 pr-10 rounded-full border-2 border-black text-[13px] font-bold bg-white outline-none" />
-          <span className="absolute left-3.5 top-3.5">🔍</span>
-          {q && <button onClick={()=>setQ("")} className="absolute right-3 top-3 w-6 h-6 bg-black text-white rounded-full text-[11px] flex items-center justify-center">✕</button>}
-        </div>
-
-        {!q && (
-          <div className="flex gap-1.5 mt-2 flex-wrap">
-            <span className="text-[9px] text-gray-500 py-1">Essaie:</span>
-            {["B","8","Bilamba","0825"].map(ex=>(
-              <button key={ex} onClick={()=>setQ(ex)} className="text-[10px] bg-[#FFF2CC] border px-2.5 py-1 rounded-full font-bold">"{ex}"</button>
-            ))}
-          </div>
-        )}
-
-        {q && <p className="text-[10px] mt-1.5 text-gray-600">🔍 <b>{filtered.length}</b> boutique{filtered.length>1?"s":""} contenant <b>"{q}"</b> - Tape 1 lettre = filtre instantané</p>}
-        {suggestions.length>0 && (
-          <div className="mt-1.5 flex gap-1.5 flex-wrap">
-            {suggestions.map(s=>(<button key={s} onClick={()=>setQ(s.replace("Boutiques ","").split(" (")[0])} className="text-[9px] bg-black text-white px-2 py-1 rounded-full">{s}</button>))}
-          </div>
-        )}
-
-        <div className="flex gap-2 overflow-x-auto mt-3 pb-1">
-          {["tout","Commerces/Services","Habillement","Agro"].map(c=>(
-            <button key={c} onClick={()=>setCat(c)} className={`shrink-0 px-4 py-2 rounded-full text-[11px] font-black border-2 ${cat===c?"bg-black text-white border-black":"bg-white"}`}>{c==="tout"?"Tout - Même prix":c}</button>
-          ))}
-        </div>
+    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-28 p-4">
+      <header className="flex items-center gap-3 mb-4">
+        <Link href="/" className="w-9 h-9 bg-white border rounded-full flex items-center justify-center">←</Link>
+        <div className="flex-1"><h1 className="font-black text-[17px]">Boutiques 🏬</h1><p className="text-[10px] text-gray-500">{boutiques.length} boutiques • {myInvitations.length} invitations • Taux {TAUX_CDF}</p></div>
+        <Link href="/inviter" className="bg-black text-white px-4 py-2 rounded-full font-black text-[11px]">+ Inviter</Link>
       </header>
 
-      <div className="p-3 space-y-3">
-        {filtered.length===0 ? (
-          <div className="bg-white border rounded-2xl p-8 text-center">
-            <p className="text-3xl">🔍</p><p className="font-black text-[13px] mt-2">Aucune boutique pour "{q}"</p><p className="text-[11px] text-gray-500 mt-1">Essaie: B, 8, Bilamba, 0825, pagne...</p>
-            <button onClick={()=>setQ("")} className="mt-3 bg-black text-white px-4 py-2 rounded-full text-[11px] font-black">Voir tout</button>
-          </div>
-        ) : filtered.map((u:any, idx:number)=>{
-          const wa=cleanWa(u.ownerWhatsapp||u.whatsapp||u.id);
-          // FIX ECRAN BLANC: si pas de WA, on n'affiche pas de lien cliquable
-          if(!wa) return null;
-          const myAnnonces=annonces.filter(a=>cleanWa(a.ownerWhatsapp||a.whatsapp||a.userId)===wa);
-          const hasVideo = myAnnonces.some(a=> a.video || a.videoUrl);
-          return (
-            // FIX PRINCIPAL: Link au lieu de div + router.push
-            <Link key={`${wa}-${idx}`} href={`/boutiques/${wa}`} className="bg-white border rounded-2xl p-3 flex gap-3 cursor-pointer active:scale-[0.99] hover:border-black block">
-              <div className="w-14 h-14 bg-black text-white rounded-full flex items-center justify-center font-black text-[20px] overflow-hidden shrink-0">
-                {u.photo ? <img src={u.photo} alt="" className="w-full h-full object-cover"/> : boutiqueName(u).replace(/^Boutiques\s*/i,"").slice(0,1)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-black text-[13px] truncate">{boutiqueName(u)}</p>
-                <p className="text-[11px] text-gray-600 truncate">{u.marque||"Commerce général"} • 0{wa.slice(-9)} • {myAnnonces.length} activités {hasVideo?"• 🎬 vidéo":""}</p>
-                <div className="flex gap-1.5 mt-2">
-                  {myAnnonces.slice(0,3).map((a:any)=>(
-                    <div key={a.id} className="w-10 h-10 bg-[#FFFBF0] border rounded-lg overflow-hidden flex items-center justify-center text-[9px] relative">
-                      {a.video||a.videoUrl ? <span>🎬</span> : a.photo ? <img src={a.photo} className="w-full h-full object-cover"/> : <span>IMG</span>}
-                    </div>
-                  ))}
-                  {myAnnonces.length>3 && <div className="w-10 h-10 bg-black text-white rounded-lg flex items-center justify-center text-[10px] font-black">+{myAnnonces.length-3}</div>}
+      {/* 🎁 Mes invitations */}
+      {myInvitations.length>0 && (
+        <Link href="/mes-invitations" className="block bg-white border-2 border-black rounded-2xl p-3 flex items-center gap-3 mb-3">
+          <span className="w-10 h-10 bg-black text-white rounded-full flex items-center justify-center">🎁</span>
+          <div className="flex-1"><p className="font-black text-[12px]">Mes invitations • {myInvitations.length}</p><p className="text-[10px] text-gray-500">✅ {myInvitations.filter((x:any)=>x.statut==="accepte").length} acceptées • ⏳ {myInvitations.filter((x:any)=>x.statut!=="accepte").length} en attente</p></div>
+          <span>›</span>
+        </Link>
+      )}
+
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Recherche boutique, marque, 0825..." className="w-full border-2 rounded-full px-4 py-3 text-[13px] bg-white outline-none focus:border-black mb-3" />
+
+      {filtered.length===0 ? (
+        <div className="bg-white border-2 border-dashed rounded-[20px] p-8 text-center">
+          <p className="text-3xl">🏬</p><p className="font-black text-[13px] mt-2">Aucune boutique</p>
+          <Link href="/inviter" className="mt-4 inline-block bg-black text-white px-6 py-3 rounded-full font-black text-[11px]">🎁 Inviter une boutique</Link>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((b:any)=>{
+            const isFilleul = filleulsWas.has(b.wa);
+            return (
+              <div key={b.wa} className={`bg-white border-2 rounded-[20px] p-3 ${isFilleul ? "border-orange-400" : "border-gray-200"}`}>
+                <div className="flex gap-3">
+                  <div className="w-14 h-14 rounded-[16px] bg-black text-white flex items-center justify-center font-black text-[20px] overflow-hidden shrink-0">
+                    {b.photo ? <img src={b.photo} className="w-full h-full object-cover"/> : b.initial}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-black text-[13px] truncate">{b.nomComplet}</p>
+                    <p className="text-[10px] text-orange-600 font-bold">{b.marque} • {b.ville||"Kinshasa"}</p>
+                    <p className="text-[10px] text-gray-500">0{b.wa.slice(-9)} • {b.annoncesCount} annonce(s)</p>
+                    {isFilleul && <p className="text-[9px] font-black text-orange-600 mt-0.5">🎁 Filleul • Invitée par toi</p>}
+                  </div>
+                  {isFilleul && <span className="bg-orange-500 text-white text-[8px] px-2 py-1 rounded-full font-black h-fit">🎁 FILLEUL</span>}
+                </div>
+                <div className="grid grid-cols-3 gap-1.5 mt-3">
+                  <Link href={`/boutiques/${b.wa}`} className="bg-black text-white py-2 rounded-full font-black text-[9px] text-center">🏬 Voir</Link>
+                  <a href={`https://wa.me/${b.wa}`} target="_blank" className="bg-[#25D366] text-white py-2 rounded-full font-black text-[9px] text-center">💬 WhatsApp</a>
+                  <button onClick={()=>shareBoutique(b)} className="bg-white border-2 border-black py-2 rounded-full font-black text-[9px]">📤 Partager</button>
                 </div>
               </div>
-              <span className="text-gray-400 text-[18px]">›</span>
-            </Link>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
+
+      <Link href="/inviter" className="fixed bottom-20 left-1/2 -translate-x-1/2 bg-black text-white px-6 py-3 rounded-full font-black text-[12px] shadow-lg z-10">🎁 Inviter une boutique</Link>
     </div>
   );
-            }
+    }
