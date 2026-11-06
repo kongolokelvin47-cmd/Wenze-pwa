@@ -242,4 +242,5 @@ export function getMaxAnnoncesForRole(_role?: Role): number {
 
 export function isSamePriceForAllRoles(): boolean {
   return true;
-                        }
+    }
+  
