@@ -113,6 +113,26 @@ export const FREEMIUM = {
   message: "3 images à vie, visibles 30j, puis compte caché jusqu'à achat d'un ticket - Panier conservé"
 } as const;
 
+// ========== 2b. ORIGINE DU COMPTE ET IMAGES GRATUITES (politique v1.3) ==========
+/** Origine du compte : fixée à la création. Les anciens comptes sans origine suivent leur rôle. */
+export function originOf(user: any): "client" | "vendeur" {
+  if (!user) return "vendeur";
+  if (user.origine === "client" || user.origine === "vendeur") return user.origine;
+  return user.role === "client" || user.user_type === "client" ? "client" : "vendeur";
+}
+
+/**
+ * Nombre d'images gratuites auxquelles le compte a droit :
+ * 0 pour un client d'origine ou un numéro qui a déjà eu son freemium ; 1 au niveau 1 ; 3 au niveau 2 et plus.
+ * Les anciens comptes (sans niveau) gardent leurs 3 images.
+ */
+export function freemiumImagesDe(user: any): number {
+  if (!user) return FREEMIUM.maxImages;
+  if (originOf(user) === "client" || user.freemiumDeja) return 0;
+  if (user.niveau === undefined || user.niveau === null) return FREEMIUM.maxImages;
+  return user.niveau >= 2 || user.whatsappVerifie ? FREEMIUM.maxImages : 1;
+}
+
 // ========== 3. PALIERS ET DURÉES (politique v1.2) ==========
 /** Paiement minimum accepté par FlexPay (frais : 2 % + 0,10 $). */
 export const PAIEMENT_MINIMUM_USD = 1;
