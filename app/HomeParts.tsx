@@ -225,5 +225,4 @@ export function BottomNav({ notifCount }: { notifCount: number }) {
       </Link>
     </nav>
   );
-  }
-              
+}
