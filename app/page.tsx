@@ -13,7 +13,7 @@ const cleanWa = (n: any): string => {
   if(!d) return "";
   return d.length<=9 ? "243"+d : d.startsWith("243") ? d : "243"+d.slice(-9);
 };
-const TAUX_CDF = 2850;
+const TAUX_CDF = 2300;
 const safeCDF = (p:any)=>{ try{ const v=Number(p||0); return isNaN(v)?"0 CDF":(v*TAUX_CDF).toLocaleString()+" CDF"; }catch{ return "0 CDF"; } };
 const norm = (s:any)=>(s||"").toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]/g,"");
 
