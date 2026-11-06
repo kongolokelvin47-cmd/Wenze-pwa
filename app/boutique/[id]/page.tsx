@@ -314,4 +314,10 @@ export default function BoutiquePage(){
         </div>
       )}
 
-      <div className="fixed bottom-3 left-1/2 -translate-x-1/2 bg-black text-white px-4 py-2 rounded-full text-[9px] font
+            <div className="fixed bottom-3 left-1/2 -translate-x-1/2 bg-black text-white px-4 py-2 rounded-full text-[9px] font-black whitespace-nowrap z-30">
+        🏬 {boutique?.nomCourt} • {annonces.length} annonce(s) • WENZE
+      </div>
+
+    </div>
+  );
+}
