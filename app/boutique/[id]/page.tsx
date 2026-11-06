@@ -2,10 +2,13 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { TAUX_CDF, toCDF } from "@/lib/paiement";
 import { getCategorieById, normalizeCategorie } from "@/lib/categories";
 
 export const dynamic = "force-dynamic";
+
+// ✅ TAUX LOCAL - Pas d'import lib/paiement (écran blanc)
+const TAUX_CDF = 2300;
+const toCDF = (p:any)=>{ const v=Number(p||0); return isNaN(v)?0:Math.round(v*TAUX_CDF); };
 
 function cleanWa(n:any){ return (n||"").toString().replace(/[^0-9]/g,"").replace(/^0+/,""); }
 function getCurrentUser(){ try{ const r=localStorage.getItem("wenze_user"); return r?JSON.parse(r):null; }catch{ return null; } }
@@ -48,6 +51,54 @@ function getBoutiqueIdentite(u:any, wa:string){
   };
 }
 
+/* ---------- PARTAGE BOUTIQUE IMAGE + LIEN ---------- */
+function shareBoutiqueImage(b:any, waSearch:string, annoncesCount:number){
+  try{
+    const canvas = document.createElement("canvas");
+    canvas.width = 1080; canvas.height = 1350;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#FFFBF0"; ctx.fillRect(0,0,1080,1350);
+    ctx.fillStyle = "#000"; ctx.fillRect(0,0,1080,120);
+    ctx.fillStyle = "#fff"; ctx.font = "900 42px Arial"; ctx.textAlign = "left"; ctx.fillText("WENZE WENZE BUSINESS", 40, 75);
+    const finish = (img?: HTMLImageElement)=>{
+      if(img){ try{ ctx.drawImage(img, 40, 160, 1000, 700); }catch{ ctx.fillStyle="#eee"; ctx.fillRect(40,160,1000,700); } }
+      else { ctx.fillStyle="#eee"; ctx.fillRect(40,160,1000,700); ctx.fillStyle="#000"; ctx.font="200px Arial"; ctx.textAlign="center"; ctx.fillText("🏬", 540, 600); ctx.textAlign="left"; }
+      ctx.fillStyle = "#000"; ctx.font = "900 52px Arial";
+      ctx.fillText((b.nomComplet||"Boutique").slice(0,30), 40, 940);
+      ctx.fillStyle = "#FF6B00"; ctx.font = "900 38px Arial";
+      ctx.fillText((b.marque||"Commerce général").slice(0,40), 40, 1000);
+      ctx.fillStyle = "#666"; ctx.font = "28px Arial";
+      ctx.fillText(`${annoncesCount} annonce(s) • ${b.ville||"Kinshasa"} • 0${waSearch.slice(-9)}`, 40, 1060);
+      const base = window.location.origin;
+      const lien = `${base}/boutiques/${waSearch}`;
+      ctx.fillStyle = "#25D366"; ctx.fillRect(40, 1140, 1000, 110);
+      ctx.fillStyle = "#fff"; ctx.font = "900 32px Arial"; ctx.textAlign = "center";
+      ctx.fillText("👉 Clique pour voir la boutique", 540, 1210);
+      ctx.fillStyle = "#000"; ctx.font = "24px Arial"; ctx.fillText(lien, 540, 1300);
+      canvas.toBlob(async (blob)=>{
+        if(!blob) return;
+        const file = new File([blob], `wenze-boutique-${waSearch}.png`, { type:"image/png" });
+        const text = `🏬 ${b.nomComplet} sur Wenze ! ${annoncesCount} annonce(s)\n\n👉 ${lien}`;
+        try{
+          if(navigator.share && (navigator as any).canShare?.({ files:[file] })){
+            await navigator.share({ title: b.nomComplet, text, files:[file] });
+          } else {
+            const url = URL.createObjectURL(blob);
+            const l = document.createElement("a"); l.href=url; l.download=`wenze-boutique-${waSearch}.png`; l.click();
+            await navigator.clipboard.writeText(text);
+            alert("Image boutique téléchargée + lien copié !");
+          }
+        }catch{}
+      }, "image/png");
+    };
+    if(b.photo && typeof b.photo==="string" && b.photo.length>10){
+      const img = new Image(); img.crossOrigin="anonymous";
+      img.onload = ()=> finish(img); img.onerror = ()=> finish();
+      img.src = b.photo;
+    } else finish();
+  }catch{}
+}
+
 export default function BoutiquePage(){
   const params = useParams();
   const rawId = (params?.id as string) || (params?.wa as string) || "";
@@ -63,6 +114,9 @@ export default function BoutiquePage(){
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [toast, setToast] = useState<string|null>(null);
   const [lightbox, setLightbox] = useState<any>(null);
+  // 🎁 INVITATION - Est-ce ma filleule ? Qui est son parrain ?
+  const [invitation, setInvitation] = useState<any>(null);
+  const [isMyFilleul, setIsMyFilleul] = useState(false);
 
   const refresh = ()=>{
     try{
@@ -82,6 +136,19 @@ export default function BoutiquePage(){
       const res = list.filter((a:any)=> cleanWa(a.ownerWhatsapp||a.whatsapp||a.userId)===waSearch);
       res.sort((a:any,b:any)=> new Date(b.createdAt||0).getTime() - new Date(a.createdAt||0).getTime());
       setAnnonces(res);
+
+      // 🎁 Vérifie invitation: cette boutique a-t-elle été invitée ?
+      const invs = readList("wenze_invitations");
+      const inv = invs.find((x:any)=> cleanWa(x.invite_wa||x.inviteWa)===waSearch);
+      setInvitation(inv||null);
+      if(inv && u){
+        const myWa = cleanWa(u.ownerWhatsapp||u.whatsapp||u.id);
+        setIsMyFilleul(cleanWa(inv.parrain_wa||inv.parrainWa)===myWa);
+      } else setIsMyFilleul(false);
+      // Si la boutique elle-même a un parrain dans son user
+      if(!inv && found?.parrainWa){
+        setInvitation({ parrain_wa: found.parrainWa, parrain_nom: found.parrainNom||"Un parrain Wenze", code: found.inviteCode||"", statut: "accepte" });
+      }
     }catch{}
     setLoading(false);
   };
@@ -95,7 +162,6 @@ export default function BoutiquePage(){
 
   const videos = useMemo(()=> annonces.filter(a=> a.video || a.videoUrl || a.mediaType==="video"), [annonces]);
 
-  // PHOTO MODIFIABLE - COMME DANS PROFIL
   const handlePhoto = (e:any)=>{
     const file = e.target.files?.[0];
     if(!file) return;
@@ -149,11 +215,13 @@ export default function BoutiquePage(){
           <h1 className="font-black text-[13px] truncate">{boutique?.nomComplet || idParam} {isOwner?"• TOI":""}</h1>
           <p className="text-[10px] text-gray-500 truncate"><span className="font-bold text-black">{boutique?.marque}</span> • {boutique?.ville||"Kinshasa"}</p>
         </div>
+        {/* 🎁 Badge Filleul dans le header */}
+        {isMyFilleul && <span className="bg-orange-500 text-white text-[9px] px-2 py-1 rounded-full font-black whitespace-nowrap">🎁 Filleul</span>}
       </header>
 
       <div className="p-4">
         {/* BANDE PROFIL AGRANDIE - PHOTO VISIBLE + MODIFIABLE SI OWNER + NOM GRAS */}
-        <div className="bg-white border-2 border-black rounded-[20px] p-4 mb-4 flex gap-3">
+        <div className={`bg-white border-2 rounded-[20px] p-4 mb-4 flex gap-3 ${isMyFilleul ? "border-orange-400" : "border-black"}`}>
           <div className="relative shrink-0">
             <div className="w-20 h-20 rounded-[18px] bg-black text-white flex items-center justify-center text-[26px] font-black border-2 border-black overflow-hidden">
               {boutique?.photo ? <img src={boutique.photo} className="w-full h-full object-cover"/> : boutique?.initial || "B"}
@@ -169,6 +237,12 @@ export default function BoutiquePage(){
             <p className="font-black text-[15px] leading-tight uppercase">{boutique?.nomComplet}</p>
             <p className="text-[11px] font-bold text-[#FF6B00] mt-1">{boutique?.marque} • {boutique?.ville||"Kinshasa"}</p>
             <p className="text-[10px] text-gray-500 mt-1">0{cleanWa(boutique?.ownerWhatsapp||boutique?.whatsapp||waSearch).slice(-9)} • {annonces.length} activités • {boutique?.categorieTitre}</p>
+            {/* 🎁 Info parrain - Qui l'a invitée ? */}
+            {invitation && (
+              <p className="text-[9px] mt-1 font-bold text-orange-600">
+                {isMyFilleul ? `🎁 C'est ta filleule • Invitée par toi • Code ${invitation.code}` : `🎁 Invitée par ${invitation.parrain_nom||"un parrain Wenze"} • Code ${invitation.code||""}`}
+              </p>
+            )}
             <div className="flex gap-2 mt-2">
               <a href={`https://wa.me/${waSearch}`} target="_blank" className="bg-[#25D366] text-white px-3 py-1.5 rounded-full text-[10px] font-black">💬 WhatsApp</a>
               {isOwner && <Link href="/publier" className="bg-black text-white px-3 py-1.5 rounded-full text-[10px] font-black">+ Publier</Link>}
@@ -176,6 +250,15 @@ export default function BoutiquePage(){
             {isOwner && <p className="text-[9px] text-gray-400 mt-1.5">Clique 📷 pour changer ta photo boutique</p>}
           </div>
         </div>
+
+        {/* 📤 Partage Boutique + Inviter - Toujours visible */}
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <button onClick={()=>shareBoutiqueImage(boutique, waSearch, annonces.length)} className="bg-black text-white py-3 rounded-full font-black text-[10px]">📤 Partager Boutique</button>
+          <Link href="/inviter" className="bg-[#FFF2CC] border-2 border-black py-3 rounded-full font-black text-[10px] text-center">🎁 Inviter une boutique</Link>
+        </div>
+        {isMyFilleul && (
+          <Link href="/mes-invitations" className="block bg-orange-100 border border-orange-300 rounded-xl p-3 text-center text-[10px] font-bold mb-4">🎁 C'est ta filleule → Voir dans Mes Invitations</Link>
+        )}
 
         {toast && <div className="mb-3 bg-black text-white p-3 rounded-xl text-[10px] font-bold text-center">{toast}</div>}
 
@@ -186,7 +269,7 @@ export default function BoutiquePage(){
 
         {tab==="annonces" ? (
           <div className="grid gap-3">
-            {annonces.length===0 ? <div className="bg-white border-2 border-dashed rounded-[20px] p-6 text-center"><p className="font-black text-[11px]">Pas d'activités pour {boutique?.nomComplet}</p></div> :
+            {annonces.length===0 ? <div className="bg-white border-2 border-dashed rounded-[20px] p-6 text-center"><p className="font-black text-[11px]">Pas d'activités pour {boutique?.nomComplet}</p><Link href="/inviter" className="mt-3 inline-block bg-black text-white px-4 py-2 rounded-full font-black text-[10px]">🎁 Inviter une boutique</Link></div> :
               annonces.map((a:any)=>(
                 <div key={a.id} className="bg-white border-2 rounded-[20px] p-3 flex gap-3">
                   <div className="relative w-24 h-24 bg-gray-50 rounded-xl overflow-hidden border shrink-0 cursor-pointer" onClick={()=>setLightbox(a)}>
@@ -231,7 +314,4 @@ export default function BoutiquePage(){
         </div>
       )}
 
-      <div className="fixed bottom-3 left-1/2 -translate-x-1/2 bg-black text-white px-4 py-2 rounded-full text-[9px] font-bold whitespace-nowrap">WENZE WENZE BUSINESS • {boutique?.nomComplet}</div>
-    </div>
-  );
-          }
+      <div className="fixed bottom-3 left-1/2 -translate-x-1/2 bg-black text-white px-4 py-2 rounded-full text-[9px] font
