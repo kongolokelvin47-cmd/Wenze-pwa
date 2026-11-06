@@ -6,6 +6,8 @@
  * Brancher un vrai paiement (Mobile Money) et une base serveur avant le lancement.
  */
 import {
+  originOf,
+  freemiumImagesDe,
   TAUX_CDF,
   MAX_ANNONCES_ACTIVES,
   MAX_TICKETS_ACTIFS,
@@ -51,6 +53,7 @@ export function acheterTicket(palierId: PalierId, dureeId: DureeId = "7j"): Acha
   if (offre.prixUSD < PAIEMENT_MINIMUM_USD) return { success: false, error: `Paiement minimum : ${PAIEMENT_MINIMUM_USD} $` };
 
   const user = readUser();
+  if (!user) return { success: false, error: "Connectez-vous ou créez un compte pour acheter" };
   const ownerWa = waOf(user);
   const now = Date.now();
   const tickets = readList("wenze_tickets");
@@ -163,7 +166,9 @@ export function libererPlace(annonceId: string): boolean {
 export function acheterOccasionnel(offreId: string): AchatResult {
   const offre = OCCASIONNEL.offres.find((o) => o.id === offreId);
   if (!offre) return { success: false, error: "Offre inconnue" };
-  const ownerWa = waOf(readUser());
+  const acheteur = readUser();
+  if (!acheteur) return { success: false, error: "Connectez-vous ou créez un compte pour acheter" };
+  const ownerWa = waOf(acheteur);
   const now = Date.now();
   const ticketOcc = {
     ticketId: `OCC-${offreId}-${now}`,
@@ -212,6 +217,8 @@ export function isCompteCache(user: any): boolean {
   if (listeActive("wenze_tickets", wa, now).length > 0) return false;
   if (listeActive("wenze_occasionnel", wa, now).length > 0) return false;
   if (abonnementHeritageActif(user, now)) return false;
+  // Client d'origine : pas de période gratuite. Sa boutique n'est visible que pendant un achat actif.
+  if (originOf(user) === "client") return !!user.estVendeur;
   const created = timeOf(user.createdAt, now);
   return (now - created) / DAY_MS > FREEMIUM.dureeJours;
 }
@@ -248,8 +255,25 @@ export function checkFreemiumWenze(user: any, annoncesCount: number): Abonnement
     };
   }
 
+  // Client d'origine : jamais de freemium
+  if (user && originOf(user) === "client") {
+    const estVendeur = !!user.estVendeur;
+    return {
+      isPaye: false, isFreemium: false, isCache: estVendeur, peutPublier: false, actif: false,
+      palierId: null, palier: null, joursRestants: 0, joursRestantsFreemium: 0, expireAt: null,
+      annoncesRestantes: 0, imagesRestantes: 0, placesRestantes: 0,
+      totalAnnonces: annoncesCount, maxPlaces: MAX_ANNONCES_ACTIVES, count: annoncesCount,
+      ticketsOccasionnel: occsActifs,
+      message: estVendeur
+        ? `Pas de période gratuite pour votre profil : choisissez un abonnement dès ${PAIEMENT_MINIMUM_USD}$ ou un boost`
+        : "Compte client : ouvrez une boutique pour vendre",
+      badge: estVendeur ? "🔒" : "👤", type: estVendeur ? "sans-abonnement" : "client", prixUSD: 0
+    };
+  }
+
+  const gratuit = freemiumImagesDe(user);
   if (diffJ <= FREEMIUM.dureeJours) {
-    const rest = Math.max(0, FREEMIUM.maxImages - annoncesCount);
+    const rest = Math.max(0, gratuit - annoncesCount);
     return {
       isPaye: false, isFreemium: true, isCache: false, peutPublier: rest > 0, actif: rest > 0,
       palierId: null, palier: null, joursRestants: joursRestantsFreemium, joursRestantsFreemium,
@@ -257,8 +281,8 @@ export function checkFreemiumWenze(user: any, annoncesCount: number): Abonnement
       annoncesRestantes: rest, imagesRestantes: rest, placesRestantes: rest,
       totalAnnonces: annoncesCount, maxPlaces: MAX_ANNONCES_ACTIVES, count: annoncesCount,
       message: rest > 0
-        ? `🆓 Gratuit ${annoncesCount}/${FREEMIUM.maxImages} - ${joursRestantsFreemium}j restants`
-        : `🆓 Gratuit ${FREEMIUM.maxImages}/${FREEMIUM.maxImages} atteint`,
+        ? `🆓 Gratuit ${annoncesCount}/${gratuit} - ${joursRestantsFreemium}j restants`
+        : `🆓 Gratuit ${gratuit}/${gratuit} atteint`,
       badge: "🆓", type: "freemium", prixUSD: 0
     };
   }
@@ -357,4 +381,4 @@ export const REGLE_LEGALE =
   `Achats cumulables, renouvelables. Max ${MAX_ANNONCES_ACTIVES} annonces actives. ` +
   `Freemium ${FREEMIUM.maxImages} images à vie visibles ${FREEMIUM.dureeJours}j puis boutique masquée sans abonnement. ` +
   "Les publicités non renouvelées sont supprimées après un délai ; la boutique reste masquée jusqu'au prochain achat.";
-    
+                                                    
