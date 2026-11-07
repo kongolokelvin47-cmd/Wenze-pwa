@@ -190,4 +190,4 @@ export function InvitationsCard({ compte, onToast }: { compte: any; onToast: (m:
       ) : null}
     </div>
   );
-}
+    }
