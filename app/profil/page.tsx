@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { lireSession, majCompte, deconnecter, cle9, niveauDe } from "@/lib/comptes";
 import { compresserImage } from "@/lib/images";
 import { toCDFString, verifierAbonnement, libererPlace, MAX_ANNONCES_ACTIVES } from "@/lib/paiement";
-import { EditForm, CartesEtat, InvitationsCard } from "./Parts";
+import { EditForm, CartesEtat, InvitationsCard } from "./profil-parts";
 
 export const dynamic = "force-dynamic";
 
@@ -222,4 +222,5 @@ export default function ProfilPage() {
       </div>
     </div>
   );
-          }
+        }
+                
