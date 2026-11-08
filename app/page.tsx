@@ -43,6 +43,8 @@ export default function WenzeBusiness() {
   const [notifCount, setNotifCount] = useState(0);
   const [cartCount, setCartCount] = useState(0);
   const [visiteur, setVisiteur] = useState(false);
+  // CORRIGÉ : on garde le rôle pour filtrer l'accueil
+  const [moi, setMoi] = useState<any>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search.trim()), 300);
@@ -57,12 +59,12 @@ export default function WenzeBusiness() {
         if (wa) usersMap.set(wa, u);
       }
       const cur = readUser();
+      setMoi(cur); // CORRIGÉ : on stocke l'utilisateur
       if (cur) {
         const wa = cleanWa(cur.ownerWhatsapp || cur.whatsapp);
         if (wa) usersMap.set(wa, cur);
       }
 
-      // Statut de chaque vendeur calculé une seule fois (et non une fois par annonce)
       const statuts = new Map<string, { cache: boolean; abv: any }>();
       const statutDe = (wa: string) => {
         let s = statuts.get(wa);
@@ -107,22 +109,12 @@ export default function WenzeBusiness() {
   }, []);
 
   useEffect(() => {
-    const refreshAb = () => {
-      try {
-        setAb(verifierAbonnement());
-      } catch {}
-    };
+    const refreshAb = () => { try { setAb(verifierAbonnement()); } catch {} };
     const refreshCart = () => setCartCount(readList("wenze_panier").length);
     const refreshVisiteur = () => setVisiteur(!estConnecte());
-    const onChange = () => {
-      loadAnnonces();
-      refreshAb();
-      refreshCart();
-      refreshVisiteur();
-    };
+    const onChange = () => { loadAnnonces(); refreshAb(); refreshCart(); refreshVisiteur(); };
     onChange();
 
-    // Notifications : chargées à part, une erreur ici ne bloque jamais l'accueil
     let cancelled = false;
     let stopNotifs: (() => void) | null = null;
     import("@/lib/notifications")
@@ -130,44 +122,37 @@ export default function WenzeBusiness() {
         if (cancelled) return;
         const user = readUser() || {};
         const wa = cleanWa(user.ownerWhatsapp || user.whatsapp || user.id);
-        const updateBadge = () => {
-          try {
-            setNotifCount(m.getUnreadCount ? m.getUnreadCount(user.id || wa) : 0);
-          } catch {}
-        };
-        try {
-          if (m.checkAndNotifyExpirations) m.checkAndNotifyExpirations();
-        } catch {}
+        const updateBadge = () => { try { setNotifCount(m.getUnreadCount ? m.getUnreadCount(user.id || wa) : 0); } catch {} };
+        try { if (m.checkAndNotifyExpirations) m.checkAndNotifyExpirations(); } catch {}
         updateBadge();
         window.addEventListener("wenze-notif", updateBadge);
-        const i1 = setInterval(() => {
-          try {
-            if (m.checkAndNotifyExpirations) m.checkAndNotifyExpirations();
-          } catch {}
-          updateBadge();
-          loadAnnonces();
-        }, 60 * 60 * 1000);
+        const i1 = setInterval(() => { try { if (m.checkAndNotifyExpirations) m.checkAndNotifyExpirations(); } catch {} updateBadge(); loadAnnonces(); }, 60 * 60 * 1000);
         const i2 = setInterval(updateBadge, 3000);
-        stopNotifs = () => {
-          window.removeEventListener("wenze-notif", updateBadge);
-          clearInterval(i1);
-          clearInterval(i2);
-        };
+        stopNotifs = () => { window.removeEventListener("wenze-notif", updateBadge); clearInterval(i1); clearInterval(i2); };
       })
       .catch(() => {});
 
     window.addEventListener("storage", onChange);
     window.addEventListener("wenze-update", onChange);
-    return () => {
-      cancelled = true;
-      if (stopNotifs) stopNotifs();
-      window.removeEventListener("storage", onChange);
-      window.removeEventListener("wenze-update", onChange);
-    };
+    return () => { cancelled = true; if (stopNotifs) stopNotifs(); window.removeEventListener("storage", onChange); window.removeEventListener("wenze-update", onChange); };
   }, [loadAnnonces]);
+
+  // CORRIGÉ : RÈGLE D'OR DE L'ACCUEIL
+  const monRole = moi?.role || (moi?.estVendeur ? "vendeur" : "client");
+  const jeSuisDG = moi?.roleAdmin === "dg" || moi?.role === "dg";
+  // Client + Visiteur (pas connecté) = voient SEULEMENT les Recommandés
+  // Vendeur / Grossiste / Prestataire / DG = voient TOUT
+  const voirTout = monRole !== "client" || jeSuisDG;
+  const maCommune = moi?.commune || "Kinshasa";
 
   const filtered = useMemo(() => {
     let list = [...annonces];
+
+    // CORRIGÉ : FILTRE PAR RÔLE - c'est ici que tout se joue
+    if (!voirTout) {
+      list = list.filter((a: any) => a.recommandeParDG === true);
+    }
+
     if (selectedCat !== "all") list = list.filter((a) => a.categorieId === selectedCat);
     if (debounced) {
       const s = debounced.toLowerCase();
@@ -177,50 +162,47 @@ export default function WenzeBusiness() {
     }
     const time = (a: any) => new Date(a.created_at || a.createdAt || 0).getTime();
     return list.sort((a, b) => {
+      // CORRIGÉ : d'abord ma commune, puis le reste
+      const aIci = (a.commune || "") === maCommune ? 0 : 1;
+      const bIci = (b.commune || "") === maCommune ? 0 : 1;
+      if (aIci !== bIci) return aIci - bIci;
       if (a.isBoosted !== b.isBoosted) return a.isBoosted ? -1 : 1;
       if (a.isPayant !== b.isPayant) return a.isPayant ? -1 : 1;
       return time(b) - time(a);
     });
-  }, [annonces, debounced, selectedCat]);
+  }, [annonces, debounced, selectedCat, voirTout, maCommune]);
 
   const tabs = useMemo(
     () =>
       CATEGORIES_WENZE.filter((c: any) => c.id !== "client").map((c: any) => ({
         id: c.id as string,
         label: ((c.icon || "") + " " + (c.titreCourt || c.titre || c.id)).trim(),
-        count: annonces.filter((a) => a.categorieId === c.id).length
+        // CORRIGÉ : le compteur d'onglet respecte aussi le filtre (Client ne voit pas le vrai total)
+        count: filtered.filter((a) => a.categorieId === c.id).length
       })),
-    [annonces]
+    [filtered]
   );
 
-  const showToast = (m: string) => {
-    setToast(m);
-    setTimeout(() => setToast(""), 2500);
+  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(""), 2500); };
+
+  const toggleRecommande = (id: string) => {
+    if (!jeSuisDG) return;
+    const list = readList("wenze_annonces_list").map((a: any) => String(a.id) === String(id) ? { ...a, recommandeParDG: !a.recommandeParDG } : a);
+    localStorage.setItem("wenze_annonces_list", JSON.stringify(list));
+    window.dispatchEvent(new Event("wenze-update"));
+    showToast("Recommandation mise à jour");
   };
 
   const addPanier = (a: any) => {
     if (!exigerCompte(router, "/")) return;
     try {
       const panier = readList("wenze_panier");
-      if (panier.some((p: any) => String(p.id) === String(a.id))) {
-        showToast("Déjà dans le panier 🛒");
-        return;
-      }
-      // Version légère : copier la photo complète remplissait le stockage ("Panier erreur")
+      if (panier.some((p: any) => String(p.id) === String(a.id))) { showToast("Déjà dans le panier 🛒"); return; }
       panier.push({
-        id: a.id,
-        titre: a.titre,
-        prix: a.prix,
-        prixUSD: a.prix,
-        prixCDF: a.prixCDF,
-        categorieId: a.categorieId,
-        commune: a.commune || "",
-        ville: a.ville || "Kinshasa",
-        ownerWhatsapp: a._wa,
-        whatsapp: a._wa,
-        ownerName: a.ownerName || "",
-        stock: a.stock || 1,
-        qty: 1,
+        id: a.id, titre: a.titre, prix: a.prix, prixUSD: a.prix, prixCDF: a.prixCDF,
+        categorieId: a.categorieId, commune: a.commune || "", ville: a.ville || "Kinshasa",
+        ownerWhatsapp: a._wa, whatsapp: a._wa, ownerName: a.ownerName || "",
+        stock: a.stock || 1, qty: 1,
         photo: typeof a.photo === "string" && a.photo.length < 30000 ? a.photo : ""
       });
       localStorage.setItem("wenze_panier", JSON.stringify(panier));
@@ -238,19 +220,9 @@ export default function WenzeBusiness() {
     if (lien) window.open(lien, "_blank", "noopener");
   };
 
-  const keepCurrent = (a: any) => {
-    try {
-      localStorage.setItem("wenze_current_produit", JSON.stringify(a));
-    } catch {}
-  };
-  const openProduit = (a: any) => {
-    keepCurrent(a);
-    router.push("/produit/" + a.id);
-  };
-  const openVideoPage = (a: any) => {
-    keepCurrent(a);
-    router.push("/video?id=" + a.id);
-  };
+  const keepCurrent = (a: any) => { try { localStorage.setItem("wenze_current_produit", JSON.stringify(a)); } catch {} };
+  const openProduit = (a: any) => { keepCurrent(a); router.push("/produit/" + a.id); };
+  const openVideoPage = (a: any) => { keepCurrent(a); router.push("/video?id=" + a.id); };
 
   const prixMoyen = filtered.length ? Math.round(filtered.reduce((s, a) => s + Number(a.prix || 0), 0) / filtered.length) : 0;
   const boostedCount = filtered.filter((a) => a.isBoosted).length;
@@ -277,6 +249,24 @@ export default function WenzeBusiness() {
       <div className="p-4 space-y-3">
         {toast ? <div className="bg-black text-white p-3 rounded-xl text-[12px] font-bold text-center">{toast}</div> : null}
 
+        {/* CORRIGÉ : titre différent par rôle */}
+        {!voirTout ? (
+          <div className="bg-yellow-50 border border-yellow-300 rounded-2xl p-3.5">
+            <p className="font-black text-[13px]">⭐ Recommandé pour toi à {maCommune}</p>
+            <p className="text-[10px] text-gray-600 mt-0.5">Sélection vérifiée par Wenze. {filtered.length} boutique(s) vérifiée(s).</p>
+          </div>
+        ) : monRole === "grossiste" ? (
+          <div className="bg-orange-50 border border-orange-200 rounded-2xl p-3.5">
+            <p className="font-black text-[13px]">🏭 Marché gros - Tout Kinshasa</p>
+            <p className="text-[10px] text-gray-600 mt-0.5">Tu vois tout, y compris les prix gros. Le Client ne les voit pas.</p>
+          </div>
+        ) : jeSuisDG ? (
+          <div className="bg-black text-white rounded-2xl p-3.5">
+            <p className="font-black text-[13px]">👑 Mode DG - {annonces.length} annonces au total</p>
+            <p className="text-[10px] opacity-70 mt-0.5">Clique sur ★ pour recommander / retirer. Le Client ne verra que les ★.</p>
+          </div>
+        ) : null}
+
         {notifCount > 0 ? (
           <Link href="/notifications" className="w-full bg-black text-white rounded-2xl p-3.5 flex justify-between items-center">
             <span className="font-black text-[11px]">🔔 {notifCount} notification(s)</span>
@@ -295,25 +285,34 @@ export default function WenzeBusiness() {
           {filtered.length === 0 ? (
             <div className="col-span-2 text-center py-12 bg-white border-2 border-dashed rounded-2xl">
               <p className="text-4xl">📦</p>
-              <p className="text-[13px] font-black mt-3">Aucune annonce</p>
-              <Link
-                href={"/publier?cat=" + (selectedCat === "all" ? "commerces-services" : selectedCat)}
-                className="mt-4 inline-block bg-black text-white px-6 py-3 rounded-full font-black text-[11px]"
-              >
-                + Publier une annonce
-              </Link>
+              <p className="text-[13px] font-black mt-3">{!voirTout ? "Aucune boutique recommandée pour l'instant" : "Aucune annonce"}</p>
+              <p className="text-[11px] text-gray-500 mt-1 px-4">{!voirTout ? "Le DG n'a pas encore recommandé de boutique dans ta zone. Reviens bientôt." : ""}</p>
+              {voirTout ? (
+                <Link href={"/publier?cat=" + (selectedCat === "all" ? "commerces-services" : selectedCat)} className="mt-4 inline-block bg-black text-white px-6 py-3 rounded-full font-black text-[11px]">+ Publier une annonce</Link>
+              ) : (
+                <Link href="/recommandes" className="mt-4 inline-block bg-yellow-400 text-black px-6 py-3 rounded-full font-black text-[11px]">Voir les recommandés →</Link>
+              )}
             </div>
           ) : (
             filtered.map((a) => (
-              <AnnonceCard
-                key={a.id}
-                a={a}
-                icon={(getCategorieById(a.categorieId) as any)?.icon || "🏬"}
-                onMedia={(x: any) => (x.isVideo ? openVideoPage(x) : setSelectedImage(x))}
-                onOpen={(x: any) => (x.isVideo ? openVideoPage(x) : openProduit(x))}
-                onCart={addPanier}
-                onContact={contacter}
-              />
+              <div key={a.id} className="relative">
+                <AnnonceCard
+                  a={a}
+                  icon={(getCategorieById(a.categorieId) as any)?.icon || "🏬"}
+                  onMedia={(x: any) => (x.isVideo ? openVideoPage(x) : setSelectedImage(x))}
+                  onOpen={(x: any) => (x.isVideo ? openVideoPage(x) : openProduit(x))}
+                  onCart={addPanier}
+                  onContact={contacter}
+                />
+                {/* CORRIGÉ : DG peut cocher Recommandé directement sur l'accueil */}
+                {jeSuisDG ? (
+                  <button onClick={() => toggleRecommande(a.id)} className={"absolute top-2 left-2 z-10 text-[10px] px-2 py-1 rounded-full font-black " + (a.recommandeParDG ? "bg-yellow-400 text-black" : "bg-white text-gray-500 border")}>
+                    {a.recommandeParDG ? "★ Recommandé" : "☆ Recommander"}
+                  </button>
+                ) : a.recommandeParDG ? (
+                  <span className="absolute top-2 left-2 z-10 text-[9px] bg-yellow-400 px-2 py-0.5 rounded-full font-black">⭐ RECOMMANDÉ</span>
+                ) : null}
+              </div>
             ))
           )}
         </div>
@@ -325,15 +324,11 @@ export default function WenzeBusiness() {
         <ImageViewer
           a={selectedImage}
           onClose={() => setSelectedImage(null)}
-          onOpen={(x: any) => {
-            setSelectedImage(null);
-            openProduit(x);
-          }}
+          onOpen={(x: any) => { setSelectedImage(null); openProduit(x); }}
           onCart={addPanier}
           onContact={contacter}
         />
       ) : null}
     </div>
   );
-      }
-        
+                            }
