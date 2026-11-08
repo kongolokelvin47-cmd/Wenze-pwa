@@ -43,7 +43,6 @@ export default function WenzeBusiness() {
   const [notifCount, setNotifCount] = useState(0);
   const [cartCount, setCartCount] = useState(0);
   const [visiteur, setVisiteur] = useState(false);
-  // CORRIGÉ : on garde le rôle pour filtrer l'accueil
   const [moi, setMoi] = useState<any>(null);
 
   useEffect(() => {
@@ -59,7 +58,7 @@ export default function WenzeBusiness() {
         if (wa) usersMap.set(wa, u);
       }
       const cur = readUser();
-      setMoi(cur); // CORRIGÉ : on stocke l'utilisateur
+      setMoi(cur);
       if (cur) {
         const wa = cleanWa(cur.ownerWhatsapp || cur.whatsapp);
         if (wa) usersMap.set(wa, cur);
@@ -137,22 +136,16 @@ export default function WenzeBusiness() {
     return () => { cancelled = true; if (stopNotifs) stopNotifs(); window.removeEventListener("storage", onChange); window.removeEventListener("wenze-update", onChange); };
   }, [loadAnnonces]);
 
-  // CORRIGÉ : RÈGLE D'OR DE L'ACCUEIL
   const monRole = moi?.role || (moi?.estVendeur ? "vendeur" : "client");
   const jeSuisDG = moi?.roleAdmin === "dg" || moi?.role === "dg";
-  // Client + Visiteur (pas connecté) = voient SEULEMENT les Recommandés
-  // Vendeur / Grossiste / Prestataire / DG = voient TOUT
   const voirTout = monRole !== "client" || jeSuisDG;
   const maCommune = moi?.commune || "Kinshasa";
 
   const filtered = useMemo(() => {
     let list = [...annonces];
-
-    // CORRIGÉ : FILTRE PAR RÔLE - c'est ici que tout se joue
     if (!voirTout) {
       list = list.filter((a: any) => a.recommandeParDG === true);
     }
-
     if (selectedCat !== "all") list = list.filter((a) => a.categorieId === selectedCat);
     if (debounced) {
       const s = debounced.toLowerCase();
@@ -162,7 +155,6 @@ export default function WenzeBusiness() {
     }
     const time = (a: any) => new Date(a.created_at || a.createdAt || 0).getTime();
     return list.sort((a, b) => {
-      // CORRIGÉ : d'abord ma commune, puis le reste
       const aIci = (a.commune || "") === maCommune ? 0 : 1;
       const bIci = (b.commune || "") === maCommune ? 0 : 1;
       if (aIci !== bIci) return aIci - bIci;
@@ -177,7 +169,6 @@ export default function WenzeBusiness() {
       CATEGORIES_WENZE.filter((c: any) => c.id !== "client").map((c: any) => ({
         id: c.id as string,
         label: ((c.icon || "") + " " + (c.titreCourt || c.titre || c.id)).trim(),
-        // CORRIGÉ : le compteur d'onglet respecte aussi le filtre (Client ne voit pas le vrai total)
         count: filtered.filter((a) => a.categorieId === c.id).length
       })),
     [filtered]
@@ -193,22 +184,44 @@ export default function WenzeBusiness() {
     showToast("Recommandation mise à jour");
   };
 
+  // ✅ INTÉGRÉ : addPanier avec GROS
   const addPanier = (a: any) => {
     if (!exigerCompte(router, "/")) return;
     try {
       const panier = readList("wenze_panier");
       if (panier.some((p: any) => String(p.id) === String(a.id))) { showToast("Déjà dans le panier 🛒"); return; }
+
+      const estGros = a.typeAnnonce === "gros";
+      const minGros = estGros ? Number(a.minimumCommande || 10) : 1;
+      const jeSuisGrossiste = moi?.role === "grossiste" || moi?.roleAdmin === "dg" || moi?.role === "dg";
+
+      // Client bloqué sur le gros
+      if (estGros && !jeSuisGrossiste) {
+        showToast("🔒 Prix gros réservé aux Grossistes");
+        return;
+      }
+
       panier.push({
         id: a.id, titre: a.titre, prix: a.prix, prixUSD: a.prix, prixCDF: a.prixCDF,
         categorieId: a.categorieId, commune: a.commune || "", ville: a.ville || "Kinshasa",
         ownerWhatsapp: a._wa, whatsapp: a._wa, ownerName: a.ownerName || "",
-        stock: a.stock || 1, qty: 1,
+        stock: a.stock || 1,
+        qty: minGros,
+        quantite: minGros,
+        // ✅ Champs gros sauvés - c'est ça qui manquait
+        typeAnnonce: a.typeAnnonce,
+        prixGros: Number(a.prixGros || 0),
+        uniteGros: a.uniteGros || "Carton",
+        minimumCommande: minGros,
+        prixAffiche: a.prixAffiche,
         photo: typeof a.photo === "string" && a.photo.length < 30000 ? a.photo : ""
       });
       localStorage.setItem("wenze_panier", JSON.stringify(panier));
       setCartCount(panier.length);
       window.dispatchEvent(new Event("wenze-update"));
-      showToast("Ajouté : " + fmtUSD(a.prix) + "$ / " + a.prixCDF + " 🛒");
+
+      if (estGros) showToast(`Ajouté : ${Number(a.prixGros).toLocaleString()} FC / ${a.uniteGros || "carton"} x${minGros} 🏭`);
+      else showToast("Ajouté : " + fmtUSD(a.prix) + "$ / " + a.prixCDF + " 🛒");
     } catch (e: any) {
       showToast(e && e.name === "QuotaExceededError" ? "Stockage plein : supprimez d'anciennes annonces" : "Impossible d'ajouter au panier");
     }
@@ -249,7 +262,6 @@ export default function WenzeBusiness() {
       <div className="p-4 space-y-3">
         {toast ? <div className="bg-black text-white p-3 rounded-xl text-[12px] font-bold text-center">{toast}</div> : null}
 
-        {/* CORRIGÉ : titre différent par rôle */}
         {!voirTout ? (
           <div className="bg-yellow-50 border border-yellow-300 rounded-2xl p-3.5">
             <p className="font-black text-[13px]">⭐ Recommandé pour toi à {maCommune}</p>
@@ -304,7 +316,6 @@ export default function WenzeBusiness() {
                   onCart={addPanier}
                   onContact={contacter}
                 />
-                {/* CORRIGÉ : DG peut cocher Recommandé directement sur l'accueil */}
                 {jeSuisDG ? (
                   <button onClick={() => toggleRecommande(a.id)} className={"absolute top-2 left-2 z-10 text-[10px] px-2 py-1 rounded-full font-black " + (a.recommandeParDG ? "bg-yellow-400 text-black" : "bg-white text-gray-500 border")}>
                     {a.recommandeParDG ? "★ Recommandé" : "☆ Recommander"}
@@ -331,4 +342,4 @@ export default function WenzeBusiness() {
       ) : null}
     </div>
   );
-                            }
+    }
