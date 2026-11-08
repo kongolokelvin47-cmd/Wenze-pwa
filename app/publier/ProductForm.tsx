@@ -9,30 +9,57 @@ export default function ProductForm({
   setField,
   setForm,
   prixNum,
-  activites
+  activites,
+  role, // NOUVEAU : "vendeur" | "grossiste" - vient de page.tsx
 }: {
   form: any;
   setField: (key: string, value: string) => void;
   setForm: (fn: (f: any) => any) => void;
   prixNum: number;
   activites: any[];
+  role?: string;
 }) {
+  const estGrossiste = role === "grossiste";
+  const estVendeur = role === "vendeur" || role === "boutique" || !role;
+
+  // CORRIGÉ : Grossiste ne voit pas les catégories de services, seulement les produits
+  const categoriesVisibles = CATEGORIES_WENZE.filter((c: any) => {
+    if (c.id === "client") return false;
+    if (estGrossiste && (c.id === "services" || c.id === "commerces-services")) return false; // Grossiste = produits, pas services
+    return true;
+  });
+
   return (
     <div className="bg-white border rounded-2xl p-4 space-y-3 shadow-sm">
-      <p className="font-black text-[13px]">Détails du produit</p>
+      <p className="font-black text-[13px]">
+        {estGrossiste ? "🏭 Détails du produit gros" : "Détails du produit"}
+      </p>
 
-      <input value={form.titre} onChange={(e: any) => setField("titre", e.target.value)} placeholder="Titre *, ex : Sac de riz 25 kg" className={INPUT} />
+      {estGrossiste ? (
+        <p className="text-[11px] text-orange-700 bg-orange-50 border border-orange-200 rounded-xl p-2.5">
+          Tu vends en gros. Ton <b>prix détail</b> ci-dessous est visible par tout le monde. Ton <b>prix gros</b> (en bas) est visible seulement par les Grossistes + DG.
+        </p>
+      ) : null}
+
+      <input
+        value={form.titre}
+        onChange={(e: any) => setField("titre", e.target.value)}
+        placeholder={estGrossiste ? "Titre *, ex : Carton de Riz 25kg x 10" : "Titre *, ex : Sac de riz 25 kg"}
+        className={INPUT}
+      />
       <textarea
         value={form.description}
         onChange={(e: any) => setField("description", e.target.value)}
-        placeholder="Description : détails, état, origine..."
+        placeholder={estGrossiste ? "Description : contenu du carton, origine, minimum de commande..." : "Description : détails, état, origine..."}
         rows={4}
         className={INPUT + " resize-none"}
       ></textarea>
 
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="text-[10px] font-bold">Prix USD *</label>
+          <label className="text-[10px] font-bold">
+            {estGrossiste ? "Prix détail / pièce (USD) *" : "Prix USD *"}
+          </label>
           <input
             value={form.prix}
             onChange={(e: any) => setField("prix", e.target.value.replace(/[^0-9.]/g, ""))}
@@ -40,17 +67,27 @@ export default function ProductForm({
             inputMode="decimal"
             className={INPUT + " mt-1 font-black"}
           />
-          <p className="text-[10px] text-gray-500 mt-1">{prixNum > 0 ? prixNum + "$ = " + toCDFString(prixNum) : "Taux " + TAUX_CDF}</p>
+          <p className="text-[10px] text-gray-500 mt-1">
+            {prixNum > 0 ? prixNum + "$ = " + toCDFString(prixNum) : "Taux " + TAUX_CDF}
+          </p>
+          {estGrossiste ? (
+            <p className="text-[9px] text-orange-600 mt-0.5">Visible par tout le monde</p>
+          ) : null}
         </div>
         <div>
-          <label className="text-[10px] font-bold">Stock</label>
+          <label className="text-[10px] font-bold">
+            {estGrossiste ? "Stock (en cartons)" : "Stock"}
+          </label>
           <input
             value={form.stock}
             onChange={(e: any) => setField("stock", e.target.value.replace(/[^0-9]/g, ""))}
-            placeholder="1"
+            placeholder={estGrossiste ? "Ex : 50 cartons" : "1"}
             inputMode="numeric"
             className={INPUT + " mt-1"}
           />
+          {estGrossiste ? (
+            <p className="text-[9px] text-gray-500 mt-1">Nombre de cartons dispo</p>
+          ) : null}
         </div>
       </div>
 
@@ -68,7 +105,7 @@ export default function ProductForm({
       <div>
         <label className="text-[10px] font-bold">Catégorie</label>
         <div className="mt-2 grid grid-cols-2 gap-2">
-          {CATEGORIES_WENZE.filter((c: any) => c.id !== "client").map((c: any) => {
+          {categoriesVisibles.map((c: any) => {
             const selected = form.categorieId === c.id;
             return (
               <button
@@ -107,9 +144,24 @@ export default function ProductForm({
 
       <div>
         <label className="text-[10px] font-bold">Livraison</label>
-        <input value={form.livraison} onChange={(e: any) => setField("livraison", e.target.value)} className={INPUT + " mt-1"} />
+        {estGrossiste ? (
+          <select value={form.livraison} onChange={(e: any) => setField("livraison", e.target.value)} className={INPUT + " mt-1 bg-white"}>
+            <option value="Retrait / Livraison Kinshasa">Retrait / Livraison Kinshasa</option>
+            <option value="Retrait à l'entrepôt uniquement">Retrait à l'entrepôt uniquement</option>
+            <option value="Livraison gros - Kinshasa uniquement">Livraison gros - Kinshasa uniquement</option>
+            <option value="Livraison partout en RDC">Livraison partout en RDC</option>
+          </select>
+        ) : (
+          <input value={form.livraison} onChange={(e: any) => setField("livraison", e.target.value)} className={INPUT + " mt-1"} />
+        )}
       </div>
+
+      {/* RAPPEL GROSSISTE : prix gros en bas dans page.tsx */}
+      {estGrossiste ? (
+        <p className="text-[10px] text-gray-500 bg-[#FFFBF0] rounded-xl p-2.5">
+          👇 N'oublie pas de remplir ton <b>Prix gros</b> juste en bas, sinon ton produit sera vendu seulement au détail.
+        </p>
+      ) : null}
     </div>
   );
-                       }
-                  
+                  }
