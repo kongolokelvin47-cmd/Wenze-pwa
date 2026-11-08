@@ -6,27 +6,67 @@ import { FREEMIUM, PAIEMENT_MINIMUM_USD, usd } from "@/lib/paiement";
 
 const CHAMP = "w-full mt-1 border rounded-xl px-4 py-3 text-[13px] outline-none focus:ring-2 focus:ring-black bg-white";
 
+// CORRIGÉ : on déduit le rôle une fois, compatible avec ton ancien estVendeur
+function getRole(compte: any): string {
+  if (compte?.role) return compte.role;
+  if (compte?.estVendeur) return "vendeur";
+  if (compte?.estPrestataire) return "prestataire";
+  if (compte?.estGrossiste) return "grossiste";
+  return "client";
+}
+
 /* ---------- Modification des informations du compte ---------- */
 export function EditForm({ compte, onSaved, onCancel }: { compte: any; onSaved: (c: any) => void; onCancel: () => void }) {
+  const role = getRole(compte);
+  const estClient = role === "client";
+  const estVendeur = role === "vendeur";
+  const estGrossiste = role === "grossiste";
+  const estPrestataire = role === "prestataire";
+  const estVendeurOuGrossiste = estVendeur || estGrossiste;
+
   const [nom, setNom] = useState<string>(compte.nom || "");
   const [boutique, setBoutique] = useState<string>(compte.nomBoutique || compte.nomEtablissement || "");
   const [commune, setCommune] = useState<string>(compte.commune || "Gombe");
   const [email, setEmail] = useState<string>(compte.email || "");
+  // CORRIGÉ : champs Prestataire + Grossiste
+  const [activite, setActivite] = useState<string>(compte.activiteId || compte.metier || "");
+  const [zone, setZone] = useState<string>(compte.zone || compte.commune || "");
+  const [prixPrestation, setPrixPrestation] = useState<string>(compte.prixPrestation ? String(compte.prixPrestation) : "");
+  const [minimumCommande, setMinimumCommande] = useState<string>(compte.minimumCommande ? String(compte.minimumCommande) : "10");
+  const [uniteGros, setUniteGros] = useState<string>(compte.uniteGros || "Carton");
   const [erreur, setErreur] = useState("");
 
   const enregistrer = () => {
     setErreur("");
     if (nom.trim().length < 2) return setErreur("Indiquez votre nom");
-    if (compte.estVendeur && boutique.trim().length < 2) return setErreur("Indiquez le nom de votre boutique");
+    if (estVendeurOuGrossiste && boutique.trim().length < 2) return setErreur("Indiquez le nom de votre boutique");
+    if (estPrestataire && !activite) return setErreur("Choisissez votre métier");
     if (email.trim() && !/^\S+@\S+\.\S+$/.test(email.trim())) return setErreur("Adresse e-mail invalide");
-    const champs: any = { nom: nom.trim(), name: nom.trim(), commune, email: email.trim() };
-    if (compte.estVendeur) {
+
+    const champs: any = { nom: nom.trim(), name: nom.trim(), commune, email: email.trim(), role };
+    if (estVendeurOuGrossiste) {
       champs.nomBoutique = boutique.trim();
       champs.nomEtablissement = boutique.trim();
       champs.boutiqueName = boutique.trim();
-    } else {
+    } else if (estClient) {
       champs.nomEtablissement = nom.trim();
     }
+    // CORRIGÉ : Prestataire
+    if (estPrestataire) {
+      champs.activiteId = activite;
+      champs.metier = activite;
+      champs.zone = zone.trim() || commune;
+      const prixNum = Number(prixPrestation || 0);
+      champs.prixPrestation = prixNum > 0 ? prixNum : null;
+      champs.prixADiscuter = prixNum === 0;
+      champs.nomEtablissement = nom.trim();
+    }
+    // CORRIGÉ : Grossiste
+    if (estGrossiste) {
+      champs.minimumCommande = Math.max(1, Number(minimumCommande || 10));
+      champs.uniteGros = uniteGros || "Carton";
+    }
+
     const r = majCompte(champs);
     if (!r.ok) return setErreur(r.erreur || "Enregistrement impossible");
     onSaved(r.compte);
@@ -38,12 +78,65 @@ export function EditForm({ compte, onSaved, onCancel }: { compte: any; onSaved: 
         <label className="text-[11px] font-bold" htmlFor="e-nom">Votre nom</label>
         <input id="e-nom" value={nom} onChange={(e: any) => setNom(e.target.value)} className={CHAMP} />
       </div>
-      {compte.estVendeur ? (
+
+      {estVendeurOuGrossiste ? (
         <div>
-          <label className="text-[11px] font-bold" htmlFor="e-bout">Nom de la boutique ou du service</label>
-          <input id="e-bout" value={boutique} onChange={(e: any) => setBoutique(e.target.value)} className={CHAMP} />
+          <label className="text-[11px] font-bold" htmlFor="e-bout">Nom de la boutique</label>
+          <input id="e-bout" value={boutique} onChange={(e: any) => setBoutique(e.target.value)} className={CHAMP} placeholder="Ex : Boutique Kevin" />
         </div>
       ) : null}
+
+      {/* CORRIGÉ : Prestataire - métier + zone + prix facultatif */}
+      {estPrestataire ? (
+        <>
+          <div>
+            <label className="text-[11px] font-bold" htmlFor="e-metier">Ton métier</label>
+            <select id="e-metier" value={activite} onChange={(e: any) => setActivite(e.target.value)} className={CHAMP}>
+              <option value="">Choisir...</option>
+              <option value="plomberie">🔧 Plombier</option>
+              <option value="electricite">⚡ Électricien</option>
+              <option value="coiffure">💇 Coiffeur / Coiffeuse</option>
+              <option value="menage">🧹 Ménage / Repassage</option>
+              <option value="maconnerie">🧱 Maçon</option>
+              <option value="peinture">🎨 Peintre</option>
+              <option value="menuiserie">🪚 Menuisier</option>
+              <option value="mecanique">🔩 Mécanicien</option>
+              <option value="livraison">🛵 Livreur</option>
+              <option value="autre">✨ Autre service</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[11px] font-bold" htmlFor="e-zone">Zone d'intervention</label>
+            <input id="e-zone" value={zone} onChange={(e: any) => setZone(e.target.value)} className={CHAMP} placeholder="Ex : Lemba, Matete" />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold" htmlFor="e-prix">À partir de (FC) - facultatif</label>
+            <input id="e-prix" value={prixPrestation} onChange={(e: any) => setPrixPrestation(e.target.value.replace(/[^0-9]/g, ""))} className={CHAMP} placeholder="Laisse vide = Prix à discuter" inputMode="numeric" />
+            {!prixPrestation ? <p className="text-[10px] text-purple-600 font-bold mt-1">💬 Sera affiché : Prix à discuter</p> : null}
+          </div>
+        </>
+      ) : null}
+
+      {/* CORRIGÉ : Grossiste - minimum + unité */}
+      {estGrossiste ? (
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[11px] font-bold" htmlFor="e-min">Commande minimum</label>
+            <input id="e-min" value={minimumCommande} onChange={(e: any) => setMinimumCommande(e.target.value.replace(/[^0-9]/g, ""))} className={CHAMP} inputMode="numeric" />
+          </div>
+          <div>
+            <label className="text-[11px] font-bold" htmlFor="e-unite">Unité gros</label>
+            <select id="e-unite" value={uniteGros} onChange={(e: any) => setUniteGros(e.target.value)} className={CHAMP}>
+              <option>Carton</option>
+              <option>Sac</option>
+              <option>Balle</option>
+              <option>Paquet</option>
+              <option>Pièce</option>
+            </select>
+          </div>
+        </div>
+      ) : null}
+
       <div>
         <label className="text-[11px] font-bold" htmlFor="e-com">Commune</label>
         <select id="e-com" value={commune} onChange={(e: any) => setCommune(e.target.value)} className={CHAMP}>
@@ -62,17 +155,24 @@ export function EditForm({ compte, onSaved, onCancel }: { compte: any; onSaved: 
         <button type="button" onClick={onCancel} className="bg-white border-2 py-3 rounded-full font-bold text-[12px]">Annuler</button>
         <button type="button" onClick={enregistrer} className="bg-black text-white py-3 rounded-full font-black text-[12px]">Enregistrer</button>
       </div>
+      {estClient ? <p className="text-[10px] text-gray-500 text-center">Tu es Client. Pour vendre, ouvre une boutique.</p> : null}
     </div>
   );
 }
 
 /* ---------- Cartes d'état du compte ---------- */
 export function CartesEtat({ compte, ab }: { compte: any; ab: any }) {
-  const client = !compte.estVendeur;
+  const role = getRole(compte);
+  const estClient = role === "client";
+  const estPrestataire = role === "prestataire";
+  const estGrossiste = role === "grossiste";
+  const estVendeurOuGrossiste = role === "vendeur" || estGrossiste;
   const niveau = compte.niveau || 1;
+
   return (
     <>
-      {client ? (
+      {/* CORRIGÉ : Client seul voit "Envie de vendre ?" - Prestataire ne le voit plus */}
+      {estClient ? (
         <div className="bg-black text-white rounded-2xl p-4">
           <p className="font-black text-[14px]">🏪 Envie de vendre ?</p>
           <p className="text-[11px] text-white/80 mt-1">
@@ -80,7 +180,24 @@ export function CartesEtat({ compte, ab }: { compte: any; ab: any }) {
           </p>
           <Link href="/onboarding" className="mt-3 block text-center bg-white text-black rounded-full py-3 font-black text-[12px]">Ouvrir ma boutique</Link>
         </div>
-      ) : (
+      ) : null}
+
+      {/* CORRIGÉ : Prestataire - pas de ticket, juste son statut */}
+      {estPrestataire ? (
+        <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4">
+          <p className="font-black text-[13px]">🔧 Ton statut Prestataire</p>
+          <p className="text-[11px] text-gray-600 mt-1">
+            Service : <b>{compte.activiteId || compte.metier || "—"}</b> • Zone : <b>{compte.zone || compte.commune}</b>
+          </p>
+          <p className="text-[11px] text-gray-600 mt-0.5">
+            Prix : <b>{compte.prixADiscuter || !compte.prixPrestation ? "💬 Prix à discuter" : compte.prixPrestation + " FC"}</b>
+          </p>
+          <p className="text-[10px] text-gray-500 mt-1">Tu n'as pas besoin de ticket. Tu paies seulement quand tu reçois une demande.</p>
+        </div>
+      ) : null}
+
+      {/* Vendeur / Grossiste : ticket */}
+      {estVendeurOuGrossiste ? (
         <div className="bg-white border-2 border-black rounded-2xl p-4">
           <div className="flex justify-between items-start gap-3">
             <div className="min-w-0">
@@ -90,12 +207,13 @@ export function CartesEtat({ compte, ab }: { compte: any; ab: any }) {
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <Link href="/abonnement" className="bg-black text-white rounded-full py-2.5 text-center text-[11px] font-black">Abonnements</Link>
-            <Link href="/publier" className="bg-white border-2 border-black rounded-full py-2.5 text-center text-[11px] font-black">+ Publier</Link>
+            <Link href={estGrossiste ? "/publier?gros=1" : "/publier"} className="bg-white border-2 border-black rounded-full py-2.5 text-center text-[11px] font-black">+ Publier</Link>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {!client && niveau < 2 && !compte.whatsappVerifie ? (
+      {/* CORRIGÉ : vérification WhatsApp seulement pour Vendeur / Grossiste */}
+      {estVendeurOuGrossiste && niveau < 2 && !compte.whatsappVerifie ? (
         <div className="bg-white border-2 border-dashed rounded-2xl p-4">
           <p className="font-black text-[12px]">✔️ Vérifier mon numéro WhatsApp</p>
           <p className="text-[10px] text-gray-600 mt-1">
@@ -119,7 +237,8 @@ function reste(inv: any): string {
 export function InvitationsCard({ compte, onToast }: { compte: any; onToast: (m: string) => void }) {
   const [nom, setNom] = useState("");
   const [numero, setNumero] = useState("");
-  const [type, setType] = useState<"vendeur" | "client">("client");
+  // CORRIGÉ : on peut inviter les 4 rôles, pas seulement client/vendeur
+  const [type, setType] = useState<"vendeur" | "client" | "prestataire" | "grossiste">("client");
   const [erreur, setErreur] = useState("");
   const [tick, setTick] = useState(0);
   const wa = compte.ownerWhatsapp || compte.whatsapp;
@@ -144,6 +263,8 @@ export function InvitationsCard({ compte, onToast }: { compte: any; onToast: (m:
     } catch {}
   };
 
+  const LABEL_TYPE: Record<string, string> = { client: "Client", vendeur: "Vendeur", prestataire: "Prestataire", grossiste: "Grossiste" };
+
   return (
     <div className="bg-white border-2 border-dashed rounded-2xl p-4" data-tick={tick}>
       <div className="flex justify-between items-center">
@@ -159,15 +280,16 @@ export function InvitationsCard({ compte, onToast }: { compte: any; onToast: (m:
         </button>
       ) : null}
 
-      <div className="flex gap-2 mt-3">
-        {(["client", "vendeur"] as const).map((t) => (
+      {/* CORRIGÉ : 4 boutons, pas 2 */}
+      <div className="flex flex-wrap gap-2 mt-3">
+        {(["client", "vendeur", "prestataire", "grossiste"] as const).map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setType(t)}
-            className={"px-4 py-2 rounded-full text-[11px] font-black border-2 " + (type === t ? "bg-black text-white border-black" : "bg-white")}
+            className={"px-3 py-2 rounded-full text-[11px] font-black border-2 " + (type === t ? "bg-black text-white border-black" : "bg-white")}
           >
-            {t === "client" ? "Client" : "Vendeur"}
+            {LABEL_TYPE[t]}
           </button>
         ))}
       </div>
@@ -182,7 +304,7 @@ export function InvitationsCard({ compte, onToast }: { compte: any; onToast: (m:
         <div className="mt-3 border rounded-xl divide-y">
           {liste.map((inv: any) => (
             <div key={inv.id} className="p-2.5 flex justify-between gap-2 text-[10px]">
-              <span className="truncate">{inv.inviteNom}</span>
+              <span className="truncate">{inv.inviteNom} • {LABEL_TYPE[inv.type] || inv.type}</span>
               <span className="font-bold shrink-0">{(ETATS[inv.status] || inv.status) + reste(inv)}</span>
             </div>
           ))}
@@ -190,4 +312,4 @@ export function InvitationsCard({ compte, onToast }: { compte: any; onToast: (m:
       ) : null}
     </div>
   );
-    }
+      }
