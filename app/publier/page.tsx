@@ -16,6 +16,7 @@ function PublierContent() {
   const editId = sp.get("edit");
   const catFromUrl = normalizeCategorie(sp.get("cat") || "");
   const ticketFromUrl = sp.get("ticket") || "";
+  const grosFromUrl = sp.get("gros") === "1";
 
   const [user, setUser] = useState<any>(null);
   const [ab, setAb] = useState<any>(null);
@@ -27,6 +28,7 @@ function PublierContent() {
   const [selectedTicketId, setSelectedTicketId] = useState<string>(ticketFromUrl);
   const [isEditMode, setIsEditMode] = useState(false);
   const [original, setOriginal] = useState<any>(null);
+  const [bloqueRole, setBloqueRole] = useState<string | null>(null); // NOUVEAU : client / prestataire bloqué
   const [form, setForm] = useState<any>({
     titre: "",
     description: "",
@@ -36,7 +38,11 @@ function PublierContent() {
     commune: "",
     ville: "Kinshasa",
     stock: "1",
-    livraison: "Retrait / Livraison Kinshasa"
+    livraison: "Retrait / Livraison Kinshasa",
+    // NOUVEAU : champs Grossiste
+    prixGros: "",
+    minimumCommande: "10",
+    uniteGros: "Carton",
   });
 
   useEffect(() => {
@@ -45,7 +51,25 @@ function PublierContent() {
       router.push("/connexion?next=/publier");
       return;
     }
+
+    // ===== CORRIGÉ : VRAI RÔLE, PAS "boutique" FORCÉ =====
+    const vraiRole = u.role || u.typeCompte || (u.estVendeur ? "vendeur" : "client");
     const waU = cleanWa(u.ownerWhatsapp || u.whatsapp || u.id);
+
+    // ===== CORRIGÉ : CLIENT BLOQUÉ =====
+    if (vraiRole === "client") {
+      setBloqueRole("client");
+      setUser({ ...u, role: "client" });
+      setLoading(false);
+      return;
+    }
+    // ===== CORRIGÉ : PRESTATAIRE REDIRIGÉ VERS SON FORMULAIRE =====
+    if (vraiRole === "prestataire") {
+      setBloqueRole("prestataire");
+      setUser({ ...u, role: "prestataire" });
+      setLoading(false);
+      return;
+    }
 
     try {
       const check: any = verifierAbonnement();
@@ -80,7 +104,11 @@ function PublierContent() {
           commune: old.commune || "",
           ville: old.ville || "Kinshasa",
           stock: String(old.stock || 1),
-          livraison: old.livraison || "Retrait / Livraison Kinshasa"
+          livraison: old.livraison || "Retrait / Livraison Kinshasa",
+          // CORRIGÉ : on recharge les champs gros en édition
+          prixGros: old.prixGros ? String(old.prixGros) : "",
+          minimumCommande: String(old.minimumCommande || 10),
+          uniteGros: old.uniteGros || "Carton",
         });
         setPhotos(old.images?.length ? old.images.slice(0, MAX_PHOTOS) : old.photo ? [old.photo] : []);
         setOriginal(old);
@@ -100,7 +128,7 @@ function PublierContent() {
       nomEtablissement: u.nomEtablissement || u.nom || "",
       commune: u.commune || "",
       categorieId: fixedCat,
-      role: "boutique"
+      role: vraiRole, // CORRIGÉ : vrai rôle, pas "boutique"
     });
     if (!old) {
       setForm((f: any) => ({ ...f, categorieId: fixedCat, activiteId: u.activiteId || firstAct, commune: u.commune || f.commune }));
@@ -111,60 +139,43 @@ function PublierContent() {
   const currentCat: any = useMemo(() => getCategorieById(form.categorieId) || {}, [form.categorieId]);
   const activites: any[] = currentCat.activites || [];
   const prixNum = Number(form.prix || 0);
+  const prixGrosNum = Number(form.prixGros || 0);
   const selectedTicket: any = useMemo(
     () => (ab?.ticketsActifs || []).find((t: any) => t.ticketId === selectedTicketId),
     [ab, selectedTicketId]
   );
 
+  const estGrossiste = user?.role === "grossiste";
+  const estVendeur = user?.role === "vendeur" || user?.role === "boutique";
+
   function notify(msg: string, type: string = "success") {
     setToast({ msg: msg, type: type });
     setTimeout(() => setToast(null), 4000);
   }
-
   function setField(key: string, value: string) {
     setForm((f: any) => ({ ...f, [key]: value }));
   }
 
   function handlePublish() {
-    if (!ab) {
-      notify("Vérification de l'abonnement en cours...", "error");
-      return;
-    }
+    if (!ab) { notify("Vérification de l'abonnement en cours...", "error"); return; }
     if (!isEditMode) {
-      if (ab.isCache) {
-        router.push("/abonnement?msg=cache");
-        return;
-      }
+      if (ab.isCache) { router.push("/abonnement?msg=cache"); return; }
       if (!ab.peutPublier) {
-        notify(
-          ab.isFreemium
-            ? "Limite gratuite atteinte (" + FREEMIUM.maxImages + ") - ticket 5$ (" + toCDFString(5) + ")"
-            : "Plus de places libres : achetez un nouveau ticket",
-          "error"
-        );
+        notify(ab.isFreemium ? "Limite gratuite atteinte (" + FREEMIUM.maxImages + ") - ticket 5$ (" + toCDFString(5) + ")" : "Plus de places libres : achetez un nouveau ticket", "error");
         return;
       }
-      if (ab.isPaye && !selectedTicketId) {
-        notify("Choisissez le ticket sur lequel publier", "error");
-        return;
-      }
+      if (ab.isPaye && !selectedTicketId) { notify("Choisissez le ticket sur lequel publier", "error"); return; }
     }
-    if (form.titre.trim().length < 3) {
-      notify("Titre : 3 caractères minimum", "error");
-      return;
+    if (form.titre.trim().length < 3) { notify("Titre : 3 caractères minimum", "error"); return; }
+    if (!(prixNum > 0)) { notify("Prix en $ requis", "error"); return; }
+    // CORRIGÉ : validation Grossiste
+    if (estGrossiste) {
+      if (!(prixGrosNum > 0)) { notify("Prix gros requis pour un Grossiste", "error"); return; }
+      if (Number(form.minimumCommande || 0) < 1) { notify("Minimum de commande requis (ex: 10)", "error"); return; }
+      if (!form.uniteGros) { notify("Unité gros requise (Carton / Sac...)", "error"); return; }
     }
-    if (!(prixNum > 0)) {
-      notify("Prix en $ requis", "error");
-      return;
-    }
-    if (!photos.length) {
-      notify("Ajoutez au moins 1 photo", "error");
-      return;
-    }
-    if (!user) {
-      router.push("/connexion");
-      return;
-    }
+    if (!photos.length) { notify("Ajoutez au moins 1 photo", "error"); return; }
+    if (!user) { router.push("/connexion"); return; }
 
     const wa = cleanWa(user.ownerWhatsapp || user.whatsapp);
     let list = readList("wenze_annonces_list");
@@ -172,10 +183,7 @@ function PublierContent() {
       list = list.filter((x: any) => String(x.id) !== String(editId));
     } else {
       const nb = list.filter((a: any) => cleanWa(a.ownerWhatsapp || a.whatsapp) === wa).length;
-      if (nb >= MAX_ACTIVES) {
-        notify("Maximum " + MAX_ACTIVES + " annonces actives : supprimez-en une pour en publier une nouvelle", "error");
-        return;
-      }
+      if (nb >= MAX_ACTIVES) { notify("Maximum " + MAX_ACTIVES + " annonces actives : supprimez-en une pour en publier une nouvelle", "error"); return; }
     }
 
     const id = isEditMode && editId ? editId : "WENZE-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -183,25 +191,13 @@ function PublierContent() {
     setSaving(true);
     try {
       if (!isEditMode && selectedTicketId) {
-        if (!consommerPlace(selectedTicketId, id)) {
-          notify("Ticket plein ou expiré : choisissez un autre ticket", "error");
-          setSaving(false);
-          return;
-        }
+        if (!consommerPlace(selectedTicketId, id)) { notify("Ticket plein ou expiré : choisissez un autre ticket", "error"); setSaving(false); return; }
         placeConsommee = true;
       }
-
       const activiteObj: any = activites.find((x: any) => x.id === form.activiteId);
       const createdAtFinal = original?.createdAt || original?.created_at || new Date().toISOString();
       const catId = normalizeCategorie(form.categorieId);
-      const ticketFields = isEditMode
-        ? {}
-        : {
-            ticketId: selectedTicketId || null,
-            palierId: selectedTicket?.palierId || ab.palierId || null,
-            freemium: !!ab.isFreemium,
-            expireAt: selectedTicket?.expireAt || ab.expireAt || null
-          };
+      const ticketFields = isEditMode ? {} : { ticketId: selectedTicketId || null, palierId: selectedTicket?.palierId || ab.palierId || null, freemium: !!ab.isFreemium, expireAt: selectedTicket?.expireAt || ab.expireAt || null };
 
       const annonce = {
         ...(original || {}),
@@ -230,28 +226,34 @@ function PublierContent() {
         created_at: createdAtFinal,
         createdAt: createdAtFinal,
         statut: "actif",
+        // CORRIGÉ : on sauvegarde le type + les champs gros
+        typeAnnonce: estGrossiste ? "gros" : "detail",
+        roleVendeur: user.role,
+        ...(estGrossiste ? {
+          prixGros: prixGrosNum,
+          prixGrosCDF: toCDF(prixGrosNum),
+          minimumCommande: Number(form.minimumCommande || 10),
+          uniteGros: form.uniteGros || "Carton",
+        } : {
+          prixGros: null,
+          minimumCommande: null,
+          uniteGros: null,
+        }),
         ...(isEditMode ? { updatedAt: new Date().toISOString() } : {}),
         ...ticketFields
       };
 
       list.unshift(annonce);
       localStorage.setItem("wenze_annonces_list", JSON.stringify(list.slice(0, 200)));
-
       let ticketLabel = "";
       if (!isEditMode) {
-        ticketLabel = selectedTicket
-          ? "🎫 " + selectedTicket.palierId + " " + (selectedTicket.imagesUsed + 1) + "/" + selectedTicket.imagesMax + " places"
-          : "🆓 Gratuit " + ((ab.count || 0) + 1) + "/" + FREEMIUM.maxImages;
+        ticketLabel = selectedTicket ? "🎫 " + selectedTicket.palierId + " " + (selectedTicket.imagesUsed + 1) + "/" + selectedTicket.imagesMax + " places" : "🆓 Gratuit " + ((ab.count || 0) + 1) + "/" + FREEMIUM.maxImages;
       }
       setShowSuccess({ titre: annonce.titre, prix: prixNum + "$ / " + toCDFString(prixNum), ticketLabel: ticketLabel });
       setSaving(false);
       setTimeout(() => router.push("/produit/" + id), 1800);
     } catch {
-      if (placeConsommee) {
-        try {
-          libererPlace(id);
-        } catch {}
-      }
+      if (placeConsommee) { try { libererPlace(id); } catch {} }
       notify("Stockage plein : réduisez les photos ou supprimez d'anciennes annonces", "error");
       setSaving(false);
     }
@@ -265,17 +267,35 @@ function PublierContent() {
     );
   }
 
+  // ===== ÉCRANS DE BLOCAGE PAR RÔLE =====
+  if (bloqueRole === "client") {
+    return (
+      <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6 flex flex-col justify-center text-center">
+        <p className="text-5xl">🛍️</p>
+        <h1 className="font-black text-[18px] mt-4">Tu es encore Client</h1>
+        <p className="text-[12px] text-gray-600 mt-2">Pour publier une annonce, ouvre d'abord ta boutique. C'est gratuit pour commencer.</p>
+        <Link href="/ouvrir-boutique" className="bg-black text-white py-3.5 rounded-full font-black text-[13px] mt-6 block">Ouvrir ma boutique →</Link>
+        <Link href="/" className="border py-3.5 rounded-full font-bold text-[12px] mt-2 block">Retour à l'accueil</Link>
+      </div>
+    );
+  }
+  if (bloqueRole === "prestataire") {
+    return (
+      <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6 flex flex-col justify-center text-center">
+        <p className="text-5xl">🔧</p>
+        <h1 className="font-black text-[18px] mt-4">Tu es Prestataire</h1>
+        <p className="text-[12px] text-gray-600 mt-2">Tu ne publies pas des produits, tu publies des services.</p>
+        <Link href="/publier-service" className="bg-black text-white py-3.5 rounded-full font-black text-[13px] mt-6 block">Publier un service →</Link>
+        <Link href="/" className="border py-3.5 rounded-full font-bold text-[12px] mt-2 block">Retour à l'accueil</Link>
+      </div>
+    );
+  }
+
   const isCache = !!ab?.isCache;
   const needsTicket = !isEditMode && !!ab?.isPaye;
   const blocked = !isEditMode && (!ab || isCache || !ab.peutPublier);
   const photosDisabled = blocked || (needsTicket && !selectedTicketId);
-  const headerStatus = !ab
-    ? "..."
-    : isCache
-    ? "🔒 Compte caché"
-    : ab.isPaye
-    ? (ab.ticketsActifs?.length || 0) + " ticket(s) - " + (ab.placesRestantes || 0) + " places libres"
-    : "🆓 Gratuit " + ab.count + "/" + FREEMIUM.maxImages;
+  const headerStatus = !ab ? "..." : isCache ? "🔒 Compte caché" : ab.isPaye ? (ab.ticketsActifs?.length || 0) + " ticket(s) - " + (ab.placesRestantes || 0) + " places libres" : "🆓 Gratuit " + ab.count + "/" + FREEMIUM.maxImages;
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-28">
@@ -287,9 +307,8 @@ function PublierContent() {
             <div className="bg-[#FFFBF0] border-2 rounded-2xl p-4 mt-4 text-left">
               <p className="font-black text-[13px]">{showSuccess.titre}</p>
               <p className="text-[12px] font-black text-orange-600 mt-1">{showSuccess.prix}</p>
-              {showSuccess.ticketLabel ? (
-                <p className="text-[10px] mt-2 bg-black text-white inline-block px-2.5 py-1 rounded-full">{showSuccess.ticketLabel}</p>
-              ) : null}
+              {estGrossiste && prixGrosNum > 0 ? <p className="text-[11px] font-bold text-orange-700 mt-1">Gros : {prixGrosNum}$ / {form.uniteGros} (min {form.minimumCommande})</p> : null}
+              {showSuccess.ticketLabel ? <p className="text-[10px] mt-2 bg-black text-white inline-block px-2.5 py-1 rounded-full">{showSuccess.ticketLabel}</p> : null}
             </div>
             <p className="text-[10px] text-gray-500 mt-3">Redirection vers l'annonce...</p>
           </div>
@@ -299,39 +318,65 @@ function PublierContent() {
       <header className="sticky top-0 bg-white/95 backdrop-blur z-20 p-4 border-b flex items-center gap-3">
         <Link href={isEditMode ? "/produit/" + editId : "/"} className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
         <div className="flex-1 min-w-0">
-          <h1 className="font-black text-[13px] truncate">{isEditMode ? "Modifier l'annonce" : "Publier une annonce"}</h1>
+          <h1 className="font-black text-[13px] truncate">{isEditMode ? "Modifier l'annonce" : estGrossiste ? "Publier un produit gros" : "Publier une annonce"}</h1>
           <p className="text-[9px] text-gray-500 truncate">{headerStatus} - Taux {TAUX_CDF}</p>
         </div>
-        <span className={"text-[10px] px-2.5 py-1 rounded-full font-black text-white " + (isCache ? "bg-red-600" : ab?.isPaye ? "bg-black" : "bg-orange-500")}>
-          {ab?.badge || "..."}
+        <span className={"text-[10px] px-2.5 py-1 rounded-full font-black text-white " + (estGrossiste ? "bg-orange-500" : isCache ? "bg-red-600" : ab?.isPaye ? "bg-black" : "bg-orange-500")}>
+          {estGrossiste ? "🏭 GROSSISTE" : ab?.badge || "..."}
         </span>
       </header>
 
       <div className="p-4 space-y-4">
-        {toast ? (
-          <div className={"p-3.5 rounded-xl text-[11px] font-bold border-2 " + (toast.type === "error" ? "bg-red-50 text-red-700 border-red-300" : "bg-green-50 text-green-800 border-green-300")}>
-            {toast.msg}
+        {toast ? <div className={"p-3.5 rounded-xl text-[11px] font-bold border-2 " + (toast.type === "error" ? "bg-red-50 text-red-700 border-red-300" : "bg-green-50 text-green-800 border-green-300")}>{toast.msg}</div> : null}
+
+        {/* BANDEAU GROSSISTE */}
+        {estGrossiste ? (
+          <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
+            <p className="font-black text-[12px]">🏭 Mode Grossiste</p>
+            <p className="text-[11px] text-gray-600 mt-1">Ton prix détail est visible par tout le monde. Ton prix gros est visible seulement par les Grossistes + DG.</p>
           </div>
         ) : null}
 
         <StatusBanners ab={ab} isEditMode={isEditMode} />
-
         {needsTicket ? <TicketPicker tickets={ab?.ticketsActifs || []} selectedId={selectedTicketId} onSelect={setSelectedTicketId} /> : null}
-
         <PhotoPicker photos={photos} setPhotos={setPhotos} disabled={photosDisabled} notify={notify} />
 
         <ProductForm form={form} setField={setField} setForm={setForm} prixNum={prixNum} activites={activites} />
+
+        {/* CHAMPS GROS - SEUL GROSSISTE VOIT ÇA */}
+        {estGrossiste ? (
+          <div className="bg-white border-2 border-orange-300 rounded-2xl p-4 space-y-3">
+            <p className="font-black text-[13px]">🏭 Prix Gros</p>
+            <div>
+              <label className="text-[11px] font-bold">Prix gros (en $ / {form.uniteGros}) *</label>
+              <input type="number" inputMode="decimal" value={form.prixGros} onChange={(e) => setField("prixGros", e.target.value)} placeholder="Ex: 45" className="w-full border-2 rounded-xl px-3 py-2.5 text-[13px] mt-1" />
+              {prixGrosNum > 0 ? <p className="text-[10px] text-gray-500 mt-1">= {toCDFString(prixGrosNum)} / {form.uniteGros}</p> : null}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-bold">Minimum *</label>
+                <input type="number" inputMode="numeric" value={form.minimumCommande} onChange={(e) => setField("minimumCommande", e.target.value)} placeholder="10" className="w-full border-2 rounded-xl px-3 py-2.5 text-[13px] mt-1" />
+              </div>
+              <div>
+                <label className="text-[11px] font-bold">Unité *</label>
+                <select value={form.uniteGros} onChange={(e) => setField("uniteGros", e.target.value)} className="w-full border-2 rounded-xl px-3 py-2.5 text-[13px] mt-1 bg-white">
+                  <option value="Carton">Carton</option>
+                  <option value="Sac">Sac</option>
+                  <option value="Paquet">Paquet</option>
+                  <option value="Pièce">Pièce</option>
+                  <option value="Balle">Balle</option>
+                </select>
+              </div>
+            </div>
+            <p className="text-[10px] text-orange-700">Exemple : Prix détail 6$ / pièce. Prix gros 45$ / carton de 10. Le Client voit 6$, le Grossiste voit 45$.</p>
+          </div>
+        ) : null}
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t p-3">
         <div className="max-w-[430px] mx-auto">
-          <button
-            type="button"
-            onClick={handlePublish}
-            disabled={saving || !!showSuccess || blocked}
-            className="w-full bg-black text-white py-3.5 rounded-full font-black text-[13px] disabled:opacity-50"
-          >
-            {saving ? "Enregistrement..." : isEditMode ? "Enregistrer les modifications" : "Publier l'annonce"}
+          <button type="button" onClick={handlePublish} disabled={saving || !!showSuccess || blocked} className="w-full bg-black text-white py-3.5 rounded-full font-black text-[13px] disabled:opacity-50">
+            {saving ? "Enregistrement..." : isEditMode ? "Enregistrer les modifications" : estGrossiste ? "Publier le produit gros" : "Publier l'annonce"}
           </button>
         </div>
       </div>
@@ -341,14 +386,8 @@ function PublierContent() {
 
 export default function PublierPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6">
-          <div className="h-24 bg-white border rounded-2xl animate-pulse"></div>
-        </div>
-      }
-    >
+    <Suspense fallback={<div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6"><div className="h-24 bg-white border rounded-2xl animate-pulse"></div></div>}>
       <PublierContent />
     </Suspense>
   );
-}
+            }
