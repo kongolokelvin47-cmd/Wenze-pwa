@@ -5,18 +5,42 @@ import { FREEMIUM, TAUX_CDF, toCDFString } from "@/lib/paiement";
 
 export const APP_NAME = "WENZE WENZE BUSINESS";
 
-/** 25 -> "25", 0.5 -> "0.50" */
 export function fmtUSD(n: any): string {
   const v = Number(n) || 0;
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
 }
 
-/** Lien WhatsApp valide : ajoute l'indicatif RDC (243) aux numéros locaux de 9 chiffres. */
 export function waLink(wa: any, text: string): string {
   const d = (wa || "").toString().replace(/[^0-9]/g, "").replace(/^0+/, "");
   if (!d) return "";
   const full = d.length <= 9 ? "243" + d : d;
   return "https://wa.me/" + full + "?text=" + encodeURIComponent(text);
+}
+
+// CORRIGÉ : on lit le rôle une seule fois, pour savoir qui peut voir le prix gros
+function lireMoi(): any {
+  try {
+    if (typeof window === "undefined") return null;
+    return JSON.parse(localStorage.getItem("wenze_user") || "null");
+  } catch { return null; }
+}
+
+function peutVoirGros(a: any, moi: any): boolean {
+  if (!a || a.typeAnnonce !== "gros") return false;
+  const role = moi?.role || "client";
+  if (role === "grossiste" || role === "dg" || moi?.roleAdmin === "dg") return true;
+  // Le propriétaire voit toujours son propre prix gros
+  const monWa = (moi?.ownerWhatsapp || moi?.whatsapp || "").toString().replace(/[^0-9]/g, "").replace(/^0+/, "");
+  const aWa = (a._wa || a.ownerWhatsapp || a.whatsapp || "").toString().replace(/[^0-9]/g, "").replace(/^0+/, "");
+  return monWa && aWa && monWa === aWa;
+}
+
+function lienPublier(moi: any): string {
+  const role = moi?.role || "client";
+  if (role === "prestataire") return "/publier-service";
+  if (role === "vendeur" || role === "grossiste" || role === "boutique") return "/publier";
+  if (role === "dg") return "/publier";
+  return "/devenir-vendeur"; // Client : on ne l'envoie pas publier un produit, on lui propose de devenir Vendeur
 }
 
 function statusText(ab: any): string {
@@ -28,23 +52,16 @@ function statusText(ab: any): string {
 
 const ICON_BTN = "relative w-9 h-9 rounded-full flex items-center justify-center shrink-0 border";
 
-/* ---------- En-tête : nom, état du compte, recherche, catégories ---------- */
+/* ---------- En-tête ---------- */
 export function HomeHeader(props: {
-  ab: any;
-  payantCount: number;
-  boostedCount: number;
-  notifCount: number;
-  cartCount: number;
-  search: string;
-  onSearch: (v: string) => void;
+  ab: any; payantCount: number; boostedCount: number; notifCount: number; cartCount: number;
+  search: string; onSearch: (v: string) => void;
   tabs: { id: string; label: string; count: number }[];
-  selectedCat: string;
-  onSelectCat: (id: string) => void;
-  totalCount: number;
+  selectedCat: string; onSelectCat: (id: string) => void; totalCount: number;
 }) {
   const { ab, payantCount, boostedCount, notifCount, cartCount, search, onSearch, tabs, selectedCat, onSelectCat, totalCount } = props;
-  const tab = (active: boolean) =>
-    "px-4 py-2 rounded-full text-[11px] font-black border-2 whitespace-nowrap " + (active ? "bg-black text-white border-black" : "bg-white");
+  const moi = lireMoi();
+  const tab = (active: boolean) => "px-4 py-2 rounded-full text-[11px] font-black border-2 whitespace-nowrap " + (active ? "bg-black text-white border-black" : "bg-white");
 
   return (
     <header className="sticky top-0 bg-white z-20 border-b">
@@ -53,51 +70,37 @@ export function HomeHeader(props: {
         <div className="flex-1 min-w-0">
           <h1 className="font-black text-[13px] leading-tight truncate">{APP_NAME}</h1>
           <Link href={ab?.isCache ? "/abonnement" : "/tarifs"} className="block text-[9px] text-gray-500 truncate">
-            {statusText(ab)}
-            {ab ? " • " : ""}Kinshasa • {payantCount} payants • {boostedCount} TOP
+            {statusText(ab)}{ab ? " • " : ""}Kinshasa • {payantCount} payants • {boostedCount} TOP
           </Link>
         </div>
         <Link href="/notifications" className={ICON_BTN + " bg-[#FFFBF0]"}>
           🔔
-          {notifCount > 0 ? (
-            <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] min-w-[18px] h-[18px] rounded-full flex items-center justify-center font-black px-1">
-              {notifCount > 99 ? "99+" : notifCount}
-            </span>
-          ) : null}
+          {notifCount > 0 ? <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[9px] min-w-[18px] h-[18px] rounded-full flex items-center justify-center font-black px-1">{notifCount > 99 ? "99+" : notifCount}</span> : null}
         </Link>
         <Link href="/panier" className={ICON_BTN + " bg-[#FFFBF0]"}>
           🛒
-          {cartCount > 0 ? (
-            <span className="absolute -top-1 -right-1 bg-black text-white text-[9px] min-w-[18px] h-[18px] rounded-full flex items-center justify-center font-black px-1">
-              {cartCount > 99 ? "99+" : cartCount}
-            </span>
-          ) : null}
+          {cartCount > 0 ? <span className="absolute -top-1 -right-1 bg-black text-white text-[9px] min-w-[18px] h-[18px] rounded-full flex items-center justify-center font-black px-1">{cartCount > 99 ? "99+" : cartCount}</span> : null}
         </Link>
         <Link href="/profil" className={ICON_BTN + " bg-black text-white border-black"}>👤</Link>
       </div>
 
       <div className="px-4 pb-3 flex gap-2">
         <div className="flex-1 relative">
-          <input
-            value={search}
-            onChange={(e: any) => onSearch(e.target.value)}
-            placeholder="Recherche sacs, riz, coiffure, Gombe..."
-            className="w-full border-2 pl-10 pr-4 p-3 rounded-full text-[13px] bg-[#FFFBF0] outline-none focus:border-black"
-          />
+          <input value={search} onChange={(e: any) => onSearch(e.target.value)} placeholder="Recherche sacs, riz, coiffure, Gombe..." className="w-full border-2 pl-10 pr-4 p-3 rounded-full text-[13px] bg-[#FFFBF0] outline-none focus:border-black" />
           <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
         </div>
-        <Link href="/publier" className="bg-black text-white px-5 rounded-full font-black text-[12px] shrink-0 flex items-center">+ Publier</Link>
+        {/* CORRIGÉ : + Publier va au bon endroit selon le rôle */}
+        <Link href={lienPublier(moi)} className="bg-black text-white px-5 rounded-full font-black text-[12px] shrink-0 flex items-center">
+          {moi?.role === "prestataire" ? "+ Service" : "+ Publier"}
+        </Link>
       </div>
 
       <div className="px-4 pb-3 flex gap-2 overflow-x-auto">
         <button type="button" onClick={() => onSelectCat("all")} className={tab(selectedCat === "all")}>
-          Tout • {totalCount}
-          {boostedCount ? " 🚀" + boostedCount : ""}
+          Tout • {totalCount}{boostedCount ? " 🚀" + boostedCount : ""}
         </button>
         {tabs.map((t) => (
-          <button key={t.id} type="button" onClick={() => onSelectCat(t.id)} className={tab(selectedCat === t.id)}>
-            {t.label} • {t.count}
-          </button>
+          <button key={t.id} type="button" onClick={() => onSelectCat(t.id)} className={tab(selectedCat === t.id)}>{t.label} • {t.count}</button>
         ))}
         <Link href="/tarifs" className="px-4 py-2 rounded-full text-[10px] font-bold bg-white border-2 whitespace-nowrap flex items-center">🎫 Tarifs</Link>
       </div>
@@ -105,14 +108,12 @@ export function HomeHeader(props: {
   );
 }
 
-/* ---------- Bandeau affiché aux visiteurs sans compte ---------- */
+/* ---------- Bandeau visiteur ---------- */
 export function BandeauVisiteur() {
   return (
     <div className="mx-4 mt-3 bg-black text-white rounded-2xl p-4">
       <p className="font-black text-[13px]">👀 Vous visitez en lecture seule</p>
-      <p className="text-[11px] text-white/80 mt-1">
-        Parcourez librement. Pour contacter un vendeur ou acheter, créez un compte gratuit : c'est rapide.
-      </p>
+      <p className="text-[11px] text-white/80 mt-1">Parcourez librement. Pour contacter un vendeur ou acheter, créez un compte gratuit : c'est rapide.</p>
       <div className="mt-3 grid grid-cols-2 gap-2">
         <Link href="/inscription" className="bg-white text-black text-center py-2.5 rounded-full font-black text-[12px]">Créer un compte</Link>
         <Link href="/connexion" className="border border-white/40 text-center py-2.5 rounded-full font-bold text-[12px]">Se connecter</Link>
@@ -123,15 +124,14 @@ export function BandeauVisiteur() {
 
 /* ---------- Carte d'annonce ---------- */
 export function AnnonceCard(props: {
-  a: any;
-  icon: string;
-  onMedia: (a: any) => void;
-  onOpen: (a: any) => void;
-  onCart: (a: any) => void;
-  onContact: (a: any) => void;
+  a: any; icon: string;
+  onMedia: (a: any) => void; onOpen: (a: any) => void; onCart: (a: any) => void; onContact: (a: any) => void;
 }) {
   const { a, icon, onMedia, onOpen, onCart, onContact } = props;
   const aWhatsapp = !!a._wa;
+  const moi = lireMoi();
+  const voirGros = peutVoirGros(a, moi);
+  const estGros = a.typeAnnonce === "gros";
 
   return (
     <div className={"bg-white border rounded-2xl overflow-hidden flex flex-col " + (a.isBoosted ? "border-2 border-green-500" : "")}>
@@ -146,10 +146,23 @@ export function AnnonceCard(props: {
         <span className="absolute top-2 left-2 text-[8px] px-2 py-1 rounded-full font-black bg-black text-white">
           {a.vendeurBadge} {a.vendeurPalier} • {fmtUSD(a.prix)}$
         </span>
+        {/* CORRIGÉ : badge GROS visible pour tout le monde, mais prix caché */}
+        {estGros ? <span className="absolute bottom-2 left-2 text-[8px] px-2 py-1 rounded-full font-black bg-orange-500 text-white">🏭 GROS</span> : null}
       </button>
       <div className="p-2.5 flex-1 flex flex-col">
         <button type="button" onClick={() => onOpen(a)} className="text-left font-bold text-[12px] line-clamp-2">{a.titre}</button>
         <p className="font-black text-[12px] mt-1">{fmtUSD(a.prix)}$ / {a.prixCDF}</p>
+
+        {/* CORRIGÉ : PRIX GROS - caché au Client, visible au Grossiste / DG / propriétaire */}
+        {estGros ? (
+          voirGros ? (
+            <p className="text-[11px] font-bold text-orange-600 mt-1">🏭 Gros : {a.prixGros ? fmtUSD(a.prixGros) + " FC" : a.prixGrosCDF || ""} / {a.uniteGros || "carton"} {a.minimumCommande ? `• Min ${a.minimumCommande}` : ""}</p>
+          ) : (
+            <p className="text-[10px] text-orange-600 mt-1">🔒 Prix gros : connecte-toi comme Grossiste</p>
+          )
+        ) : null}
+
+        {/* CORRIGÉ : Client ne peut pas mettre du gros dans le panier, il doit contacter */}
         <div className="mt-2.5 grid grid-cols-2 gap-1.5">
           {aWhatsapp ? (
             <button type="button" onClick={() => onContact(a)} className="bg-[#25D366] text-white text-center py-2.5 rounded-full font-bold text-[10px]">WhatsApp</button>
@@ -163,13 +176,15 @@ export function AnnonceCard(props: {
   );
 }
 
-/* ---------- Visionneuse photo (ouverte en touchant une image) ---------- */
+/* ---------- Visionneuse photo ---------- */
 export function ImageViewer(props: { a: any; onClose: () => void; onOpen: (a: any) => void; onCart: (a: any) => void; onContact: (a: any) => void }) {
   const { a, onClose, onOpen, onCart, onContact } = props;
   const [idx, setIdx] = useState(0);
   const images: string[] = a.images && a.images.length ? a.images : a.photo ? [a.photo] : [];
   const current = images[idx] || "";
   const aWhatsapp = !!a._wa;
+  const moi = lireMoi();
+  const voirGros = peutVoirGros(a, moi);
 
   return (
     <div className="fixed inset-0 z-[60] bg-black/80 flex items-center justify-center p-4" onClick={onClose}>
@@ -190,6 +205,14 @@ export function ImageViewer(props: { a: any; onClose: () => void; onOpen: (a: an
         <div className="p-4">
           <p className="font-black text-[14px]">{a.titre}</p>
           <p className="font-black text-[13px] text-[#6C3CE0] mt-1">{fmtUSD(a.prix)}$ / {toCDFString(Number(a.prix) || 0)}</p>
+          {/* CORRIGÉ : prix gros aussi caché ici */}
+          {a.typeAnnonce === "gros" ? (
+            voirGros ? (
+              <p className="text-[11px] font-bold text-orange-600 mt-1">🏭 Gros : {a.prixGros ? fmtUSD(a.prixGros) + " FC" : ""} / {a.uniteGros || "carton"} {a.minimumCommande ? `• Min ${a.minimumCommande}` : ""}</p>
+            ) : (
+              <p className="text-[11px] text-orange-600 mt-1">🔒 Prix gros réservé aux Grossistes</p>
+            )
+          ) : null}
           <p className="text-[10px] text-gray-500 mt-1">Taux {TAUX_CDF} • {a.commune || "Kinshasa"}</p>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <button type="button" onClick={() => onOpen(a)} className="col-span-2 bg-black text-white py-3 rounded-full font-black text-[12px]">Voir l'annonce</button>
@@ -206,23 +229,24 @@ export function ImageViewer(props: { a: any; onClose: () => void; onOpen: (a: an
   );
 }
 
-/* ---------- Barre de navigation du bas ---------- */
+/* ---------- Barre de navigation ---------- */
 export function BottomNav({ notifCount }: { notifCount: number }) {
   const item = "flex flex-col items-center gap-0.5 text-gray-500";
+  const moi = lireMoi();
   return (
     <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 max-w-[430px] w-full bg-white border-t flex justify-around py-2.5 text-[10px] z-30">
       <Link href="/" className="font-bold text-black flex flex-col items-center gap-0.5"><span className="text-[18px]">🏠</span>Accueil</Link>
       <Link href="/video" className={item}><span className="text-[18px]">🎥</span>Vidéo</Link>
-      <Link href="/publier" className={item}>
-        <span className="text-[22px] bg-black text-white w-7 h-7 rounded-full flex items-center justify-center">+</span>Publier
+      {/* CORRIGÉ : bouton Publier va au bon endroit */}
+      <Link href={lienPublier(moi)} className={item}>
+        <span className="text-[22px] bg-black text-white w-7 h-7 rounded-full flex items-center justify-center">+</span>
+        {moi?.role === "prestataire" ? "Service" : "Publier"}
       </Link>
       <Link href="/boutiques" className={item}><span className="text-[18px]">🏬</span>Boutiques</Link>
       <Link href="/profil" className={item + " relative"}>
         <span className="text-[18px]">👤</span>Profil
-        {notifCount > 0 ? (
-          <span className="absolute -top-1 left-3 bg-red-600 text-white text-[8px] w-4 h-4 rounded-full flex items-center justify-center font-black">{notifCount}</span>
-        ) : null}
+        {notifCount > 0 ? <span className="absolute -top-1 left-3 bg-red-600 text-white text-[8px] w-4 h-4 rounded-full flex items-center justify-center font-black">{notifCount}</span> : null}
       </Link>
     </nav>
   );
-}
+                                                                                                                  }
