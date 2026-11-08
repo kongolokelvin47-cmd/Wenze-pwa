@@ -3,15 +3,20 @@ import Link from "next/link";
 import { PALIERS, toCDFString, usd } from "@/lib/paiement";
 import { DAY_MS, MAX_PHOTOS, compressImage } from "./helpers";
 
-/* ---------- Bannières d'état (compte caché, limite atteinte, plus de places) ---------- */
-export function StatusBanners({ ab, isEditMode }: { ab: any; isEditMode: boolean }) {
+/* ---------- Bannières d'état ---------- */
+export function StatusBanners({ ab, isEditMode, role }: { ab: any; isEditMode: boolean; role?: string }) {
   if (isEditMode || !ab) return null;
+  const estGrossiste = role === "grossiste";
 
   if (ab.isCache) {
     return (
       <div className="bg-red-600 text-white rounded-2xl p-4 border-2 border-black shadow">
         <p className="font-black text-[13px]">🔒 Compte caché : les 30 jours gratuits sont expirés</p>
-        <p className="text-[11px] mt-1.5 opacity-90">Vos annonces ne sont plus visibles dans le marché. Achetez un ticket pour réapparaître immédiatement.</p>
+        <p className="text-[11px] mt-1.5 opacity-90">
+          {estGrossiste
+            ? "Vos produits gros ne sont plus visibles. Les Grossistes ne peuvent plus voir vos prix gros. Achetez un ticket pour réapparaître."
+            : "Vos annonces ne sont plus visibles dans le marché. Achetez un ticket pour réapparaître immédiatement."}
+        </p>
         <Link href="/abonnement" className="mt-3 block w-full bg-white text-black text-center py-3 rounded-full font-black text-[12px]">
           🎫 Voir les abonnements (dès {usd(1)})
         </Link>
@@ -23,7 +28,11 @@ export function StatusBanners({ ab, isEditMode }: { ab: any; isEditMode: boolean
     return (
       <div className="bg-yellow-100 border-2 border-yellow-400 rounded-2xl p-4">
         <p className="font-black text-[12px]">🆓 Limite gratuite atteinte</p>
-        <p className="text-[10px] mt-1">Dès {usd(1)} ({toCDFString(1)}), un abonnement ouvre jusqu'à {PALIERS.STANDARD.imagesMax} images et plus. Les achats sont cumulables.</p>
+        <p className="text-[10px] mt-1">
+          {estGrossiste
+            ? `Dès ${usd(1)} (${toCDFString(1)}), un abonnement ouvre jusqu'à ${PALIERS.STANDARD.imagesMax} produits gros. Les achats sont cumulables.`
+            : `Dès ${usd(1)} (${toCDFString(1)}), un abonnement ouvre jusqu'à ${PALIERS.STANDARD.imagesMax} images et plus. Les achats sont cumulables.`}
+        </p>
         <Link href="/abonnement" className="mt-3 block w-full bg-black text-white text-center py-2.5 rounded-full font-black text-[11px]">
           Voir les abonnements
         </Link>
@@ -35,7 +44,11 @@ export function StatusBanners({ ab, isEditMode }: { ab: any; isEditMode: boolean
     return (
       <div className="bg-yellow-100 border-2 border-yellow-400 rounded-2xl p-4">
         <p className="font-black text-[12px]">Plus de places libres</p>
-        <p className="text-[10px] mt-1">Supprimez une annonce vendue pour libérer une place, ou achetez un nouveau ticket.</p>
+        <p className="text-[10px] mt-1">
+          {estGrossiste
+            ? "Supprimez un produit gros vendu pour libérer une place, ou achetez un nouveau ticket."
+            : "Supprimez une annonce vendue pour libérer une place, ou achetez un nouveau ticket."}
+        </p>
         <Link href="/abonnement" className="mt-3 block w-full bg-black text-white text-center py-2.5 rounded-full font-black text-[11px]">
           Acheter un ticket
         </Link>
@@ -46,15 +59,20 @@ export function StatusBanners({ ab, isEditMode }: { ab: any; isEditMode: boolean
   return null;
 }
 
-/* ---------- Choix du ticket sur lequel publier ---------- */
-export function TicketPicker({ tickets, selectedId, onSelect }: { tickets: any[]; selectedId: string; onSelect: (id: string) => void }) {
+/* ---------- Choix du ticket ---------- */
+export function TicketPicker({ tickets, selectedId, onSelect, role }: { tickets: any[]; selectedId: string; onSelect: (id: string) => void; role?: string }) {
   if (!tickets || tickets.length === 0) return null;
   const selected = tickets.find((t: any) => t.ticketId === selectedId);
+  const estGrossiste = role === "grossiste";
 
   return (
     <div className="bg-white border-2 border-black rounded-2xl p-4 shadow-sm">
-      <p className="font-black text-[13px]">🎫 Choisissez le ticket</p>
-      <p className="text-[9px] text-gray-600 mt-1">Chaque annonce utilise 1 place du ticket. Supprimer une annonce libère sa place.</p>
+      <p className="font-black text-[13px]">{estGrossiste ? "🏭 Choisissez le ticket gros" : "🎫 Choisissez le ticket"}</p>
+      <p className="text-[9px] text-gray-600 mt-1">
+        {estGrossiste
+          ? "Chaque produit gros utilise 1 place du ticket. Supprimer un produit libère sa place."
+          : "Chaque annonce utilise 1 place du ticket. Supprimer une annonce libère sa place."}
+      </p>
       <div className="mt-3 space-y-2 max-h-[220px] overflow-y-auto">
         {tickets.map((t: any) => {
           const isSel = selectedId === t.ticketId;
@@ -69,7 +87,7 @@ export function TicketPicker({ tickets, selectedId, onSelect }: { tickets: any[]
             >
               <div className="flex justify-between items-center">
                 <div>
-                  <p className="font-black text-[11px]">{(PALIERS as any)[t.palierId]?.badge || "🎫"} {t.palierId} - {t.imagesUsed}/{t.imagesMax} places</p>
+                  <p className="font-black text-[11px]">{(PALIERS as any)[t.palierId]?.badge || "🎫"} {t.palierId} - {t.imagesUsed}/{t.imagesMax} {estGrossiste ? "produits" : "places"}</p>
                   <p className="text-[9px] opacity-80 mt-0.5">Expire le {new Date(t.expireAt).toLocaleDateString("fr-FR")} - {jours}j restants</p>
                 </div>
                 <p className={"font-black text-[11px] px-2.5 py-1 rounded-full " + (isSel ? "bg-white text-black" : "bg-black text-white")}>{t.imagesMax - t.imagesUsed} libres</p>
@@ -90,18 +108,22 @@ export function TicketPicker({ tickets, selectedId, onSelect }: { tickets: any[]
   );
 }
 
-/* ---------- Photos (4 max, compressées) ---------- */
+/* ---------- Photos ---------- */
 export function PhotoPicker({
   photos,
   setPhotos,
   disabled,
-  notify
+  notify,
+  role,
 }: {
   photos: string[];
   setPhotos: (fn: (prev: string[]) => string[]) => void;
   disabled: boolean;
   notify: (msg: string, type?: string) => void;
+  role?: string;
 }) {
+  const estGrossiste = role === "grossiste";
+
   async function handleFiles(e: any) {
     const files = Array.from(e.target.files || []) as File[];
     e.target.value = "";
@@ -128,9 +150,12 @@ export function PhotoPicker({
   return (
     <div className="bg-white border rounded-2xl p-4 shadow-sm">
       <div className="flex justify-between items-center">
-        <p className="font-black text-[12px]">Photos ({MAX_PHOTOS} max)</p>
+        <p className="font-black text-[12px]">{estGrossiste ? "Photos du produit gros" : `Photos (${MAX_PHOTOS} max)`}</p>
         <p className="text-[10px] bg-black text-white px-2.5 py-1 rounded-full font-bold">{photos.length} / {MAX_PHOTOS}</p>
       </div>
+      {estGrossiste ? (
+        <p className="text-[10px] text-gray-500 mt-2">Conseil : photo du carton fermé + photo du carton ouvert + photo du produit seul. Les Grossistes achètent sur photo.</p>
+      ) : null}
       <input
         type="file"
         accept="image/*"
@@ -144,6 +169,7 @@ export function PhotoPicker({
           {photos.map((p: string, i: number) => (
             <div key={i} className="relative">
               <img src={p} alt={"Photo " + (i + 1)} className="w-full h-28 object-cover rounded-xl border-2" />
+              {i === 0 ? <span className="absolute top-1.5 left-1.5 bg-black text-white text-[8px] px-2 py-0.5 rounded-full font-black">PHOTO PRINCIPALE</span> : null}
               <button
                 type="button"
                 onClick={() => setPhotos((prev: string[]) => prev.filter((_: any, idx: number) => idx !== i))}
