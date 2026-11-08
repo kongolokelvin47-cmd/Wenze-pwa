@@ -1,15 +1,22 @@
-// lib/invitations.ts - Façade des invitations.
-//
-// Plusieurs pages (profil, espace privé) importent ce module. La logique réelle (places, expiration à 48 h,
-// refus des doublons et des auto-invitations) est dans lib/comptes.ts : ce fichier ne fait que l'exposer
-// sous les noms attendus par ces pages.
+// lib/invitations.ts - VERSION CORRIGÉE WENZE - 243 + DG-PRIVE
+// Façade des invitations. Logique réelle dans lib/comptes.ts
 
 import { lireSession, listerInvitations, inviter, cle9 } from "./comptes";
 import { readList, writeList } from "./paiement-base";
 
 const K_INVITES = "wenze_invitations";
+const DOMAINE = "https://wenze.cd"; // <-- Change en localhost:3000 en test
 
-/** Marque comme expirées les invitations en attente dont la réservation de 48 h est terminée. */
+/** Normalise TOUJOURS en 243. 082... -> 24382..., 243... -> 243... */
+export function cleanWa(wa: string = ""): string {
+  let c = String(wa).replace(/[^0-9]/g, "");
+  if (c.startsWith("0")) c = "243" + c.slice(1);
+  if (c.startsWith("243")) return c;
+  if (c.length === 9) return "243" + c;
+  return c;
+}
+
+/** Marque comme expirées les invitations en attente dont la réservation de 48h est terminée. */
 export function cleanupExpired(): number {
   const l = readList(K_INVITES);
   let n = 0;
@@ -23,28 +30,63 @@ export function cleanupExpired(): number {
   return n;
 }
 
-/** Toutes les invitations enregistrées sur cet appareil (usage administratif). */
+/** Toutes les invitations - DG + SUPERVISEUR SEULEMENT. */
 export function getAllInvitations(): any[] {
   cleanupExpired();
-  return readList(K_INVITES);
+  const s: any = lireSession();
+  // Sécurité : si ce n'est pas DG / Superviseur, on ne montre que les siennes
+  if (s && (s.roleAdmin === "dg" || s.roleAdmin === "superviseur")) {
+    return readList(K_INVITES);
+  }
+  return getMyInvitations();
 }
 
 /** Invitations envoyées par la personne connectée. */
 export function getMyInvitations(): any[] {
-  const s = lireSession();
-  return s ? listerInvitations(s.ownerWhatsapp || s.whatsapp) : [];
+  const s: any = lireSession();
+  if (!s) return [];
+  return listerInvitations(cleanWa(s.ownerWhatsapp || s.whatsapp));
 }
 
 /**
  * Crée une invitation pour la personne connectée.
- * Lance une erreur avec un message clair si l'invitation est refusée (numéro invalide, déjà invité, plus de place…).
+ * type: "vendeur" = Boutique, "client" = Client, "ambassadeur" = Ambassadeur
  */
-export function createInvitation(whatsapp: string, nom: string, type: "vendeur" | "client" = "client"): { inv: any; link: string; waLink: string } {
-  const s = lireSession();
-  const r = inviter(s, { nom, whatsapp, type });
+export function createInvitation(
+  whatsapp: string,
+  nom: string,
+  type: "vendeur" | "client" | "ambassadeur" = "client"
+): { inv: any; link: string; waLink: string; message: string } {
+  const s: any = lireSession();
+  if (!s) throw new Error("Tu dois être connecté pour inviter.");
+
+  const numeroPropre = cleanWa(whatsapp);
+  if (numeroPropre === cleanWa(s.ownerWhatsapp || s.whatsapp)) {
+    throw new Error("Tu ne peux pas t'inviter toi-même.");
+  }
+  if (numeroPropre.length !== 12 || !numeroPropre.startsWith("243")) {
+    throw new Error("Numéro invalide. Utilise le format 243XXXXXXXXX (ex: 243825888889).");
+  }
+
+  // On passe le type ambassadeur à comptes.ts si il gère "vendeur" seulement, on mappe
+  const typePourComptes: any = type === "ambassadeur" ? "vendeur" : type;
+  const r: any = inviter(s, { nom: nom.trim(), whatsapp: numeroPropre, type: typePourComptes });
   if (!r.ok) throw new Error(r.erreur || "Invitation impossible");
+
   const inv = r.invitation || {};
-  return { inv: { ...inv, token: inv.codeParrainage || inv.id }, link: r.lien || "", waLink: r.lien || "" };
+  const code = inv.codeParrainage || inv.id;
+  // Lien public à partager partout
+  const link = r.lien || `${DOMAINE}/invitation/${code}`;
+  // Vrai lien WhatsApp avec message pré-rempli
+  const message = `Salut ${nom} 👋, ${s.nomEtablissement || s.nom || "Wenze"} t'invite sur WENZE Business.\nInscris-toi ici, c'est gratuit : ${link}\nCode : ${code}`;
+  const waLink = `https://wa.me/${numeroPropre}?text=${encodeURIComponent(message)}`;
+
+  return {
+    inv: { ...inv, token: code, whatsapp: numeroPropre, link },
+    link,
+    waLink,
+    message,
+  };
 }
 
 export interface StatsInvitations {
@@ -53,22 +95,37 @@ export interface StatsInvitations {
   inscrits: number;
   valides: number;
   expirees: number;
+  annulees: number;
 }
 
 export function getInvitationStats(): StatsInvitations {
   const l = getAllInvitations();
   const compte = (statut: string) => l.filter((i: any) => i.status === statut).length;
-  return { total: l.length, enAttente: compte("invité"), inscrits: compte("inscrit"), valides: compte("validé"), expirees: compte("expiré") };
+  return {
+    total: l.length,
+    enAttente: compte("invité"),
+    inscrits: compte("inscrit"),
+    valides: compte("validé"),
+    expirees: compte("expiré"),
+    annulees: compte("annulé"),
+  };
 }
 
-/** Annule une invitation envoyée par la personne connectée. */
+/** Annule une invitation. DG peut annuler tout, les autres seulement les leurs. */
 export function revokeInvitation(id: string): boolean {
-  const s = lireSession();
+  const s: any = lireSession();
   if (!s) return false;
+  const monWa = cleanWa(s.ownerWhatsapp || s.whatsapp);
+  const estDG = s.roleAdmin === "dg" || s.roleAdmin === "superviseur";
+
   const l = readList(K_INVITES);
-  const i = l.findIndex((x: any) => String(x.id) === String(id) && cle9(x.parrainWa) === cle9(s.ownerWhatsapp || s.whatsapp));
+  const i = l.findIndex((x: any) => {
+    const memeId = String(x.id) === String(id) || String(x.codeParrainage) === String(id);
+    const cestMoi = cle9(x.parrainWa) === cle9(monWa);
+    return memeId && (estDG || cestMoi);
+  });
   if (i < 0 || l[i].status !== "invité") return false;
-  l[i] = { ...l[i], status: "expiré" };
+  l[i] = { ...l[i], status: "annulé", annuleLe: new Date().toISOString(), annulePar: monWa };
   return writeList(K_INVITES, l);
 }
 
