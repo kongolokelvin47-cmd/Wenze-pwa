@@ -3,9 +3,11 @@ import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cleanWa, getUser, readList } from "@/app/publier/helpers";
-import { toCDFString } from "@/lib/paiement";
 
 export const dynamic = "force-dynamic";
+
+// ✅ PRIX EN FC - jamais en $ ici
+const fmtFC = (n: number) => Number(n || 0).toLocaleString("fr-FR") + " FC";
 
 const METIERS = [
   { id: "plomberie", label: "🔧 Plombier", prix: "15000" },
@@ -17,10 +19,11 @@ const METIERS = [
   { id: "menuiserie", label: "🪚 Menuisier", prix: "20000" },
   { id: "mecanique", label: "🔩 Mécanicien", prix: "15000" },
   { id: "livraison", label: "🛵 Livreur", prix: "5000" },
-  { id: "autre", label: "✨ Autre service", prix: "" }, // Autre = pas de prix suggéré
+  { id: "autre", label: "✨ Autre service", prix: "" },
 ];
 
-const COMMUNES = ["Gombe", "Lemba", "Matete", "Limete", "Ngaliema", "Kasa-Vubu", "Bandalungwa", "Kintambo", "Lingwala", "Kinshasa"];
+// ✅ Toutes les communes de Kinshasa, pas juste 10
+const COMMUNES = ["Gombe", "Lemba", "Matete", "Limete", "Ngaliema", "Kasa-Vubu", "Bandalungwa", "Kintambo", "Lingwala", "Kinshasa", "Ngiri-Ngiri", "Bumbu", "Selembao", "Makala", "Ngaba", "Kalamu", "Barumbu", "Masina", "Ndjili", "Kimbanseke", "Maluku", "Mont-Ngafula", "Kisenso", "Nsele"];
 
 function PublierServiceContent() {
   const router = useRouter();
@@ -36,7 +39,7 @@ function PublierServiceContent() {
     metier: "",
     titre: "",
     description: "",
-    prixPrestation: "", // VIDE = Prix à discuter
+    prixPrestation: "",
     zone: "",
     commune: "",
     ville: "Kinshasa",
@@ -58,12 +61,15 @@ function PublierServiceContent() {
     if (editId) {
       const old = readList("wenze_services_list").find((x: any) => String(x.id) === String(editId));
       if (old) {
+        // ✅ CORRIGÉ DÉFINITIVEMENT : si l'ancien prix a été corrompu par toCDFString (x2300), on le répare
+        // Ex : ancien prix stocké 34.500.000 = 15000 x 2300 -> on le redivise
+        let prixCorrige = old.prixPrestation ? Number(old.prixPrestation) : 0;
+        if (prixCorrige >= 2300000) prixCorrige = Math.round(prixCorrige / 2300);
         setForm({
           metier: old.metier || old.activiteId || "",
           titre: old.titre || "",
           description: old.description || "",
-          // CORRIGÉ : si ancien prix = null, on remet vide
-          prixPrestation: old.prixPrestation ? String(old.prixPrestation) : "",
+          prixPrestation: prixCorrige > 0 ? String(prixCorrige) : "",
           zone: old.zone || "",
           commune: old.commune || u.commune || "",
           ville: old.ville || "Kinshasa",
@@ -79,7 +85,6 @@ function PublierServiceContent() {
   const setField = (k: string, v: string) => setForm((f: any) => ({ ...f, [k]: v }));
 
   const choisirMetier = (m: any) => {
-    // CORRIGÉ : on ne force plus le prix. Si le métier a un prix suggéré et que le champ est vide, on le suggère, sinon on laisse vide.
     setForm((f: any) => ({
       ...f,
       metier: m.id,
@@ -91,7 +96,6 @@ function PublierServiceContent() {
   const publier = () => {
     if (!form.metier) { setToast("Choisis ton métier"); setTimeout(() => setToast(""), 3000); return; }
     if (form.titre.trim().length < 3) { setToast("Titre : 3 caractères minimum"); setTimeout(() => setToast(""), 3000); return; }
-    // CORRIGÉ : PRIX FACULTATIF - on a supprimé le blocage. Plus de "Prix requis".
     if (!form.zone && !form.commune) { setToast("Zone d'intervention requise"); setTimeout(() => setToast(""), 3000); return; }
 
     const wa = cleanWa(user.ownerWhatsapp || user.whatsapp);
@@ -101,7 +105,6 @@ function PublierServiceContent() {
     const id = editId || "SRV-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6).toUpperCase();
     const metierObj = METIERS.find((m) => m.id === form.metier);
 
-    // CORRIGÉ : prix vide = null = "Prix à discuter"
     const prixNum = Number(form.prixPrestation || 0);
     const aUnPrix = prixNum > 0;
 
@@ -113,10 +116,14 @@ function PublierServiceContent() {
       activite: metierObj?.label || form.metier,
       titre: form.titre.trim(),
       description: form.description.trim(),
+      // ✅ Prix en FC, jamais multiplié par 2300
       prixPrestation: aUnPrix ? prixNum : null,
       prix: aUnPrix ? prixNum : null,
-      prixCDFString: aUnPrix ? toCDFString(prixNum) : "Prix à discuter",
+      prixFC: aUnPrix ? prixNum : null,
+      prixCDFString: aUnPrix ? fmtFC(prixNum) : "Prix à discuter",
+      prixAffiche: aUnPrix ? fmtFC(prixNum) : "Prix à discuter",
       prixADiscuter: !aUnPrix,
+      devise: "CDF",
       zone: form.zone || form.commune,
       commune: form.commune || form.zone || "Kinshasa",
       ville: form.ville || "Kinshasa",
@@ -200,11 +207,10 @@ function PublierServiceContent() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              {/* CORRIGÉ : facultatif, plus de * */}
               <label className="text-[10px] font-bold">À partir de (FC) - facultatif</label>
               <input value={form.prixPrestation} onChange={(e) => setField("prixPrestation", e.target.value.replace(/[^0-9]/g, ""))} placeholder="Laisse vide = à discuter" inputMode="numeric" className="w-full border rounded-xl p-3.5 text-[13px] mt-1 font-black" />
               {prixAffiche ? (
-                <p className="text-[10px] text-gray-500 mt-1">{toCDFString(Number(form.prixPrestation))}</p>
+                <p className="text-[10px] text-gray-500 mt-1">{fmtFC(Number(form.prixPrestation))}</p>
               ) : (
                 <p className="text-[10px] text-purple-600 font-bold mt-1">💬 Sera affiché : Prix à discuter</p>
               )}
@@ -249,4 +255,4 @@ function PublierServiceContent() {
 
 export default function PublierServicePage() {
   return <Suspense fallback={<div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6"><div className="h-24 bg-white border rounded-2xl animate-pulse"></div></div>}><PublierServiceContent /></Suspense>;
-                  }
+}
