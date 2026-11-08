@@ -2,11 +2,13 @@
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { TAUX_CDF, toCDFString } from "@/lib/paiement"; // ✅ TAUX 2300 centralisé, plus de 2850 en dur
 
 const cleanWa = (n:any)=>(n||"").toString().replace(/[^0-9]/g,"").replace(/^0+/,"");
-const TAUX_CDF = 2850;
 const safePrix = (p:any)=>{ const v=Number(p||0); return isNaN(v)?0:v; };
-const safeCDF = (p:any)=>{ try{ return (safePrix(p)*TAUX_CDF).toLocaleString(); }catch{ return "0"; } };
+// ✅ CORRIGÉ : utilise le vrai taux 2300
+const safeCDF = (p:any)=>{ try{ return toCDFString(safePrix(p)); }catch{ return "0"; } };
+const fmtFC = (n:any)=> Number(n||0).toLocaleString("fr-FR") + " FC";
 const readList = (k:string):any[]=>{ try{ const r=localStorage.getItem(k); const v=r?JSON.parse(r):[]; return Array.isArray(v)?v:[]; }catch{ return []; } };
 
 export default function ProduitPage(){
@@ -38,7 +40,6 @@ export default function ProduitPage(){
         return;
       }
 
-      // CORRIGÉ : CLIENT ne peut pas ouvrir un produit NON recommandé, même avec le lien direct
       const monRole = u?.role || "client";
       const jeSuisDG = u?.roleAdmin === "dg" || u?.role === "dg";
       const voirTout = monRole !== "client" || jeSuisDG;
@@ -69,7 +70,6 @@ export default function ProduitPage(){
     try{ return cleanWa(user.ownerWhatsapp||user.whatsapp||user.id)===cleanWa(a.ownerWhatsapp||a.whatsapp||a.userId) || user.id===a.userId; }catch{ return false; }
   },[user,a]);
 
-  // CORRIGÉ : qui peut voir le prix gros ?
   const monRole = user?.role || "client";
   const jeSuisDG = user?.roleAdmin === "dg" || user?.role === "dg";
   const estGros = a?.typeAnnonce === "gros";
@@ -86,19 +86,17 @@ export default function ProduitPage(){
       if(!phone) return;
       const base = typeof window!=="undefined" ? window.location.origin : "https://wenze.cd";
       const lien = `${base}/produit/${encodeURIComponent(a.id)}`;
-      // CORRIGÉ : message différent si gros + si on peut voir le prix gros
       const lignePrix = estGros && peutVoirGros
-        ? `- Prix gros : ${safePrix(a.prixGros)} FC / ${a.uniteGros || "carton"} (Min ${a.minimumCommande || 10})\n- Prix détail : ${safePrix(a.prix)}$ / ${safeCDF(a.prix)} CDF`
+        ? `- Prix gros : ${fmtFC(a.prixGros)} / ${a.uniteGros || "carton"} (Min ${a.minimumCommande || 10})\n- Prix détail : ${safePrix(a.prix)}$ / ${safeCDF(a.prix)}`
         : estGros
-        ? `- Prix détail : ${safePrix(a.prix)}$ / ${safeCDF(a.prix)} CDF\n- Je veux le prix gros (je suis Grossiste)`
-        : `- Prix affiché : ${safePrix(a.prix)}$ / ${safeCDF(a.prix)} CDF`;
+        ? `- Prix détail : ${safePrix(a.prix)}$ / ${safeCDF(a.prix)}\n- Je veux le prix gros (je suis Grossiste)`
+        : `- Prix affiché : ${safePrix(a.prix)}$ / ${safeCDF(a.prix)}`;
       const msg = `Bonjour,\n\nJe vous contacte depuis Wenze Wenze Business.\n\nJe suis intéressé(e) par votre article :\n\n- Article : ${a.titre || "Article"}\n${lignePrix}\n- Référence : ${a.id}\n\nJe souhaiterais acheter cet article. Est-il toujours disponible ?\n\nMerci de bien vouloir me renseigner sur les modalités d'achat.\n\nCordialement.\n\nLien annonce : ${lien}`;
       window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, "_blank");
     }catch{}
   };
 
   const handleAdd = ()=>{
-    // CORRIGÉ : Client ne peut pas mettre du GROS dans le panier, il doit être Grossiste
     if(estGros && !peutVoirGros){
       setAdded(true);
       setTimeout(()=>setAdded(false),3000);
@@ -111,8 +109,20 @@ export default function ProduitPage(){
         setTimeout(()=>setAdded(false),2000);
         return;
       }
-      panier.push({...a, qty:1, prixAffiche: estGros && peutVoirGros ? a.prixGros : a.prix});
+      // ✅ CORRIGÉ : quantité = minimum gros si gros, sinon 1 + champs gros explicites
+      const minGros = estGros ? Number(a.minimumCommande || 10) : 1;
+      panier.push({
+        ...a,
+        qty: minGros,
+        quantite: minGros,
+        typeAnnonce: a.typeAnnonce,
+        prixGros: Number(a.prixGros || 0),
+        uniteGros: a.uniteGros || "Carton",
+        minimumCommande: minGros,
+        prixAffiche: estGros && peutVoirGros ? a.prixGros : a.prix,
+      });
       localStorage.setItem("wenze_panier", JSON.stringify(panier));
+      window.dispatchEvent(new Event("wenze-update"));
       setAdded(true);
       setTimeout(()=>setAdded(false),2500);
     }catch{}
@@ -130,7 +140,6 @@ export default function ProduitPage(){
 
   if(loading) return <div className="max-w-[430px] mx-auto bg-[#FFFBF0] min-h-screen p-6 text-center font-black">Chargement produit {id}...</div>;
 
-  // CORRIGÉ : Client bloqué sur produit non-recommandé
   if(bloqueClient) return (
     <div className="max-w-[430px] mx-auto bg-[#FFFBF0] min-h-screen p-6 text-center">
       <div className="bg-white border rounded-[20px] p-8 mt-10">
@@ -180,15 +189,14 @@ export default function ProduitPage(){
             </div>
             <p className="font-black text-[16px] mt-2">{a.titre}</p>
             <p className="text-[11px] text-gray-500 mt-1">{a.commune||"Kinshasa"} • {a.marque||vendeurInfo?.marque||"Commerce général"}</p>
-            <p className="font-black text-[18px] mt-2">{safePrix(a.prix)}$ / {safeCDF(a.prix)} CDF</p>
-            <p className="text-[10px] text-gray-500">Prix détail - à l'unité</p>
+            <p className="font-black text-[18px] mt-2">{safePrix(a.prix)}$ / {safeCDF(a.prix)}</p>
+            <p className="text-[10px] text-gray-500">Prix détail - à l'unité • Taux {TAUX_CDF}</p>
 
-            {/* CORRIGÉ : BLOC PRIX GROS */}
             {estGros ? (
               peutVoirGros ? (
                 <div className="bg-orange-50 border border-orange-300 rounded-xl p-3 mt-3">
-                  <p className="font-black text-[12px] text-orange-700">🏭 Prix gros : {safePrix(a.prixGros)} FC / {a.uniteGros || "carton"}</p>
-                  <p className="text-[10px] text-gray-600 mt-0.5">Commande minimum : {a.minimumCommande || 10} {a.uniteGros || "cartons"} • Économise {(safePrix(a.prix)*2850 - safePrix(a.prixGros)) > 0 ? "par carton" : ""}</p>
+                  <p className="font-black text-[12px] text-orange-700">🏭 Prix gros : {fmtFC(a.prixGros)} / {a.uniteGros || "carton"}</p>
+                  <p className="text-[10px] text-gray-600 mt-0.5">Commande minimum : {a.minimumCommande || 10} {a.uniteGros || "cartons"}</p>
                 </div>
               ) : (
                 <div className="bg-orange-50 border border-orange-300 rounded-xl p-3 mt-3">
@@ -230,7 +238,7 @@ export default function ProduitPage(){
               {related.map((r:any)=>(
                 <Link key={r.id} href={`/produit/${r.id}`} className="bg-white border rounded-xl overflow-hidden block">
                   {r.photo ? <img src={r.photo} className="w-full aspect-square object-cover"/> : <div className="w-full aspect-square flex items-center justify-center">📦</div>}
-                  <div className="p-2"><p className="font-bold text-[11px] truncate">{r.titre}</p><p className="text-[10px]">{safePrix(r.prix)}$</p></div>
+                  <div className="p-2"><p className="font-bold text-[11px] truncate">{r.titre}</p><p className="text-[10px]">{safePrix(r.prix)}$ / {safeCDF(r.prix)}</p></div>
                 </Link>
               ))}
             </div>
@@ -241,4 +249,4 @@ export default function ProduitPage(){
       <div className="fixed bottom-3 left-1/2 -translate-x-1/2 bg-black text-white px-4 py-2 rounded-full text-[9px] font-bold whitespace-nowrap">WENZE WENZE BUSINESS • {a.id}</div>
     </div>
   );
-                                                        }
+              }
