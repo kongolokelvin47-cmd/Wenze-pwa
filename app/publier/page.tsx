@@ -28,7 +28,7 @@ function PublierContent() {
   const [selectedTicketId, setSelectedTicketId] = useState<string>(ticketFromUrl);
   const [isEditMode, setIsEditMode] = useState(false);
   const [original, setOriginal] = useState<any>(null);
-  const [bloqueRole, setBloqueRole] = useState<string | null>(null); // NOUVEAU : client / prestataire bloqué
+  const [bloqueRole, setBloqueRole] = useState<string | null>(null);
   const [form, setForm] = useState<any>({
     titre: "",
     description: "",
@@ -39,7 +39,8 @@ function PublierContent() {
     ville: "Kinshasa",
     stock: "1",
     livraison: "Retrait / Livraison Kinshasa",
-    // NOUVEAU : champs Grossiste
+    // ✅ CORRIGÉ : le type est un CHOIX, pas forcé par le rôle
+    typeAnnonce: grosFromUrl ? "gros" : "detail",
     prixGros: "",
     minimumCommande: "10",
     uniteGros: "Carton",
@@ -52,18 +53,15 @@ function PublierContent() {
       return;
     }
 
-    // ===== CORRIGÉ : VRAI RÔLE, PAS "boutique" FORCÉ =====
     const vraiRole = u.role || u.typeCompte || (u.estVendeur ? "vendeur" : "client");
     const waU = cleanWa(u.ownerWhatsapp || u.whatsapp || u.id);
 
-    // ===== CORRIGÉ : CLIENT BLOQUÉ =====
     if (vraiRole === "client") {
       setBloqueRole("client");
       setUser({ ...u, role: "client" });
       setLoading(false);
       return;
     }
-    // ===== CORRIGÉ : PRESTATAIRE REDIRIGÉ VERS SON FORMULAIRE =====
     if (vraiRole === "prestataire") {
       setBloqueRole("prestataire");
       setUser({ ...u, role: "prestataire" });
@@ -105,7 +103,8 @@ function PublierContent() {
           ville: old.ville || "Kinshasa",
           stock: String(old.stock || 1),
           livraison: old.livraison || "Retrait / Livraison Kinshasa",
-          // CORRIGÉ : on recharge les champs gros en édition
+          // ✅ CORRIGÉ : on recharge le vrai type, pas le rôle
+          typeAnnonce: old.typeAnnonce || "detail",
           prixGros: old.prixGros ? String(old.prixGros) : "",
           minimumCommande: String(old.minimumCommande || 10),
           uniteGros: old.uniteGros || "Carton",
@@ -128,7 +127,7 @@ function PublierContent() {
       nomEtablissement: u.nomEtablissement || u.nom || "",
       commune: u.commune || "",
       categorieId: fixedCat,
-      role: vraiRole, // CORRIGÉ : vrai rôle, pas "boutique"
+      role: vraiRole,
     });
     if (!old) {
       setForm((f: any) => ({ ...f, categorieId: fixedCat, activiteId: u.activiteId || firstAct, commune: u.commune || f.commune }));
@@ -146,7 +145,7 @@ function PublierContent() {
   );
 
   const estGrossiste = user?.role === "grossiste";
-  const estVendeur = user?.role === "vendeur" || user?.role === "boutique";
+  const estGros = form.typeAnnonce === "gros";
 
   function notify(msg: string, type: string = "success") {
     setToast({ msg: msg, type: type });
@@ -168,9 +167,10 @@ function PublierContent() {
     }
     if (form.titre.trim().length < 3) { notify("Titre : 3 caractères minimum", "error"); return; }
     if (!(prixNum > 0)) { notify("Prix en $ requis", "error"); return; }
-    // CORRIGÉ : validation Grossiste
-    if (estGrossiste) {
-      if (!(prixGrosNum > 0)) { notify("Prix gros requis pour un Grossiste", "error"); return; }
+    // ✅ CORRIGÉ : validation GROS seulement si type = gros, pas si rôle = grossiste
+    if (estGros) {
+      if (!estGrossiste && user?.role !== "dg" && user?.roleAdmin !== "dg") { notify("🔒 Le gros est réservé aux Grossistes", "error"); return; }
+      if (!(prixGrosNum > 0)) { notify("Prix gros requis (en $ / carton)", "error"); return; }
       if (Number(form.minimumCommande || 0) < 1) { notify("Minimum de commande requis (ex: 10)", "error"); return; }
       if (!form.uniteGros) { notify("Unité gros requise (Carton / Sac...)", "error"); return; }
     }
@@ -226,16 +226,20 @@ function PublierContent() {
         created_at: createdAtFinal,
         createdAt: createdAtFinal,
         statut: "actif",
-        // CORRIGÉ : on sauvegarde le type + les champs gros
-        typeAnnonce: estGrossiste ? "gros" : "detail",
+        // ✅ CORRIGÉ : type = choix de l'utilisateur, pas le rôle
+        // ✅ RÈGLE VERROUILLÉE : prix gros en $ / carton, comme le prix détail
+        typeAnnonce: estGros ? "gros" : "detail",
         roleVendeur: user.role,
-        ...(estGrossiste ? {
+        ...(estGros ? {
           prixGros: prixGrosNum,
+          prixGrosUSD: prixGrosNum,
           prixGrosCDF: toCDF(prixGrosNum),
           minimumCommande: Number(form.minimumCommande || 10),
           uniteGros: form.uniteGros || "Carton",
         } : {
           prixGros: null,
+          prixGrosUSD: null,
+          prixGrosCDF: null,
           minimumCommande: null,
           uniteGros: null,
         }),
@@ -267,7 +271,6 @@ function PublierContent() {
     );
   }
 
-  // ===== ÉCRANS DE BLOCAGE PAR RÔLE =====
   if (bloqueRole === "client") {
     return (
       <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6 flex flex-col justify-center text-center">
@@ -307,7 +310,7 @@ function PublierContent() {
             <div className="bg-[#FFFBF0] border-2 rounded-2xl p-4 mt-4 text-left">
               <p className="font-black text-[13px]">{showSuccess.titre}</p>
               <p className="text-[12px] font-black text-orange-600 mt-1">{showSuccess.prix}</p>
-              {estGrossiste && prixGrosNum > 0 ? <p className="text-[11px] font-bold text-orange-700 mt-1">Gros : {prixGrosNum}$ / {form.uniteGros} (min {form.minimumCommande})</p> : null}
+              {estGros && prixGrosNum > 0 ? <p className="text-[11px] font-bold text-orange-700 mt-1">Gros : {prixGrosNum}$ / {form.uniteGros} (min {form.minimumCommande})</p> : null}
               {showSuccess.ticketLabel ? <p className="text-[10px] mt-2 bg-black text-white inline-block px-2.5 py-1 rounded-full">{showSuccess.ticketLabel}</p> : null}
             </div>
             <p className="text-[10px] text-gray-500 mt-3">Redirection vers l'annonce...</p>
@@ -318,7 +321,7 @@ function PublierContent() {
       <header className="sticky top-0 bg-white/95 backdrop-blur z-20 p-4 border-b flex items-center gap-3">
         <Link href={isEditMode ? "/produit/" + editId : "/"} className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center">←</Link>
         <div className="flex-1 min-w-0">
-          <h1 className="font-black text-[13px] truncate">{isEditMode ? "Modifier l'annonce" : estGrossiste ? "Publier un produit gros" : "Publier une annonce"}</h1>
+          <h1 className="font-black text-[13px] truncate">{isEditMode ? "Modifier l'annonce" : estGros ? "Publier un produit gros" : "Publier une annonce"}</h1>
           <p className="text-[9px] text-gray-500 truncate">{headerStatus} - Taux {TAUX_CDF}</p>
         </div>
         <span className={"text-[10px] px-2.5 py-1 rounded-full font-black text-white " + (estGrossiste ? "bg-orange-500" : isCache ? "bg-red-600" : ab?.isPaye ? "bg-black" : "bg-orange-500")}>
@@ -329,11 +332,15 @@ function PublierContent() {
       <div className="p-4 space-y-4">
         {toast ? <div className={"p-3.5 rounded-xl text-[11px] font-bold border-2 " + (toast.type === "error" ? "bg-red-50 text-red-700 border-red-300" : "bg-green-50 text-green-800 border-green-300")}>{toast.msg}</div> : null}
 
-        {/* BANDEAU GROSSISTE */}
         {estGrossiste ? (
           <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
             <p className="font-black text-[12px]">🏭 Mode Grossiste</p>
-            <p className="text-[11px] text-gray-600 mt-1">Ton prix détail est visible par tout le monde. Ton prix gros est visible seulement par les Grossistes + DG.</p>
+            <p className="text-[11px] text-gray-600 mt-1">Tu peux publier en Détail OU en Gros. Choisis ci-dessous. Ton prix détail est visible par tout le monde. Ton prix gros est visible seulement par les Grossistes + DG.</p>
+            {/* ✅ NOUVEAU : interrupteur Détail / Gros */}
+            <div className="flex gap-2 mt-3">
+              <button type="button" onClick={() => setField("typeAnnonce", "detail")} className={"flex-1 py-2.5 rounded-full font-black text-[11px] border-2 " + (!estGros ? "bg-black text-white border-black" : "bg-white")}>🛍️ Détail</button>
+              <button type="button" onClick={() => setField("typeAnnonce", "gros")} className={"flex-1 py-2.5 rounded-full font-black text-[11px] border-2 " + (estGros ? "bg-orange-500 text-white border-orange-500" : "bg-white")}>🏭 Gros</button>
+            </div>
           </div>
         ) : null}
 
@@ -343,14 +350,14 @@ function PublierContent() {
 
         <ProductForm form={form} setField={setField} setForm={setForm} prixNum={prixNum} activites={activites} />
 
-        {/* CHAMPS GROS - SEUL GROSSISTE VOIT ÇA */}
-        {estGrossiste ? (
+        {/* ✅ CHAMPS GROS - seulement si type = gros (pas si rôle = grossiste) */}
+        {estGros ? (
           <div className="bg-white border-2 border-orange-300 rounded-2xl p-4 space-y-3">
             <p className="font-black text-[13px]">🏭 Prix Gros</p>
             <div>
               <label className="text-[11px] font-bold">Prix gros (en $ / {form.uniteGros}) *</label>
               <input type="number" inputMode="decimal" value={form.prixGros} onChange={(e) => setField("prixGros", e.target.value)} placeholder="Ex: 45" className="w-full border-2 rounded-xl px-3 py-2.5 text-[13px] mt-1" />
-              {prixGrosNum > 0 ? <p className="text-[10px] text-gray-500 mt-1">= {toCDFString(prixGrosNum)} / {form.uniteGros}</p> : null}
+              {prixGrosNum > 0 ? <p className="text-[10px] text-gray-500 mt-1">= {prixGrosNum}$ / {form.uniteGros} = {toCDFString(prixGrosNum)}</p> : null}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -376,7 +383,7 @@ function PublierContent() {
       <div className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t p-3">
         <div className="max-w-[430px] mx-auto">
           <button type="button" onClick={handlePublish} disabled={saving || !!showSuccess || blocked} className="w-full bg-black text-white py-3.5 rounded-full font-black text-[13px] disabled:opacity-50">
-            {saving ? "Enregistrement..." : isEditMode ? "Enregistrer les modifications" : estGrossiste ? "Publier le produit gros" : "Publier l'annonce"}
+            {saving ? "Enregistrement..." : isEditMode ? "Enregistrer les modifications" : estGros ? "Publier le produit gros" : "Publier l'annonce"}
           </button>
         </div>
       </div>
@@ -386,8 +393,4 @@ function PublierContent() {
 
 export default function PublierPage() {
   return (
-    <Suspense fallback={<div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6"><div className="h-24 bg-white border rounded-2xl animate-pulse"></div></div>}>
-      <PublierContent />
-    </Suspense>
-  );
-            }
+    <Suspense fallba
