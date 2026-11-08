@@ -1,151 +1,259 @@
-// lib/admin.ts - WENZE ADMIN V3 - DG / Superviseur / Ambassadeur / Boutique / Client
+// lib/admin.ts - Espace privé WENZE : DG, superviseurs, ambassadeurs.
+//
+// Principes :
+// - Le moindre privilège : chaque rôle n'a que les permissions de la matrice ci-dessous.
+// - Chaque fonction qui modifie quelque chose re-vérifie le rôle de la personne connectée :
+//   l'interface n'est jamais la seule barrière.
+// - Toute action sensible est écrite dans un journal d'audit.
+//
+// ATTENTION : en mode local, ces données vivent dans le téléphone et n'importe qui peut les modifier.
+// Ce module sert de maquette fidèle. La vraie sécurité (rôles, double authentification du DG,
+// journal non modifiable) sera appliquée côté serveur : voir supabase/001_espace_prive.sql.
 
-export type RoleAdmin = "dg" | "superviseur" | "ambassadeur" | "boutique" | "client" | null;
+import { lireSession, sauverCompte, trouverCompte, lireComptes, cle9, normaliserWa } from "./comptes";
+import { readList, writeList } from "./paiement-base";
 
-// --- 1. QUI EST QUI ---
-export const DG_WHATSAPPS = ["243812345678"]; // <-- MET TON NUMÉRO DG ICI, sans +
-export const SUPERVISEUR_WHATSAPPS = ["243890000001"]; // <-- Tu ajouteras les autres ici, ou via /admin
+export type RoleStaff = "dg" | "superviseur" | "ambassadeur";
 
-export function roleDe(compte: any): RoleAdmin {
-  if (!compte) return null;
-  if (compte.roleAdmin) return compte.roleAdmin;
-  const wa = (compte.ownerWhatsapp || compte.whatsapp || "").toString().replace(/[^0-9]/g, "");
-  if (DG_WHATSAPPS.includes(wa)) return "dg";
-  if (SUPERVISEUR_WHATSAPPS.includes(wa)) return "superviseur";
-  if (compte.estAmbassadeur || compte.codeAmbassadeur?.startsWith("WENZE-AMB")) return "ambassadeur";
-  if (compte.estVendeur) return "boutique";
-  return "client"; // Tout compte connecté est au moins client
-}
+export type Permission =
+  | "stats_globales"
+  | "voir_comptes"
+  | "moderer_comptes"
+  | "voir_journal"
+  | "gerer_superviseurs"
+  | "gerer_ambassadeurs"
+  | "voir_equipe"
+  | "voir_filleuls";
 
-export function estAdmin(compte: any) {
-  const r = roleDe(compte);
-  return r === "dg" || r === "superviseur" || r === "ambassadeur";
-}
-
-// --- 2. DROITS - Qui voit quoi ---
-export const DROITS: Record<string, string[]> = {
-  dg: ["dashboard", "utilisateurs", "annonces", "paiements", "invitations", "ambassadeurs", "superviseurs", "parametres", "argent", "support", "utilisation", "commissions"],
-  superviseur: ["dashboard", "utilisateurs", "annonces", "paiements", "invitations", "ambassadeurs", "support"],
-  ambassadeur: ["dashboard", "mes-filleules", "mon-lien", "mes-commissions"],
-  boutique: ["dashboard", "mes-filleules", "mon-lien"],
-  client: ["dashboard", "mes-filleules", "mon-lien"],
+export const LIBELLES_ROLE: Record<RoleStaff, string> = {
+  dg: "Directeur général",
+  superviseur: "Superviseur",
+  ambassadeur: "Ambassadeur"
 };
 
-export function aDroit(compte: any, page: string) {
-  const r = roleDe(compte);
-  if (!r) return false;
-  return DROITS[r]?.includes(page) || false;
+/** Matrice des permissions (moindre privilège). */
+const MATRICE: Record<RoleStaff, Permission[]> = {
+  dg: ["stats_globales", "voir_comptes", "moderer_comptes", "voir_journal", "gerer_superviseurs", "gerer_ambassadeurs", "voir_equipe", "voir_filleuls"],
+  superviseur: ["gerer_ambassadeurs", "voir_equipe", "voir_filleuls"],
+  ambassadeur: ["voir_filleuls"]
+};
+
+export function peut(role: RoleStaff | null | undefined, p: Permission): boolean {
+  return !!role && MATRICE[role].includes(p);
 }
 
-// --- 3. CODES PRO ---
-export function genererCodePro(type: string) {
-  const prefix: Record<string, string> = {
-    dg: "WENZE-DG", superviseur: "WENZE-SUP", ambassadeur: "WENZE-AMB",
-    boutique: "WENZE-BOUT", client: "WENZE-CLI",
+/** Récompense de l'ambassadeur (proposition de la politique v1.3, à valider). */
+export const REGLES_AMBASSADEUR = { palier: "STANDARD", jours: 3, plafondMensuel: 20 };
+
+const K_STAFF = "wenze_staff";
+const K_AUDIT = "wenze_audit";
+const MAX_AUDIT = 500;
+
+export interface EntreeStaff {
+  id: string;
+  wa: string;
+  nom: string;
+  role: RoleStaff;
+  actif: boolean;
+  superviseurWa: string | null;
+  code: string | null;
+  creePar: string;
+  creeLe: string;
+  suspenduLe?: string | null;
+  motif?: string;
+}
+
+export interface EntreeAudit {
+  id: string;
+  date: string;
+  acteurWa: string;
+  acteurNom: string;
+  role: string;
+  action: string;
+  cible: string;
+  details: string;
+}
+
+export type Res<T> = { ok: true; data: T } | { ok: false; erreur: string; code: string };
+const echec = (erreur: string, code: string): { ok: false; erreur: string; code: string } => ({ ok: false, erreur, code });
+
+// ========== Équipe et rôle courant ==========
+export function lireStaff(): EntreeStaff[] {
+  return readList(K_STAFF) as EntreeStaff[];
+}
+
+export interface Acteur {
+  compte: any;
+  wa: string;
+  nom: string;
+  role: RoleStaff | null;
+  entree: EntreeStaff | null;
+}
+
+/** Personne connectée et son rôle dans l'équipe (null si elle n'en fait pas partie). */
+export function acteurCourant(): Acteur | null {
+  const s = lireSession();
+  if (!s) return null;
+  const wa = normaliserWa(s.ownerWhatsapp || s.whatsapp) || String(s.ownerWhatsapp || s.whatsapp || "");
+  const entree = lireStaff().find((e) => e.actif && cle9(e.wa) === cle9(wa)) || null;
+  return { compte: s, wa, nom: s.nomEtablissement || s.nom || wa, role: entree ? entree.role : null, entree };
+}
+
+export function dgExiste(): boolean {
+  return lireStaff().some((e) => e.actif && e.role === "dg");
+}
+
+// ========== Journal d'audit ==========
+function journaliser(a: Acteur, action: string, cible: string, details: string = ""): void {
+  const l = readList(K_AUDIT) as EntreeAudit[];
+  l.push({
+    id: "AUD-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+    date: new Date().toISOString(),
+    acteurWa: a.wa,
+    acteurNom: a.nom,
+    role: a.role || "—",
+    action,
+    cible,
+    details
+  });
+  writeList(K_AUDIT, l.slice(-MAX_AUDIT));
+}
+
+export function lireJournal(limite: number = 100): EntreeAudit[] {
+  const a = acteurCourant();
+  if (!a || !peut(a.role, "voir_journal")) return [];
+  return (readList(K_AUDIT) as EntreeAudit[]).slice(-limite).reverse();
+}
+
+// ========== Initialisation et gestion de l'équipe ==========
+/** Premier démarrage : la personne connectée devient DG si aucun DG n'existe. */
+export function devenirDG(): Res<EntreeStaff> {
+  const a = acteurCourant();
+  if (!a) return echec("Connectez-vous d'abord", "SESSION");
+  if (dgExiste()) return echec("Un directeur général existe déjà", "EXISTE");
+  const e: EntreeStaff = {
+    id: "STF-" + Date.now().toString(36),
+    wa: a.wa,
+    nom: a.nom,
+    role: "dg",
+    actif: true,
+    superviseurWa: null,
+    code: null,
+    creePar: a.wa,
+    creeLe: new Date().toISOString()
   };
-  const alea = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `${prefix[type] || "WENZE"}-${alea}`;
+  if (!writeList(K_STAFF, [...lireStaff(), e])) return echec("Stockage plein", "STOCKAGE");
+  journaliser({ ...a, role: "dg" }, "initialisation_dg", a.wa, "Premier démarrage de l'espace privé");
+  return { ok: true, data: e };
 }
 
-// --- 4. 2FA - DG + Superviseur obligatoire ---
-export function genererCode2FA() {
-  return Math.floor(100000 + Math.random() * 900000).toString(); // 6 chiffres
-}
-
-export function verifier2FA(codeSaisi: string, codeAttendu: string) {
-  return codeSaisi.trim() === codeAttendu.trim();
-}
-
-export function doitFaire2FA(compte: any) {
-  const r = roleDe(compte);
-  return r === "dg" || r === "superviseur"; // Ambassadeur / Boutique / Client : pas de 2FA, juste mot de passe
-}
-
-// --- 5. SUSPENSIONS - Règle des 3 ---
-export type StatutCompte = "actif" | "averti" | "suspendu-1" | "suspendu-2" | "supprime";
-
-export function lireSuspensions(): any[] {
-  try { const v = JSON.parse(localStorage.getItem("wenze_suspensions") || "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
-}
-
-export function compterSuspensions(wa: string) {
-  const clean = wa.replace(/[^0-9]/g, "");
-  return lireSuspensions().filter((s: any) => (s.wa || "").replace(/[^0-9]/g, "") === clean && s.statut !== "annule").length;
-}
-
-// Superviseur PROPOSE, DG VALIDE
-export function proposerSuspension({ wa, nom, motif, proposePar, preuve }: any) {
-  const nb = compterSuspensions(wa);
-  const nouvelle = {
-    id: Date.now().toString(),
-    wa, nom, motif, preuve: preuve || "",
-    proposePar, proposeParRole: roleDe({ whatsapp: proposePar }) || "superviseur",
-    dateProposition: new Date().toISOString(),
-    numero: nb + 1, // 1, 2 ou 3
-    duree: nb + 1 === 1 ? "24h" : nb + 1 === 2 ? "7 jours" : "DEFINITIF",
-    statut: nb + 1 >= 3 ? "en-attente-validation-dg" : "en-attente-validation-dg",
-    valideParDG: false,
-  };
-  const list = lireSuspensions();
-  localStorage.setItem("wenze_suspensions", JSON.stringify([...list, nouvelle]));
-  return nouvelle;
-}
-
-// DG seul valide
-export function validerSuspensionDG(id: string, dgWa: string) {
-  const list = lireSuspensions();
-  const idx = list.findIndex((s: any) => s.id === id);
-  if (idx < 0) return false;
-  list[idx] = { ...list[idx], statut: list[idx].numero >= 3 ? "supprime" : "suspendu", valideParDG: true, valideLe: new Date().toISOString(), validePar: dgWa };
-  localStorage.setItem("wenze_suspensions", JSON.stringify(list));
-  // On marque aussi le compte
-  try {
-    const users = JSON.parse(localStorage.getItem("wenze_all_users") || "[]");
-    const uIdx = users.findIndex((u: any) => (u.ownerWhatsapp || u.whatsapp || "").toString().replace(/[^0-9]/g, "") === (list[idx].wa || "").replace(/[^0-9]/g, ""));
-    if (uIdx >= 0) {
-      users[uIdx] = { ...users[uIdx], statutCompte: list[idx].numero >= 3 ? "supprime" : "suspendu", nbSuspensions: list[idx].numero };
-      localStorage.setItem("wenze_all_users", JSON.stringify(users));
-    }
-  } catch {}
-  return true;
-}
-
-// DG seul : suspension immédiate (arnaque)
-export function suspensionImmediateDG({ wa, nom, motif, dgWa }: any) {
-  const list = lireSuspensions();
-  const nouvelle = { id: Date.now().toString(), wa, nom, motif, proposePar: dgWa, proposeParRole: "dg", dateProposition: new Date().toISOString(), numero: 99, duree: "IMMEDIAT", statut: "supprime", valideParDG: true, valideLe: new Date().toISOString(), validePar: dgWa };
-  localStorage.setItem("wenze_suspensions", JSON.stringify([...list, nouvelle]));
-  return nouvelle;
-}
-
-// --- 6. COMMISSIONS ---
-export const TAUX_COMMISSION: Record<string, number> = {
-  bronze: 0.10, // 0-10 filleules
-  argent: 0.15, // 11-30
-  or: 0.20,     // 31+
-};
-
-export const PRIX_ABONNEMENT: Record<string, number> = {
-  occasionnel: 2, standard: 5, pro: 10, premium: 20,
-};
-
-export function niveauAmbassadeur(nbFilleules: number) {
-  if (nbFilleules >= 31) return "or";
-  if (nbFilleules >= 11) return "argent";
-  return "bronze";
-}
-
-export function calculerCommission(palier: string, nbFilleules: number) {
-  const prix = PRIX_ABONNEMENT[palier.toLowerCase()] || 0;
-  const niv = niveauAmbassadeur(nbFilleules);
-  return { montant: prix * TAUX_COMMISSION[niv], niveau: niv, taux: TAUX_COMMISSION[niv], prix };
-}
-
-// --- 7. JOURNAL D'AUDIT - DG voit qui a fait quoi ---
-export function journaliser(action: string, acteurWa: string, acteurNom: string, cible?: string, details?: string) {
-  try {
-    const logs = JSON.parse(localStorage.getItem("wenze_audit") || "[]");
-    logs.unshift({ id: Date.now().toString(), date: new Date().toISOString(), action, acteurWa, acteurNom, cible: cible || "", details: details || "" });
-    localStorage.setItem("wenze_audit", JSON.stringify(logs.slice(0, 500)));
-  } catch {}
+const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function genererCode(): string {
+  const pris = new Set<string>();
+  lireStaff().forEach((e) => e.code && pris.add(e.code));
+  lireComptes().forEach((c: any) => c.monCode && pris.add(String(c.monCode)));
+  for (let t = 0; t < 30; t++) {
+    let s = "AMB-";
+    for (let i = 0; i < 5; i++) s += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
+    if (!pris.has(s)) return s;
   }
+  return "AMB-" + Date.now().toString(36).toUpperCase().slice(-6);
+}
+
+/** Ajoute un superviseur (DG) ou un ambassadeur (DG ou superviseur). La personne doit déjà avoir un compte. */
+export function ajouterStaff(d: { wa: string; role: "superviseur" | "ambassadeur"; superviseurWa?: string }): Res<EntreeStaff> {
+  const a = acteurCourant();
+  if (!a || !a.role) return echec("Accès réservé à l'équipe", "ACCES");
+  const permis = d.role === "superviseur" ? peut(a.role, "gerer_superviseurs") : peut(a.role, "gerer_ambassadeurs");
+  if (!permis) return echec("Vous n'avez pas le droit d'ajouter ce rôle", "ACCES");
+
+  const wa = normaliserWa(d.wa);
+  if (!wa) return echec("Numéro WhatsApp invalide. Exemple : 081 234 5678", "NUMERO");
+  if (cle9(wa) === cle9(a.wa)) return echec("Vous ne pouvez pas vous ajouter vous-même", "SOI");
+  const cible = trouverCompte(wa);
+  if (!cible) return echec("Ce numéro n'a pas de compte : la personne doit d'abord s'inscrire", "INCONNU");
+  if (lireStaff().some((e) => e.actif && cle9(e.wa) === cle9(wa))) return echec("Cette personne fait déjà partie de l'équipe", "EXISTE");
+
+  let superviseurWa: string | null = null;
+  if (d.role === "ambassadeur") {
+    if (a.role === "superviseur") superviseurWa = a.wa;
+    else if (d.superviseurWa) {
+      const sup = lireStaff().find((e) => e.actif && e.role === "superviseur" && cle9(e.wa) === cle9(d.superviseurWa));
+      if (!sup) return echec("Superviseur introuvable", "SUPERVISEUR");
+      superviseurWa = sup.wa;
+    }
+  }
+
+  const code = d.role === "ambassadeur" ? genererCode() : null;
+  const e: EntreeStaff = {
+    id: "STF-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 4),
+    wa,
+    nom: cible.nomEtablissement || cible.nom || wa,
+    role: d.role,
+    actif: true,
+    superviseurWa,
+    code,
+    creePar: a.wa,
+    creeLe: new Date().toISOString()
+  };
+  if (!writeList(K_STAFF, [...lireStaff(), e])) return echec("Stockage plein", "STOCKAGE");
+  if (code) sauverCompte({ ...cible, codeAmbassadeur: code });
+  journaliser(a, "ajout_" + d.role, wa, code ? "Code " + code : "");
+  return { ok: true, data: e };
+}
+
+/** Équipe visible : le DG voit tout, le superviseur voit ses ambassadeurs. */
+export function listerEquipe(): EntreeStaff[] {
+  const a = acteurCourant();
+  if (!a || !a.role) return [];
+  const tous = lireStaff();
+  if (a.role === "dg") return tous;
+  if (a.role === "superviseur") return tous.filter((e) => e.role === "ambassadeur" && e.superviseurWa && cle9(e.superviseurWa) === cle9(a.wa));
+  return [];
+}
+
+/** Suspend ou réactive un membre : le DG gère tout sauf les DG ; le superviseur gère ses ambassadeurs. */
+export function changerStatutStaff(id: string, actif: boolean, motif: string = ""): Res<EntreeStaff> {
+  const a = acteurCourant();
+  if (!a || !a.role) return echec("Accès réservé à l'équipe", "ACCES");
+  const tous = lireStaff();
+  const i = tous.findIndex((e) => e.id === id);
+  if (i < 0) return echec("Membre introuvable", "INCONNU");
+  const e = tous[i];
+  if (e.role === "dg") return echec("Un directeur général ne peut pas être suspendu ici", "ACCES");
+  const droit = a.role === "dg" || (a.role === "superviseur" && e.role === "ambassadeur" && !!e.superviseurWa && cle9(e.superviseurWa) === cle9(a.wa));
+  if (!droit) return echec("Vous n'avez pas le droit de modifier ce membre", "ACCES");
+  if (!actif && motif.trim().length < 3) return echec("Indiquez un motif de suspension", "MOTIF");
+
+  tous[i] = { ...e, actif, suspenduLe: actif ? null : new Date().toISOString(), motif: actif ? "" : motif.trim() };
+  writeList(K_STAFF, tous);
+  journaliser(a, actif ? "reactivation_" + e.role : "suspension_" + e.role, e.wa, actif ? "" : motif.trim());
+  return { ok: true, data: tous[i] };
+}
+
+// ========== Modération des comptes (DG) ==========
+export function suspendreCompte(wa: string, motif: string): Res<any> {
+  const a = acteurCourant();
+  if (!a || !peut(a.role, "moderer_comptes")) return echec("Accès réservé au directeur général", "ACCES");
+  if (motif.trim().length < 3) return echec("Indiquez un motif", "MOTIF");
+  const c = trouverCompte(wa);
+  if (!c) return echec("Compte introuvable", "INCONNU");
+  if (cle9(c.ownerWhatsapp || c.whatsapp) === cle9(a.wa)) return echec("Vous ne pouvez pas suspendre votre propre compte", "SOI");
+  if (lireStaff().some((e) => e.actif && e.role === "dg" && cle9(e.wa) === cle9(wa))) return echec("Ce compte appartient à un directeur général", "ACCES");
+  const maj = { ...c, suspendu: true, suspenduLe: new Date().toISOString(), suspenduMotif: motif.trim() };
+  sauverCompte(maj);
+  journaliser(a, "suspension_compte", String(wa), motif.trim());
+  return { ok: true, data: maj };
+}
+
+export function reactiverCompte(wa: string): Res<any> {
+  const a = acteurCourant();
+  if (!a || !peut(a.role, "moderer_comptes")) return echec("Accès réservé au directeur général", "ACCES");
+  const c = trouverCompte(wa);
+  if (!c) return echec("Compte introuvable", "INCONNU");
+  const maj = { ...c, suspendu: false, suspenduLe: null, suspenduMotif: "" };
+  sauverCompte(maj);
+  journaliser(a, "reactivation_compte", String(wa), "");
+  return { ok: true, data: maj };
+    }
+    
