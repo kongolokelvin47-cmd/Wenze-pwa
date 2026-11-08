@@ -10,7 +10,6 @@ import { EditForm, CartesEtat, InvitationsCard } from "./profil-parts";
 export const dynamic = "force-dynamic";
 
 const TYPES: Record<string, string> = { client: "Client", vendeur: "Vendeur", prestataire: "Prestataire", grossiste: "Grossiste" };
-// CORRIGÉ : Badge différent par rôle, pour que le Client comprenne qui il est
 const BADGE_ROLE: Record<string, string> = {
   client: "👤 CLIENT",
   vendeur: "🛍️ BOUTIQUE",
@@ -38,7 +37,9 @@ export default function ProfilPage() {
   const [compte, setCompte] = useState<any>(null);
   const [ab, setAb] = useState<any>(null);
   const [annonces, setAnnonces] = useState<any[]>([]);
-  const [demandes, setDemandes] = useState<any[]>([]); // NOUVEAU : pour prestataire
+  const [demandes, setDemandes] = useState<any[]>([]);
+  // CORRIGÉ : services du prestataire
+  const [mesServices, setMesServices] = useState<any[]>([]);
   const [edition, setEdition] = useState(false);
   const [toast, setToast] = useState("");
 
@@ -53,10 +54,15 @@ export default function ProfilPage() {
         .filter((a: any) => cle9(a.ownerWhatsapp || a.whatsapp || a.userId) === k)
         .sort((a: any, b: any) => temps(b) - temps(a))
     );
-    // NOUVEAU : demandes pour prestataire
     setDemandes(
       lireListe("wenze_demandes_list")
         .filter((d: any) => cle9(d.prestataireWa || d.prestataireWhatsapp) === k)
+        .sort((a: any, b: any) => temps(b) - temps(a))
+    );
+    // CORRIGÉ : on charge aussi les services du prestataire
+    setMesServices(
+      lireListe("wenze_services_list")
+        .filter((sv: any) => cle9(sv.ownerWhatsapp || sv.whatsapp || sv.userId) === k)
         .sort((a: any, b: any) => temps(b) - temps(a))
     );
   }, [router]);
@@ -86,6 +92,15 @@ export default function ProfilPage() {
     } catch { afficher("Suppression impossible"); }
   };
 
+  // CORRIGÉ : supprimer un service prestataire
+  const supprimerService = (id: string) => {
+    if (!window.confirm("Supprimer ce service ?")) return;
+    const reste = lireListe("wenze_services_list").filter((s: any) => String(s.id) !== String(id));
+    localStorage.setItem("wenze_services_list", JSON.stringify(reste));
+    setMesServices((prev: any[]) => prev.filter((s: any) => String(s.id) !== String(id)));
+    afficher("Service supprimé");
+  };
+
   const sortir = () => { deconnecter(); router.push("/connexion"); };
 
   if (!compte) {
@@ -102,7 +117,6 @@ export default function ProfilPage() {
   const photo = compte.photo || compte.avatar || "";
   const libres = ab && ab.placesRestantes !== undefined ? ab.placesRestantes : null;
 
-  // ===== DIFFÉRENCE PAR RÔLE =====
   const role = compte.role || "client";
   const estClient = role === "client";
   const estVendeur = role === "vendeur";
@@ -123,7 +137,7 @@ export default function ProfilPage() {
       <div className="p-4 space-y-4">
         {toast ? <div role="status" className="bg-black text-white p-3 rounded-xl text-[11px] font-bold text-center">{toast}</div> : null}
 
-        {/* ===== CARTE PROFIL - TOUT LE MONDE ===== */}
+        {/* ===== CARTE PROFIL ===== */}
         <div className="bg-white border-2 border-black rounded-[24px] p-5">
           <div className="flex gap-4 items-center">
             <div className="relative shrink-0">
@@ -137,38 +151,29 @@ export default function ProfilPage() {
               <h2 className="font-black text-[18px] leading-tight truncate">{nomAffiche}</h2>
               <p className="text-[11px] text-gray-500 truncate">{formaterWa(compte.ownerWhatsapp || compte.whatsapp)}</p>
               <div className="flex flex-wrap gap-1.5 mt-2">
-                {/* CORRIGÉ : badge différent par rôle */}
                 <span className={"text-[9px] font-black px-2 py-0.5 rounded-full border " + (estClient ? "bg-blue-50 text-blue-700" : estGrossiste ? "bg-orange-100 text-orange-800" : estPrestataire ? "bg-purple-100 text-purple-800" : "bg-[#FFFBF0]")}>
                   {BADGE_ROLE[role] || "Compte"}
                 </span>
                 <span className={"text-[9px] font-black px-2 py-0.5 rounded-full " + (niveau.niveau >= 2 ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600")}>
                   {niveau.niveau >= 2 ? "✔ " : ""}{niveau.titre}
                 </span>
-                {/* NOUVEAU : badge Recommandé DG */}
                 {compte.recommandeParDG ? <span className="text-[9px] font-black bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">⭐ RECOMMANDÉ</span> : null}
               </div>
             </div>
           </div>
           <p className="text-[10px] text-gray-400 mt-3">{compte.commune || "Kinshasa"}{depuis ? " • membre depuis " + depuis : ""}</p>
 
-          {/* ===== STATS - DIFFÉRENT PAR RÔLE ===== */}
           <div className="grid grid-cols-3 gap-2 mt-4 text-center">
             {estClient ? (
               <>
-                <Link href="/mes-commandes" className="bg-[#FFFBF0] rounded-xl py-2.5 block">
-                  <p className="font-black text-[16px]">🛒</p><p className="text-[9px] text-gray-500">Mes achats</p>
-                </Link>
-                <Link href="/favoris" className="bg-[#FFFBF0] rounded-xl py-2.5 block">
-                  <p className="font-black text-[16px]">❤️</p><p className="text-[9px] text-gray-500">Favoris</p>
-                </Link>
-                <Link href="/portefeuille" className="bg-[#FFFBF0] rounded-xl py-2.5 block">
-                  <p className="font-black text-[16px]">💼</p><p className="text-[9px] text-gray-500">Portefeuille</p>
-                </Link>
+                <Link href="/mes-commandes" className="bg-[#FFFBF0] rounded-xl py-2.5 block"><p className="font-black text-[16px]">🛒</p><p className="text-[9px] text-gray-500">Mes achats</p></Link>
+                <Link href="/favoris" className="bg-[#FFFBF0] rounded-xl py-2.5 block"><p className="font-black text-[16px]">❤️</p><p className="text-[9px] text-gray-500">Favoris</p></Link>
+                <Link href="/portefeuille" className="bg-[#FFFBF0] rounded-xl py-2.5 block"><p className="font-black text-[16px]">💼</p><p className="text-[9px] text-gray-500">Portefeuille</p></Link>
               </>
             ) : estPrestataire ? (
               <>
                 <div className="bg-[#FFFBF0] rounded-xl py-2.5"><p className="font-black text-[16px]">{demandes.length}</p><p className="text-[9px] text-gray-500">Demandes</p></div>
-                <div className="bg-[#FFFBF0] rounded-xl py-2.5"><p className="font-black text-[16px]">{compte.noteMoyenne || "–"}</p><p className="text-[9px] text-gray-500">Note / 5</p></div>
+                <div className="bg-[#FFFBF0] rounded-xl py-2.5"><p className="font-black text-[16px]">{mesServices.length}</p><p className="text-[9px] text-gray-500">Services</p></div>
                 <Link href="/portefeuille" className="bg-[#FFFBF0] rounded-xl py-2.5 block"><p className="font-black text-[16px]">💼</p><p className="text-[9px] text-gray-500">Portefeuille</p></Link>
               </>
             ) : (
@@ -180,13 +185,15 @@ export default function ProfilPage() {
             )}
           </div>
 
-          {/* ===== BOUTON PRINCIPAL - DIFFÉRENT PAR RÔLE ===== */}
+          {/* CORRIGÉ : Vendeur a maintenant son bouton */}
           {estClient ? (
             <Link href="/ouvrir-boutique" className="mt-4 block w-full bg-black text-white rounded-full py-2.5 text-[12px] font-black text-center">🛍️ Ouvrir ma boutique</Link>
           ) : estPrestataire ? (
             <Link href="/publier-service" className="mt-4 block w-full bg-black text-white rounded-full py-2.5 text-[12px] font-black text-center">+ Ajouter un service</Link>
           ) : estGrossiste ? (
             <Link href="/publier?gros=1" className="mt-4 block w-full bg-black text-white rounded-full py-2.5 text-[12px] font-black text-center">+ Publier un produit gros</Link>
+          ) : estVendeur ? (
+            <Link href="/publier" className="mt-4 block w-full bg-black text-white rounded-full py-2.5 text-[12px] font-black text-center">+ Publier une annonce</Link>
           ) : null}
 
           <button type="button" onClick={() => setEdition(!edition)} className="mt-2 w-full bg-white border-2 border-black rounded-full py-2.5 text-[12px] font-black">
@@ -195,7 +202,17 @@ export default function ProfilPage() {
           {edition ? <EditForm compte={compte} onCancel={() => setEdition(false)} onSaved={(c: any) => { setCompte(c); setEdition(false); afficher("Profil enregistré"); }} /> : null}
         </div>
 
-        {/* ===== GROSSISTE : CARTE PRIX GROS - SEUL LUI VOIT ÇA ===== */}
+        {/* ===== DG : ACCÈS RAPIDE ===== */}
+        {estDG ? (
+          <div className="bg-black text-white rounded-2xl p-4">
+            <p className="font-black text-[13px]">👑 Espace DG</p>
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <Link href="/admin" className="bg-white text-black py-2.5 rounded-full text-[11px] font-black text-center">Admin</Link>
+              <Link href="/" className="bg-yellow-400 text-black py-2.5 rounded-full text-[11px] font-black text-center">★ Recommander</Link>
+            </div>
+          </div>
+        ) : null}
+
         {estGrossiste ? (
           <div className="bg-orange-50 border border-orange-200 rounded-2xl p-4">
             <p className="font-black text-[13px]">🏭 Mon espace Grossiste</p>
@@ -206,17 +223,16 @@ export default function ProfilPage() {
           </div>
         ) : null}
 
-        {/* ===== PRESTATAIRE : CARTE SERVICE ===== */}
+        {/* CORRIGÉ : PRESTATAIRE - prix à discuter */}
         {estPrestataire ? (
           <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4">
             <p className="font-black text-[13px]">🔧 Mon service</p>
-            <p className="text-[11px] text-gray-600 mt-1">Service : <b>{compte.activiteId || "—"}</b></p>
+            <p className="text-[11px] text-gray-600 mt-1">Service : <b>{compte.activiteId || mesServices[0]?.activite || "—"}</b></p>
             <p className="text-[11px] text-gray-600">Zone : <b>{compte.zone || compte.commune || "—"}</b></p>
-            <p className="text-[11px] text-gray-600">À partir de : <b>{compte.prixPrestation ? compte.prixPrestation + " FC" : "—"}</b></p>
+            <p className="text-[11px] text-gray-600">À partir de : <b>{mesServices[0]?.prixADiscuter || !mesServices[0]?.prixPrestation ? "💬 Prix à discuter" : mesServices[0]?.prixPrestation + " FC"}</b></p>
           </div>
         ) : null}
 
-        {/* ===== CLIENT : CARTE DÉCOUVERTE - IL NE VOIT QUE RECOMMANDÉ ===== */}
         {estClient ? (
           <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4">
             <p className="font-black text-[13px]">👀 Recommandé pour toi à {compte.commune || "Kinshasa"}</p>
@@ -225,10 +241,10 @@ export default function ProfilPage() {
           </div>
         ) : null}
 
-        <CartesEtat compte={compte} ab={ab} />
+        {/* CORRIGÉ : CartesEtat seulement pour Vendeur / Grossiste (pas pour Client / Prestataire qui n'ont pas de ticket) */}
+        {estVendeurOuGrossiste ? <CartesEtat compte={compte} ab={ab} /> : null}
         <InvitationsCard compte={compte} onToast={afficher} />
 
-        {/* ===== MES ANNONCES - SEULEMENT VENDEUR / GROSSISTE ===== */}
         {estVendeurOuGrossiste ? (
           <div className="bg-white border rounded-2xl overflow-hidden">
             <div className="p-4 flex justify-between items-center border-b">
@@ -245,7 +261,8 @@ export default function ProfilPage() {
                     <Link href={"/produit/" + a.id} className="flex-1 min-w-0">
                       <p className="font-bold text-[12px] truncate">{a.titre}</p>
                       <p className="text-[10px] text-gray-500">{a.prixUSD || a.prix}$ / {toCDFString(Number(a.prixUSD || a.prix || 0))}</p>
-                      {/* GROSSISTE : voit son prix gros sur ses propres annonces */}
+                      {a.typeAnnonce === "gros" ? <p className="text-[9px] font-black text-orange-600">🏭 GROS</p> : null}
+                      {a.recommandeParDG ? <p className="text-[9px] font-black text-yellow-600">⭐ RECOMMANDÉ</p> : <p className="text-[9px] text-gray-400">☆ Non recommandé - invisible pour les Clients</p>}
                       {estGrossiste && a.prixGros ? <p className="text-[10px] font-bold text-orange-600">Gros : {a.prixGros} FC / {a.uniteGros || "carton"}</p> : null}
                     </Link>
                     <div className="flex flex-col gap-1 shrink-0">
@@ -259,21 +276,30 @@ export default function ProfilPage() {
           </div>
         ) : null}
 
-        {/* ===== MES DEMANDES - SEULEMENT PRESTATAIRE ===== */}
+        {/* CORRIGÉ : MES SERVICES - Prestataire peut voir / modifier / supprimer */}
         {estPrestataire ? (
           <div className="bg-white border rounded-2xl overflow-hidden">
             <div className="p-4 flex justify-between items-center border-b">
-              <p className="font-black text-[13px]">Mes demandes ({demandes.length})</p>
+              <p className="font-black text-[13px]">Mes services ({mesServices.length})</p>
               <Link href="/publier-service" className="bg-black text-white px-3 py-1.5 rounded-full text-[10px] font-black">+ Service</Link>
             </div>
-            {demandes.length === 0 ? (
-              <div className="p-8 text-center"><p className="text-3xl">🔧</p><p className="text-[12px] mt-2 font-bold">Aucune demande pour le moment</p><p className="text-[10px] text-gray-500 mt-1">Les demandes de ta zone apparaîtront ici.</p></div>
+            {mesServices.length === 0 ? (
+              <div className="p-8 text-center"><p className="text-3xl">🔧</p><p className="text-[12px] mt-2 font-bold">Aucun service publié</p><p className="text-[10px] text-gray-500 mt-1">Publie ton premier service, les Clients de ta zone te trouveront.</p>
+                <Link href="/publier-service" className="inline-block bg-black text-white px-5 py-2.5 rounded-full text-[11px] font-black mt-3">Publier un service</Link>
+              </div>
             ) : (
               <div className="divide-y">
-                {demandes.map((d: any) => (
-                  <div key={d.id} className="p-3 flex gap-3 items-center">
-                    <div className="flex-1 min-w-0"><p className="font-bold text-[12px] truncate">{d.service || d.titre}</p><p className="text-[10px] text-gray-500">{d.commune} • {d.statut || "En attente"}</p></div>
-                    <Link href={"/demande/" + d.id} className="bg-black text-white px-3 py-1 rounded-full text-[10px] font-bold">Voir</Link>
+                {mesServices.map((s: any) => (
+                  <div key={s.id} className="p-3 flex gap-3 items-center">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-[12px] truncate">{s.titre || s.activite}</p>
+                      <p className="text-[10px] text-gray-500">{s.commune || s.zone} • {s.dispo}</p>
+                      <p className="text-[10px] font-bold text-purple-600">{s.prixADiscuter || !s.prixPrestation ? "💬 Prix à discuter" : "À partir de " + s.prixPrestation + " FC"}</p>
+                    </div>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <Link href={"/publier-service?edit=" + s.id} className="bg-black text-white px-3 py-1 rounded-full text-[10px] font-bold text-center">Modifier</Link>
+                      <button type="button" onClick={() => supprimerService(s.id)} className="bg-red-50 border border-red-200 text-red-600 px-3 py-1 rounded-full text-[10px] font-bold">Supprimer</button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -281,19 +307,10 @@ export default function ProfilPage() {
           </div>
         ) : null}
 
-        {/* ===== CLIENT : PAS D'ANNONCES, JUSTE UN BOUTON POUR DEVENIR VENDEUR ===== */}
-        {estClient ? (
-          <div className="bg-white border rounded-2xl p-6 text-center">
-            <p className="text-3xl">🛍️</p>
-            <p className="font-black text-[13px] mt-2">Tu n'as pas encore de boutique</p>
-            <p className="text-[11px] text-gray-500 mt-1">Vends tes produits à Kinshasa, reçois sur WhatsApp.</p>
-            <Link href="/ouvrir-boutique" className="block bg-black text-white py-3 rounded-full text-[12px] font-black mt-4">Ouvrir ma boutique →</Link>
-            <Link href="/devenir-prestataire" className="block border py-3 rounded-full text-[12px] font-bold mt-2">Devenir Prestataire →</Link>
-          </div>
-        ) : null}
-
-        <button type="button" onClick={sortir} className="w-full bg-gray-100 rounded-full py-3 text-[12px] font-bold">Se déconnecter</button>
-      </div>
-    </div>
-  );
-                  }
+        {estPrestataire ? (
+          <div className="bg-white border rounded-2xl overflow-hidden">
+            <div className="p-4 flex justify-between items-center border-b">
+              <p className="font-black text-[13px]">Mes demandes ({demandes.length})</p>
+              <Link href="/publier-service" className="bg-black text-white px-3 py-1.5 rounded-full text-[10px] font-black">+ Service</Link>
+            </div>
+  {
