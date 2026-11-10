@@ -4,9 +4,7 @@ import type { NextRequest } from "next/server";
 export function middleware(request: NextRequest) {
   const role = request.cookies.get("wenze-role")?.value;
   const path = request.nextUrl.pathname;
-
   if (path === "/dg-prive/connexion") return NextResponse.next();
-
   if (path.startsWith("/dg-prive")) {
     if (role !== "DG") return NextResponse.redirect(new URL("/dg-prive/connexion", request.url));
     return NextResponse.next();
@@ -21,7 +19,4 @@ export function middleware(request: NextRequest) {
   }
   return NextResponse.next();
 }
-
-export const config = {
-  matcher: ["/dg-prive/:path*", "/equipe/:path*"],
-};
+export const config = { matcher: ["/dg-prive/:path*", "/equipe/:path*"] };
