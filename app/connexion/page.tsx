@@ -1,102 +1,159 @@
 "use client";
-import { useState, Suspense } from "react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-const cleanWa = (n:any)=> (n||"").toString().replace(/[^0-9]/g,"").replace(/^0+/,"");
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
-function ConnexionContent(){
+// ============================================================
+// WENZE - CONNEXION ÉQUIPE PRO - VERSION SÉPARÉE B
+// DG -> /dg-prive | SUPERVISEUR -> /equipe/superviseur | AMBASSADEUR -> /equipe/ambassadeur
+// ============================================================
+export default function ConnexionEquipePro() {
   const router = useRouter();
-  const sp = useSearchParams();
-  const next = sp.get("next")||"/profil";
-  const [wa, setWa] = useState("");
-  const [toast, setToast] = useState("");
+  const [telephone, setTelephone] = useState("");
+  const [code, setCode] = useState("");
+  const [afficherCode, setAfficherCode] = useState(false);
+  const [role, setRole] = useState<"DG" | "SUPERVISEUR" | "AMBASSADEUR">("DG");
+  const [erreur, setErreur] = useState("");
+  const [chargement, setChargement] = useState(false);
 
-  const handleLogin = ()=>{
-    const cleaned = cleanWa(wa);
-    if(cleaned.length<9){ setToast("Numéro invalide Ex: 0825000000"); setTimeout(()=>setToast(""),3000); return; }
-    try{
-      const all = JSON.parse(localStorage.getItem("wenze_all_users")||"[]");
-      const found = all.find((u:any)=> cleanWa(u.ownerWhatsapp||u.whatsapp)===cleaned);
-      if(!found){
-        setToast(`Aucun compte avec 0${cleaned.slice(-9)} - Va t'inscrire - Boutiques Bilamba (Maison d'habillement) exemple`);
-        setTimeout(()=> router.push(`/inscription?invite=${cleaned}`), 1500);
+  // CODES ÉQUIPE - Change les codes Superviseur / Ambassadeur après ton test
+  // DG : ton code personnel, ne le partage JAMAIS
+  const codesValides: Record<string, string> = {
+    DG: "Kelvin1997@",
+    SUPERVISEUR: "WENZE-SUP-2026",
+    AMBASSADEUR: "WENZE-AMB-2026",
+  };
+
+  const infosRole = {
+    DG: { titre: "Bureau du Directeur Général", sousTitre: "Accès total • Contrôle de toute l'équipe WENZE", icone: "👑", couleur: "bg-black text-white", dest: "/dg-prive" },
+    SUPERVISEUR: { titre: "Espace Superviseur", sousTitre: "Validation des boutiques • Gestion de ton quartier", icone: "🛡️", couleur: "bg-[#1A3A2F] text-white", dest: "/equipe/superviseur" },
+    AMBASSADEUR: { titre: "Espace Ambassadeur", sousTitre: "Tes gains • Tes filleuls • Ton lien de parrainage", icone: "🎖️", couleur: "bg-[#FF6B00] text-white", dest: "/equipe/ambassadeur" },
+  };
+
+  const seConnecter = () => {
+    setErreur("");
+    if (telephone.trim().replace(/\D/g, "").length < 9) {
+      setErreur("Numéro incomplet. Exemple : 0825888889 ou 243825888889");
+      return;
+    }
+    if (code.length < 4) {
+      setErreur("Code trop court. Vérifie ton code secret.");
+      return;
+    }
+
+    setChargement(true);
+
+    setTimeout(() => {
+      if (code !== codesValides[role]) {
+        setErreur("Code incorrect pour ce rôle. Vérifie ton rôle et ton code.");
+        setChargement(false);
         return;
       }
-      localStorage.setItem("wenze_user", JSON.stringify(found));
-      setToast(`✅ Connecté ${found.nomEtablissement||found.name||found.nom} - Niveau ${found.niveau||1} - ${found.isAmbassadeur?`Ambassadeur ${found.ambassadorCode}`:`Code parrainage ${found.myInviteCode||cleaned.slice(-4)} (0 place)`}`);
-      setTimeout(()=> router.push(next), 800);
-    }catch(e){ setToast("Erreur connexion"); }
+
+      // ON DONNE LE BADGE AU GARDIEN - Valide 24h
+      document.cookie = `wenze-role=${role}; path=/; max-age=86400; SameSite=Lax`;
+      document.cookie = `wenze-tel=${telephone.trim()}; path=/; max-age=86400; SameSite=Lax`;
+
+      // SÉPARATION B : Chacun va dans SON bureau, pas dans celui des autres
+      router.push(infosRole[role].dest);
+    }, 700);
   };
 
-  const handleDemo = ()=>{
-    // Compte démo pour toi - Boutiques Bilamba
-    const demo = {
-      id: "243825000000",
-      ownerWhatsapp: "243825000000",
-      whatsapp: "243825000000",
-      role: "vendeur",
-      user_type: "vendeur",
-      name: "Bilamba",
-      nomBoutique: "Bilamba",
-      marque: "Maison d'habillement",
-      nomEtablissement: "Boutiques Bilamba (Maison d'habillement)",
-      boutiqueName: "Boutiques Bilamba (Maison d'habillement)",
-      commune: "Gombe",
-      ville: "Kinshasa",
-      email: "",
-      emailVerified: false,
-      whatsappVerified: true,
-      niveau: 1,
-      hasGmail: false,
-      myInviteCode: "BILAMBA2026",
-      ambassadorCode: "BILAMBA2026",
-      isAmbassadeur: true,
-      createdAt: new Date().toISOString(),
-    };
-    if(typeof window!=="undefined"){
-      localStorage.setItem("wenze_user", JSON.stringify(demo));
-      const all = JSON.parse(localStorage.getItem("wenze_all_users")||"[]");
-      const idx = all.findIndex((u:any)=> cleanWa(u.ownerWhatsapp)===cleanWa(demo.ownerWhatsapp));
-      if(idx>=0) all[idx]=demo; else all.push(demo);
-      localStorage.setItem("wenze_all_users", JSON.stringify(all));
-    }
-    setToast(`✅ Compte démo Boutiques Bilamba (Maison d'habillement) - Ambassadeur BILAMBA2026 - Code parrainage BILAMBA2026 (0 place) - 20% 1er abo`);
-    setTimeout(()=> router.push(next), 800);
-  };
+  const info = infosRole[role];
 
   return (
-    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-4">
-      {toast&&<div className="bg-black text-white p-3 rounded-xl text-[11px] font-bold text-center mb-4">{toast}</div>}
-      
-      <header className="py-6 text-center">
-        <h1 className="font-black text-[20px]">Connexion WENZE WENZE BUSINESS V7</h1>
-        <p className="text-[10px] text-gray-600 mt-1">Sans Gmail = Niveau 1 - 1 image - Avec Gmail = Niveau 2 - 3 images - Code ambassadeur 0 place - Invitation 0 place</p>
-      </header>
-
-      <div className="bg-white border rounded-2xl p-5 space-y-4">
-        <p className="font-black text-[12px]">Entre ton numéro WhatsApp de la plateforme</p>
-        <p className="text-[9px] text-gray-500">Ton numéro WhatsApp = ton code parrainage si tu es client/boutique. Code ambassadeur BILAMBA2026 = code parrainage si ambassadeur. 0 place comptée.</p>
-        <input value={wa} onChange={e=>setWa(e.target.value)} placeholder="Ex: 0825000000 - Numéro utilisé comme code parrainage" className="w-full p-4 rounded-full border-2 border-black text-[15px] font-bold text-center" />
-        <button onClick={handleLogin} className="w-full bg-black text-white py-4 rounded-full font-black text-[13px]">Se connecter - 0% comm</button>
-        <button onClick={handleDemo} className="w-full bg-[#FFF2CC] border-2 border-black py-3 rounded-full font-black text-[11px]">🎯 Utiliser compte démo Boutiques Bilamba (Maison d'habillement) - BILAMBA2026</button>
-        
-        <div className="pt-4 border-t">
-          <p className="text-[10px] text-center">Pas de compte?</p>
-          <Link href="/inscription" className="mt-2 block w-full bg-white border-2 border-black py-3 rounded-full text-center font-black text-[11px]">Créer compte Client ou Boutique - Code 0 place + Ticket Tombola</Link>
-          <p className="text-[8px] text-center text-gray-400 mt-2">Formule: Tout le monde peut inviter. Ambassadeur sollicite invitation boutique/client - 20% 1er abo fin mois. Client/Boutique utilise numéro WhatsApp comme parrainage - cadeaux plateforme.</p>
+    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] flex flex-col">
+      {/* HEADER WENZE */}
+      <div className="bg-black text-white px-6 pt-10 pb-6 rounded-b-[28px]">
+        <div className="flex items-center justify-between">
+          <p className="font-black text-[18px] tracking-tight">WENZE<span className="text-[#FF6B00]">.</span></p>
+          <span className="text-[10px] bg-white/15 px-2.5 py-1 rounded-full font-bold">🔒 ESPACE SURVEILLÉ</span>
+        </div>
+        <div className="mt-5 flex items-center gap-3">
+          <span className="text-[36px]">{info.icone}</span>
+          <div>
+            <h1 className="font-black text-[19px] leading-tight">{info.titre}</h1>
+            <p className="text-[11px] text-white/70 mt-0.5">{info.sousTitre}</p>
+          </div>
         </div>
       </div>
 
-      <div className="bg-[#FFF2CC] border-2 border-dashed rounded-2xl p-4 mt-4">
-        <p className="font-black text-[10px]">Pourquoi tu ne pouvais pas te connecter avant?</p>
-        <p className="text-[9px] mt-1">Ton ancienne connexion demandait email + password Firebase. Maintenant c'est juste WhatsApp. Si tu t'inscris avec 0825..., tu te connectes avec 0825... Pareil pour invitation: numéro invité réservé 0{cleanWa(wa).slice(-4)} + code parrainage BILAMBA2026 ou numéro WhatsApp.</p>
+      <div className="px-5 py-5 flex-1">
+        {/* CHOIX DU RÔLE - SÉPARATION VISUELLE */}
+        <p className="text-[11px] font-black tracking-wide text-gray-500">JE ME CONNECTE EN TANT QUE :</p>
+        <div className="grid grid-cols-3 gap-2 mt-2">
+          {([
+            { id: "DG", label: "👑 DG" },
+            { id: "SUPERVISEUR", label: "🛡️ SUP." },
+            { id: "AMBASSADEUR", label: "🎖️ AMB." },
+          ] as const).map((r) => (
+            <button
+              key={r.id}
+              onClick={() => { setRole(r.id); setErreur(""); }}
+              className={`py-3.5 rounded-2xl text-[11px] font-black border transition-all ${role === r.id ? infosRole[r.id].couleur + " border-black shadow-md scale-[1.02]" : "bg-white text-gray-600 border-gray-200"}`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="bg-white rounded-[24px] p-5 mt-4 border shadow-sm">
+          <label className="text-[11px] font-black">NUMÉRO DE TÉLÉPHONE</label>
+          <input
+            value={telephone}
+            onChange={(e) => setTelephone(e.target.value)}
+            placeholder="Ex: 0825888889"
+            inputMode="tel"
+            className="w-full border border-gray-200 rounded-xl px-4 py-3.5 text-[14px] outline-none mt-2 focus:border-black bg-gray-50"
+          />
+
+          <label className="text-[11px] font-black mt-4 block">CODE SECRET ÉQUIPE</label>
+          <div className="relative mt-2">
+            <input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              type={afficherCode ? "text" : "password"}
+              placeholder="••••••••"
+              onKeyDown={(e) => e.key === "Enter" && seConnecter()}
+              className="w-full border border-gray-200 rounded-xl px-4 py-3.5 text-[14px] outline-none focus:border-black bg-gray-50 pr-12"
+            />
+            <button onClick={() => setAfficherCode(!afficherCode)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[18px]">
+              {afficherCode ? "🙈" : "👁️"}
+            </button>
+          </div>
+
+          {erreur && (
+            <div className="bg-red-50 border border-red-100 text-red-700 text-[12px] font-bold p-3 rounded-xl mt-4 flex gap-2">
+              <span>⚠️</span><span>{erreur}</span>
+            </div>
+          )}
+
+          <button
+            onClick={seConnecter}
+            disabled={chargement}
+            className="w-full bg-black text-white py-4 rounded-full font-black text-[13px] mt-5 active:scale-[0.98] transition disabled:opacity-60"
+          >
+            {chargement ? "⏳ Vérification du badge..." : `🔓 ENTRER DANS ${role === "DG" ? "MON BUREAU DG" : role === "SUPERVISEUR" ? "MON ESPACE SUP." : "MON ESPACE AMB."}`}
+          </button>
+
+          <p className="text-center text-[11px] text-gray-400 mt-3 leading-relaxed">
+            Connexion enregistrée et surveillée.<br />Si tu as oublié ton code, contacte le DG sur WhatsApp.
+          </p>
+        </div>
+
+        {/* SÉPARATION EXPLIQUÉE - PRO */}
+        <div className="bg-white border rounded-2xl p-4 mt-4">
+          <p className="font-black text-[12px]">🔐 Comment la séparation fonctionne ?</p>
+          <div className="text-[11px] text-gray-600 mt-2 space-y-1.5 leading-relaxed">
+            <p><b className="text-black">👑 DG :</b> Voit tout WENZE, seul à voir les gains totaux.</p>
+            <p><b className="text-black">🛡️ Superviseur :</b> Voit seulement ses boutiques à valider, pas les gains.</p>
+            <p><b className="text-black">🎖️ Ambassadeur :</b> Voit seulement ses gains à lui et son lien.</p>
+            <p className="text-gray-400">Si un Superviseur essaie d'aller dans le bureau DG, le gardien le bloque automatiquement.</p>
+          </div>
+        </div>
+
+        <p className="text-center text-[10px] text-gray-400 mt-5">WENZE © 2026 • Kinshasa • Espace réservé à l'équipe</p>
       </div>
     </div>
   );
-}
-
-export default function ConnexionPage(){
-  return <Suspense fallback={<div className="max-w-[430px] mx-auto p-6">Chargement...</div>}><ConnexionContent/></Suspense>;
-}
+    }
