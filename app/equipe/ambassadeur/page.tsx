@@ -3,32 +3,47 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 // ============================================================
-// WENZE - AMBASSADEUR V2 - RÈGLES DU DG
+// WENZE - AMBASSADEUR V3 - TON CODE V2 CORRIGÉ + LIEN SUPERVISEUR INTÉGRÉ
 // Créé uniquement par un Ambassadeur ou par le DG (Super Superviseur)
 // Code Pro = Identité Visuelle | Commission 20% = 1er mois SEULEMENT
-// Peut créer Boutique / Client / Autres avec son code visuel
+// Lien : AMB -> SUP -> DG
 // ============================================================
 
 type Personne = { id: string; nom: string; whatsapp: string; type: "BOUTIQUE" | "CLIENT"; date: string; ticket: number; mois: number; commission: number };
 
 export default function AmbassadeurPageV2() {
   const router = useRouter();
-  const [onglet, setOnglet] = useState<"ACCUEIL" | "GAINS" | "CREER" | "PARRAINAGE">("ACCUEIL");
+  // CORRECTION : J'ai remplacé PARRAINAGE par LIEN pour intégrer le lien Superviseur
+  const [onglet, setOnglet] = useState<"ACCUEIL" | "GAINS" | "CREER" | "LIEN">("ACCUEIL");
   const [typeCreation, setTypeCreation] = useState<"BOUTIQUE" | "CLIENT">("BOUTIQUE");
   const [toast, setToast] = useState("");
 
   // IDENTITÉ PROFESSIONNELLE DE L'AMBASSADEUR - Générée par WENZE
-  // Exemple : Si créé par un Ambassadeur, il aura le parrain. Si créé par le DG, parrain = DG
   const [monCodePro] = useState("AMB-MIR-2026-087");
   const [monNom] = useState("Mireille T.");
   const [monParrain] = useState("Créée par : Ambassadeur David I. • Validé par le DG (Super Superviseur)");
   const [monLien] = useState("https://wenze.cd/invitation?code=AMB-MIR-2026-087");
 
+  // ============ LIEN SUPERVISEUR - INTÉGRÉ ============
+  // Ce lien est créé automatiquement quand on crée cet Ambassadeur
+  const [monSuperviseur] = useState({
+    nom: "Superviseur Gombe",
+    code: "SUP-GOM-2026-014",
+    quartier: "Gombe • Lemba • Ngaliema",
+    whatsapp: "243810000000",
+    dgWhatsapp: "243825888889",
+  });
+  // Mes collègues sous le MÊME Superviseur - Je vois leurs noms, pas leurs gains
+  const [mesCollegues] = useState([
+    { nom: "David I.", code: "AMB-DAV-2026-045", filleuls: 8, statut: "ACTIF" },
+    { nom: "Grace M.", code: "AMB-GRA-2026-099", filleuls: 0, statut: "EN ATTENTE DG" },
+  ]);
+
   const [mesPersonnes, setMesPersonnes] = useState<Personne[]>([
     { id: "P1", nom: "Boutique Mama Grace", whatsapp: "243810000001", type: "BOUTIQUE", date: "Il y a 5 jours", ticket: 50000, mois: 1, commission: 10000 },
     { id: "P2", nom: "Client Joel K.", whatsapp: "243810000002", type: "CLIENT", date: "Il y a 10 jours", ticket: 30000, mois: 1, commission: 6000 },
-    { id: "P3", nom: "Shop Lemba Fashion", whatsapp: "243810000003", type: "BOUTIQUE", date: "Il y a 40 jours", ticket: 50000, mois: 2, commission: 0 }, // 2ème mois = 0 CDF, règle 20% 1er mois seulement
-    { id: "P4", nom: "Client Sarah N.", whatsapp: "243810000004", type: "CLIENT", date: "Il y a 65 jours", ticket: 20000, mois: 3, commission: 0 }, // 3ème mois = 0 CDF
+    { id: "P3", nom: "Shop Lemba Fashion", whatsapp: "243810000003", type: "BOUTIQUE", date: "Il y a 40 jours", ticket: 50000, mois: 2, commission: 0 },
+    { id: "P4", nom: "Client Sarah N.", whatsapp: "243810000004", type: "CLIENT", date: "Il y a 65 jours", ticket: 20000, mois: 3, commission: 0 },
   ]);
 
   const [formBoutique, setFormBoutique] = useState({ nom: "", vendeur: "", whatsapp: "" });
@@ -36,34 +51,28 @@ export default function AmbassadeurPageV2() {
   const [codeInvite, setCodeInvite] = useState("");
 
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(""), 4000); };
-
-  // TOTAL COMMISSIONS - Règle 20% 1er mois seulement, calculée automatiquement
   const totalCommission = mesPersonnes.reduce((s, p) => s + p.commission, 0);
   const totalPremierMois = mesPersonnes.filter(p => p.mois === 1).length;
   const totalPersonnes = mesPersonnes.length;
 
-  // CRÉER UNE BOUTIQUE AVEC SON CODE VISUEL
   const creerBoutique = () => {
     if (!formBoutique.nom || formBoutique.whatsapp.length < 9) return showToast("Nom boutique + WhatsApp obligatoires.");
-    // Commission future : si cette boutique achète un ticket ce mois-ci, l'Ambassadeur aura 20%
     setMesPersonnes(p => [...p, { id: `P-${Date.now()}`, nom: formBoutique.nom, whatsapp: formBoutique.whatsapp, type: "BOUTIQUE", date: "À l'instant", ticket: 0, mois: 1, commission: 0 }]);
-    showToast(`✅ Boutique ${formBoutique.nom} créée avec ton code ${monCodePro}. Si elle achète un ticket ce 1er mois, tu gagnes 20%.`);
+    showToast(`✅ Boutique ${formBoutique.nom} créée avec ton code ${monCodePro}. Liée à : Toi → ${monSuperviseur.code} → DG. Si elle achète un ticket ce 1er mois, tu gagnes 20%.`);
     setFormBoutique({ nom: "", vendeur: "", whatsapp: "" });
   };
 
-  // CRÉER UN CLIENT AVEC SON CODE VISUEL
   const creerClient = () => {
     if (!formClient.nom || formClient.whatsapp.length < 9) return showToast("Nom client + WhatsApp obligatoires.");
     setMesPersonnes(p => [...p, { id: `P-${Date.now()}`, nom: formClient.nom, whatsapp: formClient.whatsapp, type: "CLIENT", date: "À l'instant", ticket: 0, mois: 1, commission: 0 }]);
-    showToast(`✅ Client ${formClient.nom} créé avec ton code ${monCodePro}. Si il achète un ticket ce 1er mois, tu gagnes 20%.`);
+    showToast(`✅ Client ${formClient.nom} créé avec ton code ${monCodePro}. Lié à : Toi → ${monSuperviseur.code} → DG.`);
     setFormClient({ nom: "", whatsapp: "" });
   };
 
-  // CRÉER UN NOUVEL AMBASSADEUR - Droit : un Ambassadeur peut créer un autre Ambassadeur
   const creerAmbassadeur = () => {
     if (!codeInvite || codeInvite.length < 3) return showToast("Mets le nom du nouvel Ambassadeur.");
     const nouveauCode = `AMB-${codeInvite.slice(0, 3).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    showToast(`✅ Nouvel Ambassadeur ${codeInvite} créé par toi. Son code pro : ${nouveauCode}. Il est sous ta supervision. Le DG validera.`);
+    showToast(`✅ Nouvel Ambassadeur ${codeInvite} créé par toi. Son code pro : ${nouveauCode}. Il sera lié à ton Superviseur ${monSuperviseur.code}. Le DG validera.`);
     setCodeInvite("");
   };
 
@@ -75,7 +84,6 @@ export default function AmbassadeurPageV2() {
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-20">
       {toast && <div className="fixed top-4 left-4 right-4 z-50 max-w-[400px] mx-auto bg-black text-white p-3 rounded-xl text-[12px] font-bold text-center shadow-lg">{toast}</div>}
 
-      {/* CARTE D'IDENTITÉ VISUELLE - AMBASSADEUR */}
       <div className="bg-[#FF6B00] text-white px-5 pt-8 pb-5 rounded-b-[28px]">
         <div className="flex justify-between items-start">
           <p className="text-[11px] opacity-80">WENZE • CARTE AMBASSADEUR</p>
@@ -95,7 +103,11 @@ export default function AmbassadeurPageV2() {
           </div>
         </div>
 
-        {/* GAINS RAPIDES */}
+        {/* LIEN RAPIDE - INTÉGRÉ EN HAUT, TOUJOURS VISIBLE */}
+        <div className="bg-black/20 rounded-xl px-3 py-2 mt-3 text-[11px] text-center">
+          🔗 <b>TON LIEN :</b> {monCodePro} → {monSuperviseur.code} → DG
+        </div>
+
         <div className="grid grid-cols-3 gap-2 mt-3">
           <div className="bg-white/15 rounded-2xl p-3 text-center"><p className="font-black text-[16px]">{totalCommission.toLocaleString()}</p><p className="text-[10px] opacity-80">CDF gagnés</p></div>
           <div className="bg-white/15 rounded-2xl p-3 text-center"><p className="font-black text-[16px]">{totalPersonnes}</p><p className="text-[10px] opacity-80">Personnes créées</p></div>
@@ -103,11 +115,10 @@ export default function AmbassadeurPageV2() {
         </div>
       </div>
 
-      {/* ONGLETS */}
       <div className="flex gap-1.5 px-4 mt-4">
-        {(["ACCUEIL", "GAINS", "CREER", "PARRAINAGE"] as const).map(t => (
+        {(["ACCUEIL", "GAINS", "CREER", "LIEN"] as const).map(t => (
           <button key={t} onClick={() => setOnglet(t)} className={`flex-1 py-3 rounded-full text-[11px] font-black ${onglet === t ? "bg-black text-white" : "bg-white border"}`}>
-            {t === "ACCUEIL" ? "🏠 Accueil" : t === "GAINS" ? "💰 Gains" : t === "CREER" ? "➕ Créer" : "🔗 Lien"}
+            {t === "ACCUEIL" ? "🏠 Accueil" : t === "GAINS" ? "💰 Gains" : t === "CREER" ? "➕ Créer" : "🔗 Mon Lien"}
           </button>
         ))}
       </div>
@@ -115,6 +126,20 @@ export default function AmbassadeurPageV2() {
       <div className="px-4 mt-4">
         {onglet === "ACCUEIL" && (
           <div className="space-y-3">
+            {/* CARTE MON SUPERVISEUR - INTÉGRÉE DANS ACCUEIL */}
+            <div className="bg-white border-2 border-[#1A3A2F] rounded-2xl p-4">
+              <p className="font-black text-[13px]">🛡️ Mon Superviseur</p>
+              <div className="flex justify-between items-center mt-2">
+                <div>
+                  <p className="font-black text-[14px]">{monSuperviseur.nom}</p>
+                  <p className="text-[11px] text-gray-500">Code : {monSuperviseur.code}</p>
+                  <p className="text-[11px] text-gray-500">Quartier : {monSuperviseur.quartier}</p>
+                  <p className="text-[10px] text-gray-400 mt-1">Il contrôle ton travail et fait ton rapport au DG.</p>
+                </div>
+                <a href={`https://wa.me/${monSuperviseur.whatsapp}`} target="_blank" className="bg-[#1A3A2F] text-white px-3 py-2 rounded-full text-[11px] font-black">💬</a>
+              </div>
+            </div>
+
             <div className="bg-white border rounded-2xl p-4">
               <p className="font-black text-[13px]">💡 Comment tu gagnes ?</p>
               <p className="text-[12px] text-gray-600 mt-2 leading-relaxed">1. Tu crées une boutique ou un client avec ton code <b>{monCodePro}</b>.<br />2. Si cette personne achète un ticket <b>pendant son 1er mois</b>, tu gagnes <b>20%</b> du ticket.<br />3. À partir du <b>2ème mois</b>, tu ne gagnes plus sur elle. C'est la règle WENZE.<br />4. Pour continuer à gagner, tu dois créer de nouvelles personnes.</p>
@@ -124,7 +149,7 @@ export default function AmbassadeurPageV2() {
               </div>
             </div>
             <button onClick={() => setOnglet("CREER")} className="w-full bg-[#FF6B00] text-white py-4 rounded-full font-black text-[13px]">➕ Créer une Boutique / Client avec mon code</button>
-            <button onClick={() => setOnglet("PARRAINAGE")} className="w-full bg-black text-white py-4 rounded-full font-black text-[13px]">🔗 Partager mon lien de parrainage</button>
+            <button onClick={() => setOnglet("LIEN")} className="w-full bg-black text-white py-4 rounded-full font-black text-[13px]">🔗 Voir mon lien Superviseur → DG</button>
             <div className="bg-white border rounded-2xl p-4">
               <p className="font-black text-[13px]">Mes dernières créations</p>
               {mesPersonnes.slice(0, 3).map(p => (
@@ -149,6 +174,7 @@ export default function AmbassadeurPageV2() {
                 <div className="flex justify-between"><p className="font-black text-[13px]">{p.type === "BOUTIQUE" ? "🏪" : "👤"} {p.nom}</p><span className={`text-[10px] font-black px-2 py-1 rounded-full h-fit ${p.mois === 1 ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>{p.mois === 1 ? "1ER MOIS • 20%" : `MOIS ${p.mois} • 0%`}</span></div>
                 <p className="text-[11px] text-gray-500 mt-1">{p.whatsapp} • Créé : {p.date}</p>
                 <p className="text-[12px] mt-2">Ticket acheté : <b>{p.ticket > 0 ? `${p.ticket.toLocaleString()} CDF` : "Pas encore acheté"}</b> → Ta commission : <b className={p.commission > 0 ? "text-green-600" : "text-gray-400"}>{p.commission.toLocaleString()} CDF</b></p>
+                <p className="text-[10px] text-gray-400 mt-1">🔗 Liée à : {monCodePro} → {monSuperviseur.code} → DG</p>
                 {p.mois > 1 && <p className="text-[11px] text-gray-400 mt-1">⚠️ Cette personne est au mois {p.mois}, tu ne gagnes plus sur elle. Crée de nouvelles personnes pour continuer à gagner.</p>}
               </div>
             ))}
@@ -164,7 +190,7 @@ export default function AmbassadeurPageV2() {
             </div>
             <div className="bg-white border rounded-2xl p-4">
               <p className="font-black text-[13px]">➕ Créer avec ton code visuel</p>
-              <p className="text-[11px] text-gray-500 mt-1">Code utilisé : <b>{monCodePro}</b> • La personne sera liée à toi pour sa commission 1er mois.</p>
+              <p className="text-[11px] text-gray-500 mt-1">Code utilisé : <b>{monCodePro}</b> • Superviseur lié : <b>{monSuperviseur.code}</b> • La personne sera liée à toi pour sa commission 1er mois.</p>
               {typeCreation === "BOUTIQUE" ? (
                 <div className="space-y-2 mt-3">
                   <input value={formBoutique.nom} onChange={e => setFormBoutique({ ...formBoutique, nom: e.target.value })} placeholder="Nom de la boutique" className="w-full border rounded-xl px-3 py-3 text-[13px] outline-none" />
@@ -180,19 +206,41 @@ export default function AmbassadeurPageV2() {
                 </div>
               )}
             </div>
-
-            {/* CRÉER UN AUTRE AMBASSADEUR - Droit Ambassadeur */}
             <div className="bg-white border rounded-2xl p-4">
               <p className="font-black text-[13px]">🎖️ Créer un nouvel Ambassadeur</p>
-              <p className="text-[11px] text-gray-500 mt-1">Un Ambassadeur peut créer un autre Ambassadeur. Le DG (Super Superviseur) validera.</p>
+              <p className="text-[11px] text-gray-500 mt-1">Un Ambassadeur peut créer un autre Ambassadeur. Le nouveau sera lié au MÊME Superviseur que toi ({monSuperviseur.code}). Le DG (Super Superviseur) validera.</p>
               <input value={codeInvite} onChange={e => setCodeInvite(e.target.value)} placeholder="Nom du nouvel Ambassadeur" className="w-full border rounded-xl px-3 py-3 text-[13px] outline-none mt-3" />
               <button onClick={creerAmbassadeur} className="w-full bg-black text-white py-3.5 rounded-full font-black text-[12px] mt-2">✅ Créer l'Ambassadeur</button>
             </div>
           </div>
         )}
 
-        {onglet === "PARRAINAGE" && (
+        {onglet === "LIEN" && (
           <div className="space-y-3">
+            <div className="bg-black text-white rounded-2xl p-5 text-center">
+              <p className="text-[11px] opacity-70">TA CHAÎNE WENZE</p>
+              <p className="font-black text-[15px] mt-2 leading-relaxed">🎖️ {monCodePro} (Toi)<br />↓<br />🛡️ {monSuperviseur.code} (Ton Superviseur)<br />↓<br />👑 DG - Super Superviseur</p>
+            </div>
+            <div className="bg-white border rounded-2xl p-4">
+              <p className="font-black text-[13px]">🛡️ Mon Superviseur</p>
+              <p className="text-[12px] mt-2"><b>{monSuperviseur.nom}</b> • {monSuperviseur.code}</p>
+              <p className="text-[11px] text-gray-500">{monSuperviseur.quartier}</p>
+              <div className="flex gap-2 mt-3">
+                <a href={`https://wa.me/${monSuperviseur.whatsapp}`} target="_blank" className="flex-1 text-center bg-[#1A3A2F] text-white py-3 rounded-full text-[11px] font-black">💬 Contacter Superviseur</a>
+                <a href={`https://wa.me/${monSuperviseur.dgWhatsapp}`} target="_blank" className="flex-1 text-center bg-orange-500 text-white py-3 rounded-full text-[11px] font-black">👑 Contacter DG</a>
+              </div>
+              <p className="text-[10px] text-gray-400 mt-2 text-center">Contacte d'abord ton Superviseur. Si il ne répond pas, contacte le DG.</p>
+            </div>
+            <div className="bg-white border rounded-2xl p-4">
+              <p className="font-black text-[13px]">👥 Mes collègues sous le même Superviseur</p>
+              <p className="text-[11px] text-gray-500 mt-1">Vous êtes dans la même équipe. Tu vois leurs noms, mais PAS leurs gains.</p>
+              {mesCollegues.map(c => (
+                <div key={c.code} className="flex justify-between py-2.5 border-b last:border-0">
+                  <div><p className="text-[12px] font-bold">🎖️ {c.nom}</p><p className="text-[11px] text-gray-500">{c.code} • {c.filleuls} filleuls</p></div>
+                  <span className="text-[10px] font-black px-2 py-1 rounded-full h-fit bg-gray-100">{c.statut}</span>
+                </div>
+              ))}
+            </div>
             <div className="bg-white border rounded-2xl p-4 text-center">
               <p className="font-black text-[14px]">🔗 Ton lien de parrainage</p>
               <p className="text-[11px] text-gray-500 mt-1">Partage ce lien. Toute personne qui s'inscrit avec ce lien est liée à ton code.</p>
@@ -202,8 +250,8 @@ export default function AmbassadeurPageV2() {
               <a href={`https://wa.me/?text=${encodeURIComponent(`Rejoins WENZE avec mon code ${monCodePro} : ${monLien}`)}`} target="_blank" className="block w-full bg-green-600 text-white py-3.5 rounded-full font-black text-[12px] mt-2 text-center">💬 Partager sur WhatsApp</a>
             </div>
             <div className="bg-[#FFF2CC] border border-dashed rounded-2xl p-4">
-              <p className="font-black text-[12px]">Rappel de la règle commission :</p>
-              <p className="text-[11px] mt-1 leading-relaxed">Tu gagnes 20% sur le ticket du 1er mois seulement. Si tu partages ton lien aujourd'hui, et que la personne achète son ticket dans 20 jours, tu gagnes 20%. Si elle achète le 2ème mois, tu gagnes 0 CDF. Donc partage vite et aide-la à acheter son ticket ce mois-ci.</p>
+              <p className="font-black text-[12px]">Comment le lien a été créé ?</p>
+              <p className="text-[11px] mt-1 leading-relaxed">Tu as été créée par l'Ambassadeur David I. Le système t'a automatiquement liée au même Superviseur que lui : {monSuperviseur.code}. Le DG a validé. Si le DG veut te déplacer vers un autre Superviseur, seul lui peut le faire.</p>
             </div>
           </div>
         )}
