@@ -1,12 +1,11 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 // ============================================================
-// WENZE - SUPERVISEUR V3 - TON CODE V2 CORRIGÉ + LIEN AMBASSADEURS INTÉGRÉ
-// Créé uniquement par le DG | Peut créer Ambassadeur, Boutique, Client
-// Ne peut NI supprimer NI bloquer | Il fait un rapport au DG
-// Lien : SUP -> AMB -> BOUTIQUE / CLIENT -> DG
+// WENZE - SUPERVISEUR V3 CORRIGÉ - Fichier complet
+// SUP -> AMB -> BOUTIQUE / CLIENT -> DG
+// NOUVEAU V4 : Si rapport URGENTE, alerte téléphone du DG
 // ============================================================
 
 type Boutique = { id: string; nom: string; vendeur: string; whatsapp: string; quartier: string; statut: "EN_ATTENTE" | "VALIDEE" | "A_VERIFIER"; probleme?: string; codeAmb?: string };
@@ -14,15 +13,12 @@ type Ambassadeur = { id: string; nom: string; whatsapp: string; codePro: string;
 
 export default function SuperviseurPageV2() {
   const router = useRouter();
-  // CORRECTION : J'ai ajouté LIEN dans les onglets
   const [onglet, setOnglet] = useState<"ACCUEIL" | "BOUTIQUES" | "AMBASSADEURS" | "CREER" | "RAPPORT" | "LIEN">("ACCUEIL");
   const [recherche, setRecherche] = useState("");
 
-  // IDENTITÉ PROFESSIONNELLE DU SUPERVISEUR - Générée par WENZE
   const [monCodePro] = useState("SUP-GOM-2026-014");
   const [monNom] = useState("Superviseur Gombe");
   const [monQuartier] = useState("Gombe • Lemba • Ngaliema");
-  const [monTelephone] = useState("243810000000");
 
   const [boutiques, setBoutiques] = useState<Boutique[]>([
     { id: "B-01", nom: "Boutique Mama Grace", vendeur: "Mama Grace", whatsapp: "243810000001", quartier: "Gombe", statut: "EN_ATTENTE", codeAmb: "AMB-MIR-2026-087" },
@@ -30,7 +26,6 @@ export default function SuperviseurPageV2() {
     { id: "B-03", nom: "Kiosque Ngaliema", vendeur: "Sarah N.", whatsapp: "243810000003", quartier: "Ngaliema", statut: "VALIDEE", codeAmb: "AMB-MIR-2026-087" },
   ]);
 
-  // CORRECTION LIEN : J'ai ajouté codePro + creePar à chaque Ambassadeur pour voir le lien
   const [ambassadeurs, setAmbassadeurs] = useState<Ambassadeur[]>([
     { id: "A-01", nom: "Mireille T.", whatsapp: "243810000011", codePro: "AMB-MIR-2026-087", creePar: "Par Amb. David I. • Validé DG", filleuls: 12, boutiquesCrees: 5, statut: "ACTIF", dernierTravail: "Aujourd'hui, 10h" },
     { id: "A-02", nom: "David I.", whatsapp: "243810000012", codePro: "AMB-DAV-2026-045", creePar: "Par DG", filleuls: 8, boutiquesCrees: 3, statut: "ACTIF", dernierTravail: "Hier" },
@@ -43,40 +38,59 @@ export default function SuperviseurPageV2() {
   const [typeCreation, setTypeCreation] = useState<"AMBASSADEUR" | "BOUTIQUE" | "CLIENT">("AMBASSADEUR");
   const [toast, setToast] = useState("");
   const [rapport, setRapport] = useState({ sujet: "", detail: "", urgence: "NORMALE" as "NORMALE" | "URGENTE" });
+  const [envoiEnCours, setEnvoiEnCours] = useState(false);
 
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(""), 3500); };
 
-  // 1. CRÉER UN AMBASSADEUR - Lié automatiquement à ton code SUP
   const creerAmbassadeur = () => {
     if (!formAmb.nom || formAmb.whatsapp.length < 9) return showToast("Nom et WhatsApp obligatoires pour l'Ambassadeur.");
     const codeAmb = `AMB-${formAmb.nom.slice(0, 3).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
     setAmbassadeurs(p => [...p, { id: `A-${Date.now()}`, nom: formAmb.nom, whatsapp: formAmb.whatsapp, codePro: codeAmb, creePar: `Par toi (${monCodePro}) • En attente DG`, filleuls: 0, boutiquesCrees: 0, statut: "ACTIF", dernierTravail: "À l'instant - Créé par toi" }]);
-    showToast(`✅ Ambassadeur ${formAmb.nom} créé. Son code pro : ${codeAmb}. Lien : ${codeAmb} → ${monCodePro} → DG. Il est sous ta supervision.`);
+    showToast(`✅ Ambassadeur ${formAmb.nom} créé. Son code pro : ${codeAmb}. Lien : ${codeAmb} → ${monCodePro} → DG.`);
     setFormAmb({ nom: "", whatsapp: "" });
   };
 
-  // 2. CRÉER UNE BOUTIQUE AVEC SON CODE SUPERVISEUR
   const creerBoutique = () => {
     if (!formBoutique.nom || !formBoutique.whatsapp) return showToast("Nom de boutique et WhatsApp obligatoires.");
     setBoutiques(p => [...p, { id: `B-${Date.now()}`, nom: formBoutique.nom, vendeur: formBoutique.vendeur, whatsapp: formBoutique.whatsapp, quartier: formBoutique.quartier || monQuartier, statut: "EN_ATTENTE", codeAmb: "Créée directement par toi" }]);
-    showToast(`✅ Boutique ${formBoutique.nom} créée avec ton code ${monCodePro}. Lien : Boutique → ${monCodePro} → DG. En attente de validation.`);
+    showToast(`✅ Boutique ${formBoutique.nom} créée avec ton code ${monCodePro}. En attente de validation.`);
     setFormBoutique({ nom: "", vendeur: "", whatsapp: "", quartier: "" });
   };
 
-  // 3. CRÉER UN COMPTE CLIENT
   const creerClient = () => {
     if (!formClient.nom || formClient.whatsapp.length < 9) return showToast("Nom et WhatsApp du client obligatoires.");
-    showToast(`✅ Client ${formClient.nom} créé avec ton code ${monCodePro}. Lien : Client → ${monCodePro} → DG. Il a reçu son ticket tombola.`);
+    showToast(`✅ Client ${formClient.nom} créé avec ton code ${monCodePro}. Il a reçu son ticket tombola.`);
     setFormClient({ nom: "", whatsapp: "" });
   };
 
-  // 4. ENVOYER RAPPORT AU DG
-  const envoyerRapport = () => {
+  // ===== V4 - RAPPORT AU DG + ALERTE TÉLÉPHONE SI URGENTE =====
+  const envoyerRapport = async () => {
     if (!rapport.sujet || !rapport.detail) return showToast("Sujet et détail du rapport obligatoires.");
+    setEnvoiEnCours(true);
+
+    // 1. Si URGENTE -> on réveille le DG sur son téléphone via Telegram + Gmail
+    if (rapport.urgence === "URGENTE") {
+      try {
+        await fetch("/api/alerte", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            titre: `RAPPORT SUP ${monCodePro} - ${rapport.sujet}`,
+            detail: rapport.detail,
+            urgence: "URGENTE",
+            qui: `${monNom} (${monCodePro}) - ${monQuartier}`,
+          }),
+        });
+      } catch {}
+    }
+
+    // 2. On ouvre WhatsApp comme avant
     const msg = `📋 RAPPORT SUPERVISEUR ${monCodePro} - ${monNom}%0A%0ASujet: ${rapport.sujet}%0AUrgence: ${rapport.urgence}%0AQuartier: ${monQuartier}%0A%0ADétail: ${rapport.detail}%0A%0AJe demande l'intervention du DG.`;
     window.open(`https://wa.me/243825888889?text=${msg}`, "_blank");
-    showToast("📤 Rapport envoyé au DG sur WhatsApp. Attends sa réponse, ne bloque personne.");
+
+    showToast(rapport.urgence === "URGENTE" ? "🚨 Rapport URGENT envoyé + Alerte téléphone DG envoyée." : "📤 Rapport envoyé au DG sur WhatsApp.");
     setRapport({ sujet: "", detail: "", urgence: "NORMALE" });
+    setEnvoiEnCours(false);
   };
 
   const deconnecter = () => { document.cookie = "wenze-role=; path=/; max-age=0"; router.push("/dg-prive/connexion"); };
@@ -102,12 +116,11 @@ export default function SuperviseurPageV2() {
             <p className="text-[9px] font-black mt-1 bg-[#FFD166] px-2 py-0.5 rounded-full">{monCodePro}</p>
           </div>
         </div>
-        {/* LIEN RAPIDE - INTÉGRÉ */}
         <div className="bg-white/10 rounded-xl px-3 py-2 mt-3 text-[11px] text-center">
           🔗 <b>TA CHAÎNE :</b> DG → {monCodePro} (Toi) → {ambassadeurs.length} Ambassadeurs
         </div>
         <div className="flex gap-2 mt-3">
-          <button onClick={() => { navigator.clipboard.writeText(monCodePro); showToast(`Code ${monCodePro} copié. Partage-le pour créer boutique / client.`); }} className="flex-1 bg-[#FFD166] text-black py-2.5 rounded-full text-[11px] font-black">📋 Copier mon code pro : {monCodePro}</button>
+          <button onClick={() => { navigator.clipboard.writeText(monCodePro); showToast(`Code ${monCodePro} copié.`); }} className="flex-1 bg-[#FFD166] text-black py-2.5 rounded-full text-[11px] font-black">📋 Copier mon code pro : {monCodePro}</button>
         </div>
       </div>
 
@@ -161,9 +174,8 @@ export default function SuperviseurPageV2() {
           <div className="space-y-3">
             <div className="bg-[#1A3A2F] text-white rounded-2xl p-4">
               <p className="font-black text-[13px]">🛡️ Mes Ambassadeurs liés</p>
-              <p className="text-[11px] opacity-70 mt-1">Code : {monCodePro} • Ces Ambassadeurs sont sous TA supervision. Tu contrôles leur travail.</p>
+              <p className="text-[11px] opacity-70 mt-1">Code : {monCodePro} • Ces Ambassadeurs sont sous TA supervision.</p>
             </div>
-            <p className="text-[11px] text-gray-500 bg-white border rounded-2xl p-3">Tu contrôles le travail de TES Ambassadeurs. Si un Ambassadeur ne travaille pas, tu ne le bloques pas, tu le signales au DG dans ton rapport.</p>
             {ambassadeurs.map(a => (
               <div key={a.id} className="bg-white border rounded-2xl p-4">
                 <div className="flex justify-between"><p className="font-black text-[14px]">🎖️ {a.nom}</p><span className={`text-[10px] font-black px-2 py-1 rounded-full h-fit ${a.statut === "ACTIF" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>{a.statut}</span></div>
@@ -194,7 +206,6 @@ export default function SuperviseurPageV2() {
                   <input value={formAmb.nom} onChange={e => setFormAmb({ ...formAmb, nom: e.target.value })} placeholder="Nom complet de l'Ambassadeur" className="w-full border rounded-xl px-3 py-3 text-[13px] outline-none" />
                   <input value={formAmb.whatsapp} onChange={e => setFormAmb({ ...formAmb, whatsapp: e.target.value })} placeholder="WhatsApp Ex: 0825000000" className="w-full border rounded-xl px-3 py-3 text-[13px] outline-none" />
                   <button onClick={creerAmbassadeur} className="w-full bg-black text-white py-3.5 rounded-full font-black text-[12px] mt-1">✅ Créer l'Ambassadeur</button>
-                  <p className="text-[10px] text-gray-400 text-center">Le nouvel Ambassadeur sera lié : Son Code → {monCodePro} → DG. Le DG validera.</p>
                 </div>
               )}
               {typeCreation === "BOUTIQUE" && (
@@ -217,10 +228,11 @@ export default function SuperviseurPageV2() {
           </div>
         )}
 
+        {/* ===== CORRIGÉ : C'ÉTAIT ICI QUE ÇA CASSAIT ===== */}
         {onglet === "RAPPORT" && (
           <div className="bg-white border rounded-2xl p-4 space-y-3">
             <p className="font-black text-[14px]">📋 Rapport au DG</p>
-            <p className="text-[11px] text-gray-500">Tu as vu un problème ? Tu ne bloques personne. Tu rapportes, et le DG décide et résout.</p>
+            <p className="text-[11px] text-gray-500">Tu as vu un problème ? Tu ne bloques personne. Tu rapportes, et le DG décide.</p>
             <input value={rapport.sujet} onChange={e => setRapport({ ...rapport, sujet: e.target.value })} placeholder="Sujet Ex: Boutique avec fausse photo" className="w-full border rounded-xl px-3 py-3 text-[13px] outline-none" />
             <div className="flex gap-2">
               {(["NORMALE", "URGENTE"] as const).map(u => (
@@ -228,4 +240,7 @@ export default function SuperviseurPageV2() {
               ))}
             </div>
             <textarea value={rapport.detail} onChange={e => setRapport({ ...rapport, detail: e.target.value })} placeholder="Décris le problème en détail : qui, quoi, où, quand..." rows={4} className="w-full border rounded-xl px-3 py-3 text-[13px] outline-none" />
-            <button onClick={envoyerRapport} className="w-full 
+            <button onClick={envoyerRapport} disabled={envoiEnCours} className="w-full bg-[#FF6B00] text-white py-4 rounded-full font-black text-[13px]">
+              {envoiEnCours ? "Envoi..." : rapport.urgence === "URGENTE" ? "🚨 Envoyer + Alerter le DG sur son téléphone" : "📤 Envoyer le rapport au DG"}
+            </button>
+          
