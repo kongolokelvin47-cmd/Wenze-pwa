@@ -393,4 +393,14 @@ function PublierContent() {
 
 export default function PublierPage() {
   return (
-    <Suspense fallba
+    <Suspense
+      fallback={
+        <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6">
+          <div className="h-24 bg-white border rounded-2xl animate-pulse"></div>
+        </div>
+      }
+    >
+      <PublierContent />
+    </Suspense>
+  );
+}
