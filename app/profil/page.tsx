@@ -277,29 +277,27 @@ export default function ProfilPage() {
         ) : null}
 
         {/* CORRIGÉ : MES SERVICES - Prestataire peut voir / modifier / supprimer */}
-        {estPrestataire ? (
+                {estPrestataire ? (
           <div className="bg-white border rounded-2xl overflow-hidden">
             <div className="p-4 flex justify-between items-center border-b">
-              <p className="font-black text-[13px]">Mes services ({mesServices.length})</p>
+              <p className="font-black text-[13px]">Mes demandes ({demandes.length})</p>
               <Link href="/publier-service" className="bg-black text-white px-3 py-1.5 rounded-full text-[10px] font-black">+ Service</Link>
             </div>
-            {mesServices.length === 0 ? (
-              <div className="p-8 text-center"><p className="text-3xl">🔧</p><p className="text-[12px] mt-2 font-bold">Aucun service publié</p><p className="text-[10px] text-gray-500 mt-1">Publie ton premier service, les Clients de ta zone te trouveront.</p>
-                <Link href="/publier-service" className="inline-block bg-black text-white px-5 py-2.5 rounded-full text-[11px] font-black mt-3">Publier un service</Link>
+            {demandes.length === 0 ? (
+              <div className="p-8 text-center">
+                <p className="text-3xl">📩</p>
+                <p className="text-[12px] mt-2 font-bold">Aucune demande pour le moment</p>
+                <p className="text-[10px] text-gray-500 mt-1">Quand un Client te demandera, ça apparaîtra ici.</p>
               </div>
             ) : (
               <div className="divide-y">
-                {mesServices.map((s: any) => (
-                  <div key={s.id} className="p-3 flex gap-3 items-center">
+                {demandes.map((d: any) => (
+                  <div key={d.id} className="p-3 flex gap-3 items-center">
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-[12px] truncate">{s.titre || s.activite}</p>
-                      <p className="text-[10px] text-gray-500">{s.commune || s.zone} • {s.dispo}</p>
-                      <p className="text-[10px] font-bold text-purple-600">{s.prixADiscuter || !s.prixPrestation ? "💬 Prix à discuter" : "À partir de " + s.prixPrestation + " FC"}</p>
+                      <p className="font-bold text-[12px] truncate">{d.titre || d.service || "Demande"}</p>
+                      <p className="text-[10px] text-gray-500">{d.commune || d.zone || ""} • {d.nomClient || d.client || ""}</p>
                     </div>
-                    <div className="flex flex-col gap-1 shrink-0">
-                      <Link href={"/publier-service?edit=" + s.id} className="bg-black text-white px-3 py-1 rounded-full text-[10px] font-bold text-center">Modifier</Link>
-                      <button type="button" onClick={() => supprimerService(s.id)} className="bg-red-50 border border-red-200 text-red-600 px-3 py-1 rounded-full text-[10px] font-bold">Supprimer</button>
-                    </div>
+                    <Link href={"/profil"} className="bg-black text-white px-3 py-1 rounded-full text-[10px] font-bold text-center">Voir</Link>
                   </div>
                 ))}
               </div>
@@ -307,10 +305,8 @@ export default function ProfilPage() {
           </div>
         ) : null}
 
-        {estPrestataire ? (
-          <div className="bg-white border rounded-2xl overflow-hidden">
-            <div className="p-4 flex justify-between items-center border-b">
-              <p className="font-black text-[13px]">Mes demandes ({demandes.length})</p>
-              <Link href="/publier-service" className="bg-black text-white px-3 py-1.5 rounded-full text-[10px] font-black">+ Service</Link>
-            </div>
-  {
+        <button type="button" onClick={sortir} className="w-full bg-gray-100 rounded-full py-3 text-[12px] font-bold">Se déconnecter</button>
+      </div>
+    </div>
+  );
+}
