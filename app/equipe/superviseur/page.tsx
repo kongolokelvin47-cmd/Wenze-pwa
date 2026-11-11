@@ -1,4 +1,75 @@
-  return (
+"use client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+type Boutique = { id: string; nom: string; vendeur: string; whatsapp: string; quartier: string; statut: "EN_ATTENTE" | "VALIDEE" | "A_VERIFIER"; probleme?: string; codeAmb?: string };
+type Ambassadeur = { id: string; nom: string; whatsapp: string; codePro: string; creePar: string; filleuls: number; boutiquesCrees: number; statut: "ACTIF" | "INACTIF"; dernierTravail: string };
+
+export default function SuperviseurPage() {
+  const router = useRouter();
+  const [onglet, setOnglet] = useState("ACCUEIL");
+  const [recherche, setRecherche] = useState("");
+  const [monCodePro] = useState("SUP-GOM-2026-014");
+  const [monNom] = useState("Superviseur Gombe");
+  const [monQuartier] = useState("Gombe • Lemba • Ngaliema");
+  const [boutiques, setBoutiques] = useState<Boutique[]>([
+    { id: "B-01", nom: "Boutique Mama Grace", vendeur: "Mama Grace", whatsapp: "243810000001", quartier: "Gombe", statut: "EN_ATTENTE", codeAmb: "AMB-MIR-2026-087" },
+    { id: "B-02", nom: "Shop Lemba Fashion", vendeur: "Kevin Lemba", whatsapp: "243810000002", quartier: "Lemba", statut: "A_VERIFIER", probleme: "Photo floue, pas de vitrine", codeAmb: "AMB-DAV-2026-045" },
+    { id: "B-03", nom: "Kiosque Ngaliema", vendeur: "Sarah N.", whatsapp: "243810000003", quartier: "Ngaliema", statut: "VALIDEE", codeAmb: "AMB-MIR-2026-087" },
+  ]);
+  const [ambassadeurs, setAmbassadeurs] = useState<Ambassadeur[]>([
+    { id: "A-01", nom: "Mireille T.", whatsapp: "243810000011", codePro: "AMB-MIR-2026-087", creePar: "Par Amb. David I. • Validé DG", filleuls: 12, boutiquesCrees: 5, statut: "ACTIF", dernierTravail: "Aujourd'hui, 10h" },
+    { id: "A-02", nom: "David I.", whatsapp: "243810000012", codePro: "AMB-DAV-2026-045", creePar: "Par DG", filleuls: 8, boutiquesCrees: 3, statut: "ACTIF", dernierTravail: "Hier" },
+    { id: "A-03", nom: "Grace M.", whatsapp: "243810000013", codePro: "AMB-GRA-2026-099", creePar: "Par DG", filleuls: 0, boutiquesCrees: 0, statut: "INACTIF", dernierTravail: "Il y a 5 jours" },
+  ]);
+  const [formAmb, setFormAmb] = useState({ nom: "", whatsapp: "" });
+  const [formBoutique, setFormBoutique] = useState({ nom: "", vendeur: "", whatsapp: "", quartier: "" });
+  const [formClient, setFormClient] = useState({ nom: "", whatsapp: "" });
+  const [typeCreation, setTypeCreation] = useState("AMBASSADEUR");
+  const [toast, setToast] = useState("");
+  const [rapport, setRapport] = useState({ sujet: "", detail: "", urgence: "NORMALE" });
+  const [envoiEnCours, setEnvoiEnCours] = useState(false);
+  const [dernierRapport, setDernierRapport] = useState("");
+  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(""), 4000); };
+  const creerAmbassadeur = () => {
+    if (!formAmb.nom || formAmb.whatsapp.length < 9) return showToast("Nom et WhatsApp obligatoires.");
+    const codeAmb = `AMB-${formAmb.nom.slice(0, 3).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    setAmbassadeurs(p => [...p, { id: `A-${Date.now()}`, nom: formAmb.nom, whatsapp: formAmb.whatsapp, codePro: codeAmb, creePar: `Par toi (${monCodePro}) • En attente DG`, filleuls: 0, boutiquesCrees: 0, statut: "ACTIF", dernierTravail: "À l'instant" }]);
+    showToast(`✅ Ambassadeur ${formAmb.nom} créé. Code : ${codeAmb}`);
+    setFormAmb({ nom: "", whatsapp: "" });
+  };
+  const creerBoutique = () => {
+    if (!formBoutique.nom || !formBoutique.whatsapp) return showToast("Nom boutique + WhatsApp obligatoires.");
+    setBoutiques(p => [...p, { id: `B-${Date.now()}`, nom: formBoutique.nom, vendeur: formBoutique.vendeur, whatsapp: formBoutique.whatsapp, quartier: formBoutique.quartier || monQuartier, statut: "EN_ATTENTE", codeAmb: "Créée par toi" }]);
+    showToast(`✅ Boutique ${formBoutique.nom} créée. En attente.`);
+    setFormBoutique({ nom: "", vendeur: "", whatsapp: "", quartier: "" });
+  };
+  const creerClient = () => {
+    if (!formClient.nom || formClient.whatsapp.length < 9) return showToast("Nom + WhatsApp client obligatoires.");
+    showToast(`✅ Client ${formClient.nom} créé avec ton code ${monCodePro}.`);
+    setFormClient({ nom: "", whatsapp: "" });
+  };
+  const envoyerRapport = async () => {
+    if (!rapport.sujet || !rapport.detail) return showToast("Sujet + détail obligatoires.");
+    setEnvoiEnCours(true);
+    let resAlerte = "";
+    if (rapport.urgence === "URGENTE") {
+      try {
+        const r = await fetch("/api/alerte", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ titre: `RAPPORT SUP ${monCodePro} - ${rapport.sujet}`, detail: rapport.detail, urgence: "URGENTE", qui: `${monNom} (${monCodePro})` }) });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) resAlerte = "✅ Alerte Telegram envoyée au DG";
+        else resAlerte = "❌ Alerte Telegram ÉCHOUÉE : " + (d.erreur || "Vercel : TOKEN ou CHAT_ID manquant");
+      } catch { resAlerte = "❌ Pas de connexion / API introuvable"; }
+      setDernierRapport(resAlerte);
+    }
+    const msg = `📋 RAPPORT SUPERVISEUR ${monCodePro} - ${monNom}%0A%0ASujet: ${rapport.sujet}%0AUrgence: ${rapport.urgence}%0AQuartier: ${monQuartier}%0A%0ADétail: ${rapport.detail}%0A%0AJe demande l'intervention du DG.`;
+    window.open(`https://wa.me/243825888889?text=${msg}`, "_blank");
+    showToast(rapport.urgence === "URGENTE" ? resAlerte : "📤 Rapport envoyé sur WhatsApp.");
+    setRapport({ sujet: "", detail: "", urgence: "NORMALE" });
+    setEnvoiEnCours(false);
+  };
+  const deconnecter = () => { document.cookie = "wenze-role=; path=/; max-age=0"; router.push("/"); };
+return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-20">
       {toast && <div className="fixed top-4 left-4 right-4 z-50 max-w-[400px] mx-auto bg-black text-white p-3 rounded-xl text-[12px] font-bold text-center shadow-lg">{toast}</div>}
       <div className="bg-[#1A3A2F] text-white px-5 pt-8 pb-5 rounded-b-[28px]">
