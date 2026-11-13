@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head><style>
+@font-face {
+  font-family: "Optimistic";
+  font-style: normal;
+  font-weight: 400 600;
+  font-display: swap;
+  src: url("/fonts/OptimisticAI_VF_Optimized.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Optimistic Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/OptimisticMono_W_TextRegular.woff2") format("woff2");
+}
+:where(html) {
+  font-family: "Optimistic", system-ui, sans-serif;
+}
+:where(code, pre, kbd, samp) {
+  font-family: "Optimistic Mono", ui-monospace, monospace;
+}
+</style>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WENZE - DG Privé V3 Corrigé</title>
+<style>
+*{box-sizing:border-box;font-family:system-ui,Arial}body{margin:0;background:var(--bg,#FFFBF0)}
+.wrap{max-width:480px;margin:auto;min-height:100vh;padding-bottom:80px}
+header{background:var(--hdr,#000);color:#fff;padding:20px;padding-top:36px;border-radius:0 0 28px 28px}
+.card{background:#fff;margin:12px;padding:14px;border-radius:16px;border:1px solid #eee}
+input,select,button,textarea{width:100%;padding:12px;margin:6px 0;border-radius:12px;border:1px solid #ddd;font-size:14px}
+button{background:var(--btn,#FF6B00);color:#fff;border:none;font-weight:800;cursor:pointer}
+button.sec{background:#111}button.ghost{background:#f1f1f1;color:#111}button.danger{background:#dc2626}button.green{background:#16a34a}
+.small{font-size:12px;color:#666}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.grid4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px}
+.tabs{display:flex;gap:6px;overflow-x:auto;padding:10px}.tabs button{white-space:nowrap;width:auto;padding:10px 12px;border-radius:999px;background:#fff;border:1px solid #ddd;color:#111;font-size:11px}.tabs button.on{background:#000;color:#fff}
+.hidden{display:none}.flex{display:flex;gap:8px}.flex>*{flex:1}
+.preview{border:2px dashed #ddd;padding:12px;border-radius:12px;text-align:center}
+.badge{display:inline-block;padding:3px 8px;border-radius:999px;font-size:11px;font-weight:800}
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+<div id="lock" class="wrap" style="background:#000;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;min-height:100vh">
+<p class="small" style="color:#aaa">WENZE • ESPACE PRIVÉ DG</p><p style="font-size:40px">👑</p><h2 style="text-align:center">Tableau de bord DG</h2>
+<p class="small" style="color:#aaa;text-align:center">Entre ton PIN. Seul le DG connaît ce code.</p>
+<input id="pinInput" type="password" inputmode="numeric" placeholder="••••" style="text-align:center;font-size:22px;letter-spacing:10px;background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.2)">
+<button onclick="unlock()">🔓 Déverrouiller</button>
+<p class="small" style="color:#777">PIN par défaut : 2026 - Change-le dans PARAMÈTRES (ancien PIN demandé)</p>
+<p id="lockMsg" class="small" style="color:#ff8080"></p>
+</div>
+
+<div id="dash" class="hidden">
+<header id="hdr">
+<div class="flex"><div><p style="font-size:11px;opacity:.7">WENZE • ESPACE PRIVÉ</p><h2 id="adminNameTitle" style="margin:4px 0">👑 Tableau DG</h2><p style="font-size:12px;opacity:.8">Bonjour Directeur Général.</p></div><div style="display:flex;flex-direction:column;gap:6px"><button onclick="lockApp()" style="background:rgba(255,255,255,.15);padding:6px">🔒 Verrouiller</button></div></div>
+<div style="background:rgba(255,255,255,.1);border-radius:16px;padding:12px;margin-top:12px">
+<div class="flex"><p><b>📱 Alertes : <span id="alerteEtat">✅ ON</span></b></p><button onclick="toggleAlerte()" id="btnAlerte" style="max-width:110px">Désactiver</button></div>
+<p class="small" style="color:#ddd">Telegram via /api/alerte + Son local + Vibration</p><p id="dernier" class="small" style="color:#fff;background:rgba(0,0,0,.3);padding:8px;border-radius:8px;min-height:20px"></p>
+<div class="flex"><button onclick="testerAlerte()">📱 TESTER L'ALERTE</button><button onclick="toggleSon()" id="btnSon" style="max-width:80px">🔔 ON</button><button onclick="go('ALERTES')" style="max-width:90px">Historique →</button></div>
+</div>
+<div id="critBox" class="hidden" style="background:#dc2626;padding:12px;border-radius:16px;margin-top:10px;cursor:pointer" onclick="go('PROBLEMES')"><b>🚨 <span id="critCount"></span> anomalie(s) CRITIQUE(s) ! Clique pour résoudre.</b></div>
+<div class="grid4" style="margin-top:10px"><div style="background:rgba(255,255,255,.1);padding:10px;border-radius:14px;text-align:center"><b id="statPaye">0</b><br><span style="font-size:9px">CDF Payés</span></div><div style="background:rgba(255,255,255,.1);padding:10px;border-radius:14px;text-align:center"><b id="statProb">0</b><br><span style="font-size:9px">Problèmes</span></div><div style="background:rgba(255,255,255,.1);padding:10px;border-radius:14px;text-align:center"><b id="statSup">0</b><br><span style="font-size:9px">Superviseurs</span></div><div style="background:rgba(255,255,255,.1);padding:10px;border-radius:14px;text-align:center"><b id="statAmb">0</b><br><span style="font-size:9px">Ambassadeurs</span></div></div>
+</header>
+<div class="tabs" id="tabs"></div>
+<div id="content" style="padding:0 12px"></div>
+</div>
+</div>
+
+<script>
+// ===== SECURITE: echappe tout texte utilisateur avant innerHTML =====
+function esc(s){ return String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
+function bipLocal(){ try{ const C=new (window.AudioContext||window.webkitAudioContext)(); [0,0.25,0.5].forEach((t,i)=>{ const o=C.createOscillator(),g=C.createGain(); o.connect(g); g.connect(C.destination); o.frequency.value=880; o.type="sine"; g.gain.setValueAtTime(0.0001,C.currentTime+t); g.gain.exponentialRampToValueAtTime(0.3,C.currentTime+t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,C.currentTime+t+0.2); o.start(C.currentTime+t); o.stop(C.currentTime+t+0.22); }); }catch(e){} }
+
+// ===== DONNEES SEPAREES: data vs config (secrets jamais exportés avec membres) =====
+let storeData = JSON.parse(localStorage.getItem('wenze_dg_data')||'null');
+let storeCfg = JSON.parse(localStorage.getItem('wenze_dg_config')||'null');
+let S = storeData || {
+ membres:[
+  {id:"SUP-01",nom:"Grace Mbuyi",telephone:"+243810000001",role:"SUPERVISEUR",zone:"Gombe",statut:"ACTIF",boutiquesValidees:12,dateInscription:"2026-10-01",codePro:"SUP-GOM-2026-014",chefCode:"DG",province:"Kinshasa",commune:"Gombe",village:"Gombe Centre"},
+  {id:"SUP-02",nom:"Kevin Kongolo",telephone:"+243810000002",role:"SUPERVISEUR",zone:"Lemba",statut:"EN_ATTENTE",boutiquesValidees:0,dateInscription:"2026-11-08",codePro:"SUP-LEM-2026-021",chefCode:"DG",province:"Kinshasa",commune:"Lemba",village:"Lemba"},
+  {id:"SUP-03",nom:"Sarah Nsimba",telephone:"+243810000003",role:"SUPERVISEUR",zone:"Ngaliema",statut:"SUSPENDU",boutiquesValidees:3,dateInscription:"2026-09-15",codePro:"SUP-NGA-2026-033",chefCode:"DG",province:"Kinshasa",commune:"Ngaliema",village:"Ngaliema"},
+  {id:"AMB-01",nom:"Joel Kabongo",telephone:"+243810000011",role:"AMBASSADEUR",zone:"Kintambo",statut:"ACTIF",filleuls:18,gains:45000,dateInscription:"2026-10-05",codePro:"AMB-JOE-2026-077",chefCode:"SUP-GOM-2026-014",province:"Kinshasa",commune:"Kintambo",village:"Kintambo"},
+  {id:"AMB-02",nom:"Mireille Tshiala",telephone:"+243810000012",role:"AMBASSADEUR",zone:"Masina",statut:"ACTIF",filleuls:24,gains:62000,dateInscription:"2026-10-02",codePro:"AMB-MIR-2026-087",chefCode:"SUP-GOM-2026-014",province:"Kinshasa",commune:"Masina",village:"Masina"},
+  {id:"AMB-03",nom:"David Ilunga",telephone:"+243810000013",role:"AMBASSADEUR",zone:"Bandal",statut:"EN_ATTENTE",filleuls:0,gains:0,dateInscription:"2026-11-10",codePro:"AMB-DAV-2026-045",chefCode:"SUP-LEM-2026-021",province:"Kinshasa",commune:"Bandal",village:"Bandal"},
+ ],
+ problemes:[
+  {id:"P-01",type:"Boutique fausse photo",qui:"Shop Lemba Fashion",code:"AMB-DAV-2026-045",detail:"Photo floue, pas de vitrine",urgence:"URGENTE",statut:"OUVERT"},
+  {id:"P-02",type:"Ambassadeur inactif",qui:"David Ilunga",code:"AMB-DAV-2026-045",detail:"Aucun travail depuis 5 jours",urgence:"NORMALE",statut:"OUVERT"},
+  {id:"P-03",type:"Paiement échoué",qui:"Client Joel K.",code:"AMB-MIR-2026-087",detail:"Paiement 30 000 CDF échoué",urgence:"CRITIQUE",statut:"OUVERT"},
+ ],
+ paiements:[
+  {id:"PAY-01",qui:"Boutique Mama Grace",type:"Abonnement Boutique",montant:50000,methode:"Orange Money",statut:"PAYÉ"},
+  {id:"PAY-02",qui:"Client Joel K.",type:"Ticket Tombola",montant:30000,methode:"M-Pesa",statut:"EN_ATTENTE"},
+  {id:"PAY-03",qui:"Shop Lemba Fashion",type:"Abonnement Boutique",montant:50000,methode:"Airtel Money",statut:"PAYÉ"},
+  {id:"PAY-04",qui:"Client Sarah N.",type:"Ticket Tombola",montant:20000,methode:"Orange Money",statut:"ÉCHOUÉ"},
+ ],
+ alertes:[]
+};
+let CFG = storeCfg || {
+ pin:"2026", alerteActive:true, sonActif:true,
+ designPub:{main:"#FF6B00",btn:"#111111",title:"Bienvenue chez WENZE",slogan:"Le réseau qui te fait gagner",about:"WENZE - Ensemble on va plus loin.",whats:"+243 810 000 000",logo:"",showAmb:true,maintenance:false},
+ designPrive:{adminName:"👑 Tableau DG",hdr:"#000000",btn:"#FF6B00",bg:"#FFFBF0"},
+ tg:{token:"",chat:""}
+};
+// Migration douce depuis ancienne clé wenze_dg_v3
+try{ let old=JSON.parse(localStorage.getItem('wenze_dg_v3')||'null'); if(old && !storeData){ S={membres:old.membres||S.membres,problemes:old.problemes||S.problemes,paiements:old.paiements||S.paiements,alertes:old.alertes||[]}; CFG={pin:old.pin||"2026",alerteActive:old.alerteActive??true,sonActif:old.sonActif??true,designPub:old.designPub||CFG.designPub,designPrive:old.designPrive||CFG.designPrive,tg:old.tg||CFG.tg}; } }catch(e){}
+
+let onglet="DASH", filtreRole="TOUS", recherche="", filtreProvince="TOUTES", filtreCommune="TOUTES";
+let nouveau={nom:"",telephone:"",role:"SUPERVISEUR",zone:"",province:"Kinshasa",commune:"",village:""};
+let formProb={type:"",qui:"",detail:"",urgence:"NORMALE"};
+let formPay={qui:"",type:"Abonnement Boutique",montant:"",methode:"Orange Money"};
+
+function save(){ localStorage.setItem('wenze_dg_data', JSON.stringify(S)); localStorage.setItem('wenze_dg_config', JSON.stringify(CFG)); applyDesign(); }
+function applyDesign(){
+ document.documentElement.style.setProperty('--hdr', CFG.designPrive.hdr);
+ document.documentElement.style.setProperty('--btn', CFG.designPrive.btn);
+ document.documentElement.style.setProperty('--bg', CFG.designPrive.bg);
+ let t=document.getElementById('adminNameTitle'); if(t) t.textContent=CFG.designPrive.adminName;
+}
+function alerteLocale(titre,detail,urgence){
+ if(CFG.sonActif && urgence==="CRITIQUE"){ try{ if(navigator.vibrate) navigator.vibrate([300,100,300]); }catch(e){} bipLocal(); }
+}
+async function sendTG(titre,detail,urgence,qui){
+ if(!CFG.alerteActive) return "OFF - Alertes désactivées";
+ alerteLocale(titre,detail,urgence);
+ let res="❌ Échec - Vérifie /api/alerte sur Vercel";
+ try{
+   let r=await fetch("/api/alerte",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({titre,detail,urgence,qui})});
+   let d=await r.json().catch(()=>({}));
+   if(r.ok && d.ok) res="✅ Envoyée sur Telegram via /api/alerte";
+   else res="❌ /api/alerte a répondu erreur: "+(d.error||r.status);
+ }catch(e){ res="❌ Impossible de joindre /api/alerte - Vérifie Vercel"; }
+ let el=document.getElementById('dernier'); if(el) el.textContent=res;
+ S.alertes.unshift({id:Date.now(),heure:new Date().toLocaleTimeString("fr-CD",{hour:"2-digit",minute:"2-digit"}),titre,urgence,resultat:res}); S.alertes=S.alertes.slice(0,30); save(); render(); return res;
+}
+async function testerAlerte(){ let ok=await sendTG("TEST - Alerte WENZE","Si tu reçois ce message sur Telegram, ton système marche !","CRITIQUE","DG - Test"); alert(ok); }
+function unlock(){ let v=document.getElementById('pinInput').value; if(v===CFG.pin){ document.getElementById('lock').classList.add('hidden'); document.getElementById('dash').classList.remove('hidden'); render(); } else { document.getElementById('lockMsg').textContent="❌ Code faux"; } }
+function lockApp(){ document.getElementById('dash').classList.add('hidden'); document.getElementById('lock').classList.remove('hidden'); document.getElementById('pinInput').value=""; }
+function toggleAlerte(){ CFG.alerteActive=!CFG.alerteActive; save(); render(); }
+function toggleSon(){ CFG.sonActif=!CFG.sonActif; save(); render(); }
+function go(t){ onglet=t; render(); }
+function doCreer(){
+ let nom=(document.getElementById('nNom')?.value||"").trim();
+ let tel=(document.getElementById('nTel')?.value||"").trim();
+ let zone=(document.getElementById('nZone')?.value||"").trim();
+ let province=(document.getElementById('nProv')?.value||"Kinshasa").trim()||"Kinshasa";
+ let commune=(document.getElementById('nComm')?.value||zone||"Gombe").trim();
+ let village=(document.getElementById('nVill')?.value||commune).trim();
+ if(!nom || tel.length<9) return alert("Nom + WhatsApp obligatoires (min 9 chiffres).");
+ let pre=nouveau.role==="SUPERVISEUR"?"SUP":"AMB";
+ let code=pre+"-"+nom.slice(0,3).toUpperCase().replace(/[^A-Z]/g,"X")+"-"+Math.floor(1000+Math.random()*9000);
+ S.membres.push({id:pre+Date.now(),nom,tel,telephone:tel,role:nouveau.role,zone:zone||commune,statut:"ACTIF",filleuls:0,boutiquesValidees:0,gains:0,dateInscription:new Date().toISOString().slice(0,10),codePro:code,chefCode:"DG",province,commune,village});
+ save(); sendTG("👥 Nouveau membre","Créé : "+code,"NORMALE","DG"); alert("✅ Créé. Code : "+code); render();
+}
+function changer(id,s){ S.membres=S.membres.map(m=>m.id===id?{...m,statut:s}:m); save(); render(); }
+function supprimer(id){ if(confirm("DG, supprimer ce membre ?")){ S.membres=S.membres.filter(m=>m.id!==id); save(); render(); } }
+function resoudre(id){ S.problemes=S.problemes.map(x=>x.id===id?{...x,statut:"RESOLU"}:x); save(); render(); }
+function validerPay(id){ S.paiements=S.paiements.map(x=>x.id===id?{...x,statut:"PAYÉ"}:x); save(); render(); }
+function ajouterProbleme(){
+ let type=(document.getElementById('pType')?.value||"").trim(); let qui=(document.getElementById('pQui')?.value||"").trim(); let detail=(document.getElementById('pDetail')?.value||"").trim(); let urg=document.getElementById('pUrg')?.value||"NORMALE";
+ if(!type||!qui) return alert("Type + Qui obligatoires");
+ S.problemes.unshift({id:"P-"+Date.now(),type,qui,code:"-",detail,urgence:urg,statut:"OUVERT"}); save(); if(urg==="CRITIQUE"||urg==="URGENTE") sendTG("🚨 Problème "+urg, type+" - "+qui+" : "+detail, urg, qui); render();
+}
+function ajouterPaiement(){
+ let qui=(document.getElementById('payQui')?.value||"").trim(); let montant=parseInt(document.getElementById('payMont')?.value||"0"); let type=document.getElementById('payType')?.value||"Abonnement Boutique"; let meth=document.getElementById('payMeth')?.value||"Orange Money";
+ if(!qui||!montant) return alert("Qui + Montant obligatoires");
+ S.paiements.unshift({id:"PAY-"+Date.now(),qui,type,montant,methode:meth,statut:"EN_ATTENTE"}); save(); render();
+}
+function changerPIN(){
+ let ancien=document.getElementById('oldPin').value; let np=document.getElementById('newPin').value; let np2=document.getElementById('newPin2').value;
+ if(ancien!==CFG.pin) return alert("❌ Ancien PIN faux.");
+ if(np.length<4) return alert("Nouveau PIN : min 4 chiffres.");
+ if(np!==np2) return alert("Les 2 nouveaux PIN ne correspondent pas.");
+ CFG.pin=np; save(); alert("✅ PIN changé. Utilise le nouveau PIN au prochain verrouillage."); render();
+}
+function exportMembres(){
+ let txt=S.membres.map(m=>`${m.nom} | ${m.codePro} | ${m.telephone} | ${m.role} | ${m.province} > ${m.commune} > ${m.village} | ${m.statut}`).join("\n");
+ navigator.clipboard?.writeText(txt).then(()=>alert("✅ Membres copiés ! Colle dans WhatsApp / Notes.")).catch(()=>{ let ta=document.getElementById('exportArea'); if(ta){ta.value=txt; ta.select();} alert("Copie manuelle : texte dans la zone ci-dessous."); });
+}
+function exportJSON(){
+ let data={version:"wenze_dg_v3_corrige",exportedAt:new Date().toISOString(),membres:S.membres,problemes:S.problemes,paiements:S.paiements,alertes:S.alertes};
+ let blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json"}); let a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="wenze-dg-backup-"+new Date().toISOString().slice(0,10)+".json"; a.click(); URL.revokeObjectURL(a.href);
+}
+function importJSON(){
+ let txt=document.getElementById('importArea').value.trim(); if(!txt) return alert("Colle d'abord le JSON exporté.");
+ try{ let d=JSON.parse(txt); if(!d.membres) throw new Error("Format invalide"); if(!confirm("Remplacer TOUTES les données par ce backup ?")) return; S.membres=d.membres; S.problemes=d.problemes||[]; S.paiements=d.paiements||[]; S.alertes=d.alertes||[]; save(); alert("✅ Backup restauré !"); render(); }catch(e){ alert("❌ JSON invalide : "+e.message); }
+}
+function effacerTout(){ if(confirm("DG, EFFACER TOUT ? Membres + Problèmes + Paiements. Cette action est irréversible.")){ if(prompt("Tape EFFACER pour confirmer")!=="EFFACER") return; localStorage.removeItem('wenze_dg_data'); location.reload(); } }
+
+function render(){
+ applyDesign();
+ let sup=S.membres.filter(m=>m.role==="SUPERVISEUR"), amb=S.membres.filter(m=>m.role==="AMBASSADEUR");
+ let totalPaye=S.paiements.filter(p=>p.statut==="PAYÉ").reduce((s,p)=>s+(p.montant||0),0);
+ let totalGains=amb.reduce((s,m)=>s+(m.gains||0),0), totalBout=sup.reduce((s,m)=>s+(m.boutiquesValidees||0),0);
+ let probOuverts=S.problemes.filter(p=>p.statut==="OUVERT").length, anomalies=S.problemes.filter(p=>p.urgence==="CRITIQUE"&&p.statut==="OUVERT").length;
+ document.getElementById('statPaye').textContent=totalPaye.toLocaleString();
+ document.getElementById('statProb').textContent=probOuverts;
+ document.getElementById('statSup').textContent=sup.length; document.getElementById('statAmb').textContent=amb.length;
+ document.getElementById('alerteEtat').textContent=CFG.alerteActive?"✅ ON":"❌ OFF";
+ document.getElementById('btnAlerte').textContent=CFG.alerteActive?"Désactiver":"Activer";
+ document.getElementById('btnSon').textContent=CFG.sonActif?"🔔 ON":"🔕 OFF";
+ document.getElementById('critBox').classList.toggle('hidden', anomalies===0); document.getElementById('critCount').textContent=anomalies;
+ let ONGLETS=["DASH","MEMBRES","PROBLEMES","PAIEMENTS","ALERTES","DESIGN","PARAMETRES","RAPPORTS"];
+ document.getElementById('tabs').innerHTML=ONGLETS.map(t=>`<button onclick="go('${t}')" class="${onglet===t?'on':''}">${t==="DASH"?"🏠 Dash":t==="MEMBRES"?"👥 Membres":t==="PROBLEMES"?"🚨 Problèmes ("+probOuverts+")":t==="ALERTES"?"📱 Alertes ("+S.alertes.length+")":t==="PAIEMENTS"?"💰 Paiements":t==="DESIGN"?"🎨 Design":t==="PARAMETRES"?"⚙️ Paramètres":"📊 Rapports"}</button>`).join('');
+ let c=document.getElementById('content'), h="";
+ if(onglet==="DASH"){
+  h+=`<div class="grid"><div class="card"><p class="small">Superviseurs</p><h2>${sup.length}</h2><p class="small" style="color:green">${sup.filter(m=>m.statut==="ACTIF").length} actifs</p></div><div class="card"><p class="small">Ambassadeurs</p><h2>${amb.length}</h2><p class="small" style="color:green">${amb.filter(m=>m.statut==="ACTIF").length} actifs</p></div></div><div class="card" style="background:#000;color:#fff"><b>${totalGains.toLocaleString()} CDF gains • ${totalPaye.toLocaleString()} CDF payés</b><br><span class="small" style="color:#ccc">${totalBout} boutiques validées • ${S.membres.filter(m=>m.statut==="EN_ATTENTE").length} en attente</span></div>`;
+  h+=`<div class="card"><b>➕ Créer Superviseur / Ambassadeur</b><input id="nNom" placeholder="Nom complet"><input id="nTel" placeholder="WhatsApp Ex: 0825000000"><input id="nZone" placeholder="Zone Ex: Gombe"><input id="nProv" placeholder="Province Ex: Kinshasa" value="Kinshasa"><input id="nComm" placeholder="Commune Ex: Gombe"><input id="nVill" placeholder="Village / Quartier"><div class="flex"><button class="${nouveau.role==="SUPERVISEUR"?"":"ghost"}" onclick="nouveau.ro
