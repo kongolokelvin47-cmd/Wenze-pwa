@@ -343,10 +343,3 @@ export default function WenzeBusiness() {
     </div>
   );
     }
-const [designPub, setDesignPub] = useState({ title: "Bienvenue chez WENZE", slogan: "Le réseau qui te fait gagner", whats: "+243 810 000 000", main: "#FF6B00", maintenance: false, showAmb: true });
-useEffect(() => {
-  const d = JSON.parse(localStorage.getItem("wenze_design_pub") || "null");
-  if (d) setDesignPub(d);
-}, []);
-// Et utilise designPub.title, designPub.main... à la place de tes textes en dur
-// Si designPub.maintenance === true, affiche "🚧 On revient bientôt"
