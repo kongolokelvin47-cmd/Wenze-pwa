@@ -3,7 +3,52 @@
 
 import { lireSession, listerInvitations, inviter, cle9 } from "./comptes";
 import { readList, writeList } from "./paiement-base";
+import { createClient } from "@/utils/supabase/client";
 
+// V36 : Pousse aussi dans Supabase pour que l'invité + DG voient l'invitation partout
+async function pushInvitationToSupabase(inv: any, s: any) {
+  try {
+    const supabase = createClient();
+    const code = inv.codeParrainage || inv.id;
+    await supabase.from("invitations").upsert({
+      id: String(code),
+      code: String(code),
+      code_parrainage: String(code),
+      parrain_code: cleanWa(s.ownerWhatsapp || s.whatsapp || ""),
+      parrain_wa: cleanWa(s.ownerWhatsapp || s.whatsapp || ""),
+      parrain_nom: s.nomEtablissement || s.nom || "Wenze",
+      invite_nom: inv.nom || "",
+      invite_telephone: cleanWa(inv.whatsapp || ""),
+      role: inv.type || "client",
+      type: inv.type || "client",
+      statut: "EN_ATTENTE",
+      status: "invité",
+      lien: `${DOMAINE}/invitation/${code}`,
+      reserved_until: inv.reservedUntil ? new Date(inv.reservedUntil).toISOString() : new Date(Date.now() + 48*3600*1000).toISOString(),
+      data: inv,
+    }, { onConflict: "id" });
+  } catch(e) { console.log("Supabase invitation off, local only", e); }
+}
+
+// V36 : Lire les invitations depuis Supabase (pour DG + page Invitation)
+export async function getInvitationsSupabase(telephone?: string) {
+  const supabase = createClient();
+  let q = supabase.from("invitations").select("*").order("created_at", { ascending: false });
+  if (telephone) q = q.eq("parrain_wa", cleanWa(telephone));
+  const { data } = await q.limit(100);
+  return (data || []).map((r: any) => ({
+    id: r.id,
+    codeParrainage: r.code_parrainage || r.code,
+    parrainWa: r.parrain_wa,
+    nom: r.invite_nom,
+    whatsapp: r.invite_telephone,
+    type: r.type,
+    status: r.status || "invité",
+    lien: r.lien,
+    reservedUntil: r.reserved_until,
+    createdAt: r.created_at,
+  }));
+}
 const K_INVITES = "wenze_invitations";
 const DOMAINE = "https://wenze.cd"; // <-- Change en localhost:3000 en test
 
