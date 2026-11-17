@@ -1,100 +1,81 @@
 "use client";
-
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
-// ==========================================
-// CONNEXION ÉQUIPE WENZE - DG / SUPERVISEUR / AMBASSADEUR
-// ==========================================
-export default function ConnexionEquipe() {
-  const router = useRouter();
-  const [telephone, setTelephone] = useState("");
+export default function ConnexionMembre() {
+  const [tel, setTel] = useState("");
   const [code, setCode] = useState("");
-  const [role, setRole] = useState("DG");
-  const [erreur, setErreur] = useState("");
-  const [chargement, setChargement] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const seConnecter = () => {
-    setErreur("");
-    setChargement(true);
+  const connecter = async () => {
+    if (!tel || !code) { setMsg("❌ Téléphone + Code Pro obligatoires"); return; }
+    setLoading(true);
+    setMsg("⏳ Vérification...");
 
-    // CODES PROVISOIRES - À CHANGER APRÈS TON TEST
-    // DG : WENZE-DG-2026
-    // SUPERVISEUR : WENZE-SUP-2026
-    // AMBASSADEUR : WENZE-AMB-2026
-    const codesValides: Record<string, string> = {
-      "DG": "WENZE-DG-2026",
-      "SUPERVISEUR": "WENZE-SUP-2026",
-      "AMBASSADEUR": "WENZE-AMB-2026",
-    };
+    // 1. Chercher le membre avec ce téléphone + ce code
+    const { data, error } = await supabase
+      .from("membres")
+      .select("*")
+      .eq("telephone", tel.trim())
+      .eq("code_pro", code.trim().toUpperCase())
+      .single();
 
+    if (error || !data) {
+      setMsg("❌ Téléphone ou Code Pro faux. Demande au DG.");
+      setLoading(false);
+      return;
+    }
+
+    // 2. Vérifier le statut
+    if (data.statut === "EN_ATTENTE") {
+      setMsg("⏳ Ton compte est créé mais pas encore validé par le DG. Attends sa validation.");
+      setLoading(false);
+      return;
+    }
+    if (data.statut === "SUSPENDU") {
+      setMsg("⛔ Ton compte est suspendu par le DG. Contacte-le.");
+      setLoading(false);
+      return;
+    }
+
+    // 3. C'est bon : on garde la session dans ce téléphone
+    localStorage.setItem("wenze_session", JSON.stringify({
+      id: data.id, nom: data.nom, role: data.role,
+      codePro: data.code_pro, telephone: data.telephone,
+      province: data.province, commune: data.commune, village: data.village,
+      chefCode: data.chef_code,
+    }));
+    setMsg("✅ Bienvenue " + data.nom + " !");
+
+    // 4. Rediriger selon le rôle
     setTimeout(() => {
-      if (telephone.trim().length < 9) {
-        setErreur("Entre ton numéro de téléphone complet. Ex: 0810000000");
-        setChargement(false);
-        return;
-      }
-      if (code !== codesValides[role]) {
-        setErreur("Code incorrect pour ce rôle. Vérifie ton code DG / Superviseur / Ambassadeur.");
-        setChargement(false);
-        return;
-      }
-
-      // ON DONNE LE BADGE AU GARDIEN
-      // C'est ce cookie que middleware.ts va vérifier
-      document.cookie = `wenze-role=${role}; path=/; max-age=86400`; // 24h
-      document.cookie = `wenze-tel=${telephone}; path=/; max-age=86400`;
-
-      // ON ENVOIE VERS LE BON TABLEAU
-      if (role === "DG") router.push("/dg-prive");
-      if (role === "SUPERVISEUR") router.push("/dg-prive/superviseurs");
-      if (role === "AMBASSADEUR") router.push("/dg-prive/ambassadeurs");
-    }, 600);
+      if (data.role === "SUPERVISEUR") window.location.href = "/superviseur";
+      else window.location.href = "/ambassadeur";
+    }, 800);
   };
 
   return (
-    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6 pt-14">
-      <div className="text-center">
-        <p className="text-5xl">🛡️</p>
-        <h1 className="font-black text-[20px] mt-3">Connexion de l'équipe</h1>
-        <p className="text-[12px] text-gray-600 mt-1">WENZE • Espace réservé • Kinshasa</p>
-      </div>
-
-      <div className="bg-white rounded-3xl p-5 mt-6 shadow-sm border">
-        {/* CHOIX DU RÔLE */}
-        <p className="text-[11px] font-black mb-2">JE SUIS :</p>
-        <div className="grid grid-cols-3 gap-2">
-          {["DG", "SUPERVISEUR", "AMBASSADEUR"].map((r) => (
-            <button key={r} onClick={() => setRole(r)} className={`py-3 rounded-xl text-[10px] font-black ${role === r ? "bg-black text-white" : "bg-gray-100"}`}>
-              {r === "DG" ? "👑 DG" : r === "SUPERVISEUR" ? "🛡️ SUP." : "🎖️ AMB."}
-            </button>
-          ))}
-        </div>
-
-        {/* TÉLÉPHONE */}
-        <p className="text-[11px] font-black mt-5 mb-2">NUMÉRO DE TÉLÉPHONE</p>
-        <input value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="Ex: 0810000000" className="w-full border rounded-xl px-4 py-3 text-[14px] outline-none" />
-
-        {/* CODE */}
-        <p className="text-[11px] font-black mt-4 mb-2">CODE SECRET ÉQUIPE</p>
-        <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Entre ton code" className="w-full border rounded-xl px-4 py-3 text-[14px] outline-none" />
-
-        {erreur && <p className="bg-red-50 text-red-600 text-[12px] font-bold p-3 rounded-xl mt-4">⚠️ {erreur}</p>}
-
-        <button onClick={seConnecter} disabled={chargement} className="w-full bg-black text-white py-4 rounded-full font-black text-[13px] mt-5">
-          {chargement ? "Vérification..." : "🔓 SE CONNECTER"}
+    <div className="max-w-[480px] mx-auto min-h-screen bg-[#FFFBF0] p-5 pt-16">
+      <p className="text-center text-[40px]">👋</p>
+      <h1 className="font-black text-[22px] text-center">Connexion WENZE</h1>
+      <p className="text-[13px] text-center text-gray-500 mt-1">
+        Superviseur ou Ambassadeur.<br />Ton Code Pro t'a été donné par le DG sur WhatsApp.
+      </p>
+      <div className="bg-white border rounded-2xl p-4 mt-5 space-y-2">
+        <label className="text-[11px] font-bold">Téléphone WhatsApp</label>
+        <input value={tel} onChange={e => setTel(e.target.value)} placeholder="+243810000011" className="w-full border rounded-xl px-3 py-3" />
+        <label className="text-[11px] font-bold">Code Pro</label>
+        <input value={code} onChange={e => setCode(e.target.value.toUpperCase())} placeholder="AMB-JOE-2026-077" className="w-full border rounded-xl px-3 py-3 uppercase font-bold tracking-wider" />
+        <button onClick={connecter} disabled={loading} className="w-full bg-black text-white py-4 rounded-full font-black text-[13px]">
+          {loading ? "⏳ Vérification..." : "🔓 Se connecter"}
         </button>
-
-        <p className="text-center text-[11px] text-gray-400 mt-3">Si tu as oublié ton code, contacte le DG sur WhatsApp.</p>
+        {msg && <p className="text-[12px] font-bold text-center">{msg}</p>}
       </div>
-
-      <div className="bg-orange-50 border border-orange-100 rounded-2xl p-4 mt-4">
-        <p className="font-black text-[12px]">🧪 CODES DE TEST - Pour tester maintenant :</p>
-        <p className="text-[11px] mt-1">DG : <b>WENZE-DG-2026</b></p>
-        <p className="text-[11px]">Superviseur : <b>WENZE-SUP-2026</b></p>
-        <p className="text-[11px]">Ambassadeur : <b>WENZE-AMB-2026</b></p>
-        <p className="text-[11px] text-gray-500 mt-1">Tu changeras ces codes après le test.</p>
+      <div className="bg-yellow-50 border rounded-2xl p-4 mt-3">
+        <p className="text-[12px] font-bold">❓ Tu n'as pas de Code Pro ?</p>
+        <p className="text-[12px] text-gray-600 mt-1">Demande au DG de créer ton compte. Sans Code Pro, tu ne peux pas entrer. C'est pour protéger le réseau.</p>
       </div>
     </div>
   );
-              }
+}
