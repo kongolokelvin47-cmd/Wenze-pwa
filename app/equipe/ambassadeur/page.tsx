@@ -1,261 +1,71 @@
 "use client";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
 
-// ============================================================
-// WENZE - AMBASSADEUR V3 - TON CODE V2 CORRIGÉ + LIEN SUPERVISEUR INTÉGRÉ
-// Créé uniquement par un Ambassadeur ou par le DG (Super Superviseur)
-// Code Pro = Identité Visuelle | Commission 20% = 1er mois SEULEMENT
-// Lien : AMB -> SUP -> DG
-// ============================================================
+export default function Ambassadeur() {
+  const [moi, setMoi] = useState<any>(null);
+  const [mesBoutiques, setMesBoutiques] = useState<any[]>([]);
+  const [nomBout, setNomBout] = useState("");
+  const [msg, setMsg] = useState("");
 
-type Personne = { id: string; nom: string; whatsapp: string; type: "BOUTIQUE" | "CLIENT"; date: string; ticket: number; mois: number; commission: number };
+  useEffect(() => {
+    const s = JSON.parse(localStorage.getItem("wenze_session") || "null");
+    if (!s || s.role !== "AMBASSADEUR") { window.location.href = "/connexion"; return; }
+    setMoi(s);
+    const charger = async () => {
+      const { data } = await supabase.from("boutiques").select("*").eq("code_amb", s.codePro);
+      if (data) setMesBoutiques(data);
+    };
+    charger();
+    const ch = supabase.channel("amb-" + s.id)
+      .on("postgres_changes", { event: "*", schema: "public", table: "boutiques", filter: `code_amb=eq.${s.codePro}` },
+        () => { charger(); setMsg("✅ Mise à jour en temps réel"); })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "membres", filter: `id=eq.${s.id}` },
+        (pl) => {
+          if ((pl.new as any).statut === "SUSPENDU") {
+            alert("⛔ Suspendu par le DG."); localStorage.removeItem("wenze_session"); window.location.href = "/connexion";
+          }
+        })
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, []);
 
-export default function AmbassadeurPageV2() {
-  const router = useRouter();
-  // CORRECTION : J'ai remplacé PARRAINAGE par LIEN pour intégrer le lien Superviseur
-  const [onglet, setOnglet] = useState<"ACCUEIL" | "GAINS" | "CREER" | "LIEN">("ACCUEIL");
-  const [typeCreation, setTypeCreation] = useState<"BOUTIQUE" | "CLIENT">("BOUTIQUE");
-  const [toast, setToast] = useState("");
-
-  // IDENTITÉ PROFESSIONNELLE DE L'AMBASSADEUR - Générée par WENZE
-  const [monCodePro] = useState("AMB-MIR-2026-087");
-  const [monNom] = useState("Mireille T.");
-  const [monParrain] = useState("Créée par : Ambassadeur David I. • Validé par le DG (Super Superviseur)");
-  const [monLien] = useState("https://wenze.cd/invitation?code=AMB-MIR-2026-087");
-
-  // ============ LIEN SUPERVISEUR - INTÉGRÉ ============
-  // Ce lien est créé automatiquement quand on crée cet Ambassadeur
-  const [monSuperviseur] = useState({
-    nom: "Superviseur Gombe",
-    code: "SUP-GOM-2026-014",
-    quartier: "Gombe • Lemba • Ngaliema",
-    whatsapp: "243810000000",
-    dgWhatsapp: "243825888889",
-  });
-  // Mes collègues sous le MÊME Superviseur - Je vois leurs noms, pas leurs gains
-  const [mesCollegues] = useState([
-    { nom: "David I.", code: "AMB-DAV-2026-045", filleuls: 8, statut: "ACTIF" },
-    { nom: "Grace M.", code: "AMB-GRA-2026-099", filleuls: 0, statut: "EN ATTENTE DG" },
-  ]);
-
-  const [mesPersonnes, setMesPersonnes] = useState<Personne[]>([
-    { id: "P1", nom: "Boutique Mama Grace", whatsapp: "243810000001", type: "BOUTIQUE", date: "Il y a 5 jours", ticket: 50000, mois: 1, commission: 10000 },
-    { id: "P2", nom: "Client Joel K.", whatsapp: "243810000002", type: "CLIENT", date: "Il y a 10 jours", ticket: 30000, mois: 1, commission: 6000 },
-    { id: "P3", nom: "Shop Lemba Fashion", whatsapp: "243810000003", type: "BOUTIQUE", date: "Il y a 40 jours", ticket: 50000, mois: 2, commission: 0 },
-    { id: "P4", nom: "Client Sarah N.", whatsapp: "243810000004", type: "CLIENT", date: "Il y a 65 jours", ticket: 20000, mois: 3, commission: 0 },
-  ]);
-
-  const [formBoutique, setFormBoutique] = useState({ nom: "", vendeur: "", whatsapp: "" });
-  const [formClient, setFormClient] = useState({ nom: "", whatsapp: "" });
-  const [codeInvite, setCodeInvite] = useState("");
-
-  const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(""), 4000); };
-  const totalCommission = mesPersonnes.reduce((s, p) => s + p.commission, 0);
-  const totalPremierMois = mesPersonnes.filter(p => p.mois === 1).length;
-  const totalPersonnes = mesPersonnes.length;
-
-  const creerBoutique = () => {
-    if (!formBoutique.nom || formBoutique.whatsapp.length < 9) return showToast("Nom boutique + WhatsApp obligatoires.");
-    setMesPersonnes(p => [...p, { id: `P-${Date.now()}`, nom: formBoutique.nom, whatsapp: formBoutique.whatsapp, type: "BOUTIQUE", date: "À l'instant", ticket: 0, mois: 1, commission: 0 }]);
-    showToast(`✅ Boutique ${formBoutique.nom} créée avec ton code ${monCodePro}. Liée à : Toi → ${monSuperviseur.code} → DG. Si elle achète un ticket ce 1er mois, tu gagnes 20%.`);
-    setFormBoutique({ nom: "", vendeur: "", whatsapp: "" });
+  const creerBoutique = async () => {
+    if (!nomBout) { setMsg("❌ Nom boutique"); return; }
+    const { error } = await supabase.from("boutiques").insert({
+      id: "B-" + Date.now(), nom: nomBout, proprietaire: moi.nom, telephone: moi.telephone,
+      province: moi.province, commune: moi.commune, village: moi.village,
+      statut: "EN_ATTENTE", abonnement: "EN_ATTENTE", code_amb: moi.codePro,
+    });
+    if (error) setMsg("❌ " + error.message);
+    else { setNomBout(""); setMsg("✅ Boutique envoyée au DG pour validation"); }
   };
 
-  const creerClient = () => {
-    if (!formClient.nom || formClient.whatsapp.length < 9) return showToast("Nom client + WhatsApp obligatoires.");
-    setMesPersonnes(p => [...p, { id: `P-${Date.now()}`, nom: formClient.nom, whatsapp: formClient.whatsapp, type: "CLIENT", date: "À l'instant", ticket: 0, mois: 1, commission: 0 }]);
-    showToast(`✅ Client ${formClient.nom} créé avec ton code ${monCodePro}. Lié à : Toi → ${monSuperviseur.code} → DG.`);
-    setFormClient({ nom: "", whatsapp: "" });
-  };
-
-  const creerAmbassadeur = () => {
-    if (!codeInvite || codeInvite.length < 3) return showToast("Mets le nom du nouvel Ambassadeur.");
-    const nouveauCode = `AMB-${codeInvite.slice(0, 3).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    showToast(`✅ Nouvel Ambassadeur ${codeInvite} créé par toi. Son code pro : ${nouveauCode}. Il sera lié à ton Superviseur ${monSuperviseur.code}. Le DG validera.`);
-    setCodeInvite("");
-  };
-
-  const copierLien = () => { navigator.clipboard.writeText(monLien); showToast("🔗 Lien de parrainage copié. Partage-le."); };
-  const copierCode = () => { navigator.clipboard.writeText(monCodePro); showToast(`Code ${monCodePro} copié.`); };
-  const deconnecter = () => { document.cookie = "wenze-role=; path=/; max-age=0"; router.push("/dg-prive/connexion"); };
+  if (!moi) return <div className="p-6">Chargement...</div>;
 
   return (
-    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-20">
-      {toast && <div className="fixed top-4 left-4 right-4 z-50 max-w-[400px] mx-auto bg-black text-white p-3 rounded-xl text-[12px] font-bold text-center shadow-lg">{toast}</div>}
-
-      <div className="bg-[#FF6B00] text-white px-5 pt-8 pb-5 rounded-b-[28px]">
-        <div className="flex justify-between items-start">
-          <p className="text-[11px] opacity-80">WENZE • CARTE AMBASSADEUR</p>
-          <button onClick={deconnecter} className="bg-white/20 px-3 py-1.5 rounded-full text-[11px] font-bold">↩ Quitter</button>
-        </div>
-
-        <div className="bg-white text-black rounded-2xl p-4 mt-3 flex justify-between items-center shadow-lg">
-          <div>
-            <p className="text-[10px] font-black tracking-widest text-gray-500">AMBASSADEUR WENZE</p>
-            <p className="font-black text-[16px] mt-1">🎖️ {monNom}</p>
-            <p className="text-[11px] text-gray-600 mt-0.5">{monParrain}</p>
-            <p className="text-[10px] text-orange-600 font-bold mt-1">Commission : 20% • 1er mois seulement</p>
-          </div>
-          <div className="text-center shrink-0">
-            <div className="w-[58px] h-[58px] bg-[#FF6B00] text-white rounded-full flex items-center justify-center font-black text-[16px]">A</div>
-            <p className="text-[9px] font-black mt-1 bg-black text-white px-2 py-0.5 rounded-full">{monCodePro}</p>
-          </div>
-        </div>
-
-        {/* LIEN RAPIDE - INTÉGRÉ EN HAUT, TOUJOURS VISIBLE */}
-        <div className="bg-black/20 rounded-xl px-3 py-2 mt-3 text-[11px] text-center">
-          🔗 <b>TON LIEN :</b> {monCodePro} → {monSuperviseur.code} → DG
-        </div>
-
-        <div className="grid grid-cols-3 gap-2 mt-3">
-          <div className="bg-white/15 rounded-2xl p-3 text-center"><p className="font-black text-[16px]">{totalCommission.toLocaleString()}</p><p className="text-[10px] opacity-80">CDF gagnés</p></div>
-          <div className="bg-white/15 rounded-2xl p-3 text-center"><p className="font-black text-[16px]">{totalPersonnes}</p><p className="text-[10px] opacity-80">Personnes créées</p></div>
-          <div className="bg-white/15 rounded-2xl p-3 text-center"><p className="font-black text-[16px]">{totalPremierMois}</p><p className="text-[10px] opacity-80">En 1er mois</p></div>
-        </div>
+    <div className="max-w-[480px] mx-auto min-h-screen bg-[#FFFBF0] p-4 pb-10">
+      <h1 className="font-black text-xl">🙋 Bonjour {moi.nom}</h1>
+      <p className="text-[12px] text-gray-500">Ambassadeur • {moi.commune} • {moi.codePro}</p>
+      <div className="grid grid-cols-2 gap-3 mt-4">
+        <div className="bg-white border rounded-2xl p-4"><p className="font-black text-2xl">{mesBoutiques.length}</p><p className="text-[11px] text-gray-500">Mes boutiques</p></div>
+        <div className="bg-white border rounded-2xl p-4"><p className="font-black text-2xl">{(moi.gains || 0).toLocaleString()} CDF</p><p className="text-[11px] text-gray-500">Mes gains</p></div>
       </div>
-
-      <div className="flex gap-1.5 px-4 mt-4">
-        {(["ACCUEIL", "GAINS", "CREER", "LIEN"] as const).map(t => (
-          <button key={t} onClick={() => setOnglet(t)} className={`flex-1 py-3 rounded-full text-[11px] font-black ${onglet === t ? "bg-black text-white" : "bg-white border"}`}>
-            {t === "ACCUEIL" ? "🏠 Accueil" : t === "GAINS" ? "💰 Gains" : t === "CREER" ? "➕ Créer" : "🔗 Mon Lien"}
-          </button>
+      <div className="bg-white border rounded-2xl p-4 mt-3">
+        <h2 className="font-black">+ Créer une boutique</h2>
+        <p className="text-[12px] text-gray-500">Elle part en EN_ATTENTE. Le DG la valide.</p>
+        <input value={nomBout} onChange={e => setNomBout(e.target.value)} placeholder="Nom de la boutique" className="w-full border rounded-xl px-3 py-3 mt-2" />
+        <button onClick={creerBoutique} className="w-full bg-black text-white py-3 rounded-full font-black text-[12px] mt-2">✅ Envoyer au DG</button>
+        {msg && <p className="text-[12px] font-bold text-center mt-2">{msg}</p>}
+      </div>
+      <div className="bg-white border rounded-2xl p-4 mt-3">
+        <h2 className="font-black">🏪 Mes boutiques</h2>
+        {mesBoutiques.map((b: any) => (
+          <div key={b.id} className="border-b py-2"><p className="font-bold text-[13px]">{b.nom}</p><p className="text-[11px] text-gray-500">{b.statut} • {b.abonnement}</p></div>
         ))}
+        {mesBoutiques.length === 0 && <p className="text-[12px] text-gray-500">Aucune boutique. Crée la première.</p>}
       </div>
-
-      <div className="px-4 mt-4">
-        {onglet === "ACCUEIL" && (
-          <div className="space-y-3">
-            {/* CARTE MON SUPERVISEUR - INTÉGRÉE DANS ACCUEIL */}
-            <div className="bg-white border-2 border-[#1A3A2F] rounded-2xl p-4">
-              <p className="font-black text-[13px]">🛡️ Mon Superviseur</p>
-              <div className="flex justify-between items-center mt-2">
-                <div>
-                  <p className="font-black text-[14px]">{monSuperviseur.nom}</p>
-                  <p className="text-[11px] text-gray-500">Code : {monSuperviseur.code}</p>
-                  <p className="text-[11px] text-gray-500">Quartier : {monSuperviseur.quartier}</p>
-                  <p className="text-[10px] text-gray-400 mt-1">Il contrôle ton travail et fait ton rapport au DG.</p>
-                </div>
-                <a href={`https://wa.me/${monSuperviseur.whatsapp}`} target="_blank" className="bg-[#1A3A2F] text-white px-3 py-2 rounded-full text-[11px] font-black">💬</a>
-              </div>
-            </div>
-
-            <div className="bg-white border rounded-2xl p-4">
-              <p className="font-black text-[13px]">💡 Comment tu gagnes ?</p>
-              <p className="text-[12px] text-gray-600 mt-2 leading-relaxed">1. Tu crées une boutique ou un client avec ton code <b>{monCodePro}</b>.<br />2. Si cette personne achète un ticket <b>pendant son 1er mois</b>, tu gagnes <b>20%</b> du ticket.<br />3. À partir du <b>2ème mois</b>, tu ne gagnes plus sur elle. C'est la règle WENZE.<br />4. Pour continuer à gagner, tu dois créer de nouvelles personnes.</p>
-              <div className="bg-[#FFF2CC] border border-dashed rounded-xl p-3 mt-3">
-                <p className="text-[11px] font-black">Exemple réel :</p>
-                <p className="text-[11px] mt-1">Ticket 50 000 CDF → Tu gagnes <b>10 000 CDF</b> (20%) le 1er mois. Le 2ème mois → <b>0 CDF</b> sur cette personne.</p>
-              </div>
-            </div>
-            <button onClick={() => setOnglet("CREER")} className="w-full bg-[#FF6B00] text-white py-4 rounded-full font-black text-[13px]">➕ Créer une Boutique / Client avec mon code</button>
-            <button onClick={() => setOnglet("LIEN")} className="w-full bg-black text-white py-4 rounded-full font-black text-[13px]">🔗 Voir mon lien Superviseur → DG</button>
-            <div className="bg-white border rounded-2xl p-4">
-              <p className="font-black text-[13px]">Mes dernières créations</p>
-              {mesPersonnes.slice(0, 3).map(p => (
-                <div key={p.id} className="flex justify-between py-2 border-b last:border-0">
-                  <div><p className="text-[12px] font-bold">{p.nom}</p><p className="text-[11px] text-gray-500">{p.type} • {p.date} • Mois {p.mois}</p></div>
-                  <p className={`font-black text-[12px] ${p.commission > 0 ? "text-green-600" : "text-gray-400"}`}>{p.commission > 0 ? `+${p.commission.toLocaleString()} CDF` : "0 CDF (Mois 2+)"}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {onglet === "GAINS" && (
-          <div className="space-y-3">
-            <div className="bg-black text-white rounded-2xl p-5 text-center">
-              <p className="text-[11px] opacity-70">TOTAL COMMISSIONS (20% 1er mois seulement)</p>
-              <p className="font-black text-[28px] mt-1">{totalCommission.toLocaleString()} <span className="text-[14px]">CDF</span></p>
-              <p className="text-[11px] opacity-70 mt-1">Paiement fin du mois par le DG</p>
-            </div>
-            {mesPersonnes.map(p => (
-              <div key={p.id} className="bg-white border rounded-2xl p-4">
-                <div className="flex justify-between"><p className="font-black text-[13px]">{p.type === "BOUTIQUE" ? "🏪" : "👤"} {p.nom}</p><span className={`text-[10px] font-black px-2 py-1 rounded-full h-fit ${p.mois === 1 ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"}`}>{p.mois === 1 ? "1ER MOIS • 20%" : `MOIS ${p.mois} • 0%`}</span></div>
-                <p className="text-[11px] text-gray-500 mt-1">{p.whatsapp} • Créé : {p.date}</p>
-                <p className="text-[12px] mt-2">Ticket acheté : <b>{p.ticket > 0 ? `${p.ticket.toLocaleString()} CDF` : "Pas encore acheté"}</b> → Ta commission : <b className={p.commission > 0 ? "text-green-600" : "text-gray-400"}>{p.commission.toLocaleString()} CDF</b></p>
-                <p className="text-[10px] text-gray-400 mt-1">🔗 Liée à : {monCodePro} → {monSuperviseur.code} → DG</p>
-                {p.mois > 1 && <p className="text-[11px] text-gray-400 mt-1">⚠️ Cette personne est au mois {p.mois}, tu ne gagnes plus sur elle. Crée de nouvelles personnes pour continuer à gagner.</p>}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {onglet === "CREER" && (
-          <div className="space-y-3">
-            <div className="flex gap-2">
-              {(["BOUTIQUE", "CLIENT"] as const).map(t => (
-                <button key={t} onClick={() => setTypeCreation(t)} className={`flex-1 py-3 rounded-full text-[11px] font-black ${typeCreation === t ? "bg-black text-white" : "bg-white border"}`}>{t === "BOUTIQUE" ? "🏪 Boutique" : "👤 Client"}</button>
-              ))}
-            </div>
-            <div className="bg-white border rounded-2xl p-4">
-              <p className="font-black text-[13px]">➕ Créer avec ton code visuel</p>
-              <p className="text-[11px] text-gray-500 mt-1">Code utilisé : <b>{monCodePro}</b> • Superviseur lié : <b>{monSuperviseur.code}</b> • La personne sera liée à toi pour sa commission 1er mois.</p>
-              {typeCreation === "BOUTIQUE" ? (
-                <div className="space-y-2 mt-3">
-                  <input value={formBoutique.nom} onChange={e => setFormBoutique({ ...formBoutique, nom: e.target.value })} placeholder="Nom de la boutique" className="w-full border rounded-xl px-3 py-3 text-[13px] outline-none" />
-                  <input value={formBoutique.vendeur} onChange={e => setFormBoutique({ ...formBoutique, vendeur: e.target.value })} placeholder="Nom du vendeur" className="w-full border rounded-xl px-3 py-3 text-[13px] outline-none" />
-                  <input value={formBoutique.whatsapp} onChange={e => setFormBoutique({ ...formBoutique, whatsapp: e.target.value })} placeholder="WhatsApp boutique" className="w-full border rounded-xl px-3 py-3 text-[13px] outline-none" />
-                  <button onClick={creerBoutique} className="w-full bg-[#FF6B00] text-white py-3.5 rounded-full font-black text-[12px]">✅ Créer la Boutique</button>
-                </div>
-              ) : (
-                <div className="space-y-2 mt-3">
-                  <input value={formClient.nom} onChange={e => setFormClient({ ...formClient, nom: e.target.value })} placeholder="Nom du client" className="w-full border rounded-xl px-3 py-3 text-[13px] outline-none" />
-                  <input value={formClient.whatsapp} onChange={e => setFormClient({ ...formClient, whatsapp: e.target.value })} placeholder="WhatsApp client" className="w-full border rounded-xl px-3 py-3 text-[13px] outline-none" />
-                  <button onClick={creerClient} className="w-full bg-[#FF6B00] text-white py-3.5 rounded-full font-black text-[12px]">✅ Créer le Client</button>
-                </div>
-              )}
-            </div>
-            <div className="bg-white border rounded-2xl p-4">
-              <p className="font-black text-[13px]">🎖️ Créer un nouvel Ambassadeur</p>
-              <p className="text-[11px] text-gray-500 mt-1">Un Ambassadeur peut créer un autre Ambassadeur. Le nouveau sera lié au MÊME Superviseur que toi ({monSuperviseur.code}). Le DG (Super Superviseur) validera.</p>
-              <input value={codeInvite} onChange={e => setCodeInvite(e.target.value)} placeholder="Nom du nouvel Ambassadeur" className="w-full border rounded-xl px-3 py-3 text-[13px] outline-none mt-3" />
-              <button onClick={creerAmbassadeur} className="w-full bg-black text-white py-3.5 rounded-full font-black text-[12px] mt-2">✅ Créer l'Ambassadeur</button>
-            </div>
-          </div>
-        )}
-
-        {onglet === "LIEN" && (
-          <div className="space-y-3">
-            <div className="bg-black text-white rounded-2xl p-5 text-center">
-              <p className="text-[11px] opacity-70">TA CHAÎNE WENZE</p>
-              <p className="font-black text-[15px] mt-2 leading-relaxed">🎖️ {monCodePro} (Toi)<br />↓<br />🛡️ {monSuperviseur.code} (Ton Superviseur)<br />↓<br />👑 DG - Super Superviseur</p>
-            </div>
-            <div className="bg-white border rounded-2xl p-4">
-              <p className="font-black text-[13px]">🛡️ Mon Superviseur</p>
-              <p className="text-[12px] mt-2"><b>{monSuperviseur.nom}</b> • {monSuperviseur.code}</p>
-              <p className="text-[11px] text-gray-500">{monSuperviseur.quartier}</p>
-              <div className="flex gap-2 mt-3">
-                <a href={`https://wa.me/${monSuperviseur.whatsapp}`} target="_blank" className="flex-1 text-center bg-[#1A3A2F] text-white py-3 rounded-full text-[11px] font-black">💬 Contacter Superviseur</a>
-                <a href={`https://wa.me/${monSuperviseur.dgWhatsapp}`} target="_blank" className="flex-1 text-center bg-orange-500 text-white py-3 rounded-full text-[11px] font-black">👑 Contacter DG</a>
-              </div>
-              <p className="text-[10px] text-gray-400 mt-2 text-center">Contacte d'abord ton Superviseur. Si il ne répond pas, contacte le DG.</p>
-            </div>
-            <div className="bg-white border rounded-2xl p-4">
-              <p className="font-black text-[13px]">👥 Mes collègues sous le même Superviseur</p>
-              <p className="text-[11px] text-gray-500 mt-1">Vous êtes dans la même équipe. Tu vois leurs noms, mais PAS leurs gains.</p>
-              {mesCollegues.map(c => (
-                <div key={c.code} className="flex justify-between py-2.5 border-b last:border-0">
-                  <div><p className="text-[12px] font-bold">🎖️ {c.nom}</p><p className="text-[11px] text-gray-500">{c.code} • {c.filleuls} filleuls</p></div>
-                  <span className="text-[10px] font-black px-2 py-1 rounded-full h-fit bg-gray-100">{c.statut}</span>
-                </div>
-              ))}
-            </div>
-            <div className="bg-white border rounded-2xl p-4 text-center">
-              <p className="font-black text-[14px]">🔗 Ton lien de parrainage</p>
-              <p className="text-[11px] text-gray-500 mt-1">Partage ce lien. Toute personne qui s'inscrit avec ce lien est liée à ton code.</p>
-              <div className="bg-gray-50 border rounded-xl p-3 mt-3 text-[11px] break-all font-bold">{monLien}</div>
-              <button onClick={copierLien} className="w-full bg-black text-white py-3.5 rounded-full font-black text-[12px] mt-3">📋 Copier le lien</button>
-              <button onClick={copierCode} className="w-full bg-[#FF6B00] text-white py-3.5 rounded-full font-black text-[12px] mt-2">📋 Copier mon code visuel : {monCodePro}</button>
-              <a href={`https://wa.me/?text=${encodeURIComponent(`Rejoins WENZE avec mon code ${monCodePro} : ${monLien}`)}`} target="_blank" className="block w-full bg-green-600 text-white py-3.5 rounded-full font-black text-[12px] mt-2 text-center">💬 Partager sur WhatsApp</a>
-            </div>
-            <div className="bg-[#FFF2CC] border border-dashed rounded-2xl p-4">
-              <p className="font-black text-[12px]">Comment le lien a été créé ?</p>
-              <p className="text-[11px] mt-1 leading-relaxed">Tu as été créée par l'Ambassadeur David I. Le système t'a automatiquement liée au même Superviseur que lui : {monSuperviseur.code}. Le DG a validé. Si le DG veut te déplacer vers un autre Superviseur, seul lui peut le faire.</p>
-            </div>
-          </div>
-        )}
-      </div>
+      <button onClick={() => { localStorage.removeItem("wenze_session"); window.location.href = "/connexion"; }} className="w-full bg-black text-white py-3 rounded-full font-black text-[12px] mt-4">🔒 Déconnexion</button>
     </div>
   );
-    }
+}
