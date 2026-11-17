@@ -1,28 +1,22 @@
 // lib/comptes.ts - Comptes WENZE : inscription, connexion, ouverture de boutique, invitations.
-//
-// ATTENTION : tout est stocké dans le localStorage du téléphone. Les mots de passe sont hachés (PBKDF2),
-// mais n'importe qui ayant le téléphone en main peut modifier ses propres données. La vraie sécurité
-// (vérification du numéro, mots de passe, niveaux, parrainage) viendra avec Supabase.
+// V36 HYBRIDE : localStorage + Supabase. Mots de passe JAMAIS envoyes a Supabase.
 
 import { originOf, freemiumImagesDe } from "./paiement-base";
 import { createClient } from "@/utils/supabase/client";
 
-// V36 HYBRIDE : Sync profil PUBLIC uniquement. JAMAIS mot de passe, JAMAIS K_AUTH
+// V36 : Sync profil PUBLIC uniquement. JAMAIS mot de passe, JAMAIS K_AUTH
 async function pushCompteToSupabase(compte: any) {
   try {
     if (!compte) return;
     const supabase = createClient();
     const wa = compte.ownerWhatsapp || compte.whatsapp || compte.telephone;
     if (!wa) return;
-    // On enlève tout ce qui est sensible avant envoi
     const { mdp, password, hash, sel, ...publicCompte } = compte;
     await supabase.from("profiles").upsert({
       id: String(wa),
       owner_whatsapp: String(wa),
       telephone: String(wa),
-      whatsapp: String(wa),
       nom: compte.nom || "",
-      name: compte.nom || "",
       email: compte.email || null,
       role: compte.role || "client",
       user_type: compte.user_type || compte.role || "client",
@@ -60,6 +54,7 @@ export async function getComptesSupabase() {
     createdAt: r.created_at,
   }));
 }
+
 const K_SESSION = "wenze_user";
 const K_USERS = "wenze_all_users";
 const K_AUTH = "wenze_auth";
@@ -94,7 +89,6 @@ export interface Resultat {
 
 const echec = (erreur: string, code?: string): Resultat => ({ ok: false, erreur, code });
 
-// ========== Stockage ==========
 function lire<T>(key: string, defaut: T): T {
   try {
     if (typeof window === "undefined") return defaut;
@@ -115,8 +109,6 @@ function ecrire(key: string, value: any): boolean {
   }
 }
 
-// ========== Numéros WhatsApp ==========
-/** Forme officielle : 243 + 9 chiffres (numéros mobiles congolais commençant par 8 ou 9), ou null. */
 export function normaliserWa(input: any): string | null {
   let d = (input === null || input === undefined ? "" : String(input)).replace(/[^0-9]/g, "");
   if (d.startsWith("00")) d = d.slice(2);
@@ -125,13 +117,11 @@ export function normaliserWa(input: any): string | null {
   return /^[89][0-9]{8}$/.test(d) ? "243" + d : null;
 }
 
-/** Clé de comparaison : 9 derniers chiffres, identique pour 0970000001, 970000001 et +243970000001. */
 export function cle9(wa: any): string {
   const d = (wa === null || wa === undefined ? "" : String(wa)).replace(/[^0-9]/g, "");
   return d.length >= 7 ? d.slice(-9) : "";
 }
 
-// ========== Comptes et session ==========
 export function lireSession(): any {
   return lire<any>(K_SESSION, null);
 }
@@ -154,7 +144,6 @@ export function trouverCompte(wa: any): any {
   return s && cle9(s.ownerWhatsapp || s.whatsapp) === k ? s : null;
 }
 
-/** Enregistre le compte dans la liste et met la session à jour s'il s'agit du compte connecté. */
 export function sauverCompte(compte: any): boolean {
   const k = cle9(compte.ownerWhatsapp || compte.whatsapp);
   const liste = lireComptes();
@@ -164,6 +153,7 @@ export function sauverCompte(compte: any): boolean {
   const ok = ecrire(K_USERS, liste.slice(0, 500));
   const s = lireSession();
   if (s && cle9(s.ownerWhatsapp || s.whatsapp) === k) ecrireSession({ ...s, ...compte });
+  pushCompteToSupabase(compte);
   return ok;
 }
 
@@ -173,7 +163,6 @@ export function deconnecter(): void {
   } catch {}
 }
 
-/** Champs que l'utilisateur peut modifier lui-même. L'origine, le niveau et le rôle ne sont jamais modifiables ici. */
 export function majCompte(champs: any): Resultat {
   const s = lireSession();
   if (!s) return echec("Non connecté", "SESSION");
@@ -186,7 +175,6 @@ export function majCompte(champs: any): Resultat {
   return { ok: true, compte: maj };
 }
 
-// ========== Mots de passe ==========
 function versHex(b: Uint8Array): string {
   return Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("");
 }
@@ -241,8 +229,6 @@ function effacerEchecs(cle: string): void {
   ecrire(K_FAILS, tous);
 }
 
-// ========== Parrainage ==========
-/** Un code de parrainage ou ambassadeur est soit un numéro WhatsApp, soit un code de 4 à 20 caractères. */
 export function lireCode(brut: any): { numero?: string; code?: string } | null {
   const v = (brut || "").toString().trim().toUpperCase();
   if (!v) return null;
@@ -251,7 +237,6 @@ export function lireCode(brut: any): { numero?: string; code?: string } | null {
   return /^[A-Z0-9][A-Z0-9-]{3,19}$/.test(v) ? { code: v } : null;
 }
 
-// ========== Inscription ==========
 export interface DonneesInscription {
   type: TypeCompte;
   nom: string;
@@ -283,8 +268,6 @@ export async function creerCompte(d: DonneesInscription): Promise<Resultat> {
   const code = lireCode(d.code);
   if (d.code && d.code.trim() && !code) return echec("Code de parrainage invalide (ou laissez le champ vide)", "CODE");
   if (trouverCompte(wa)) return echec("Ce numéro a déjà un compte : connectez-vous", "EXISTE");
-
-  // Un seul freemium par numéro, même si le compte est recréé
   const claims = lire<string[]>(K_CLAIMS, []);
   const cle = cle9(wa);
   let freemiumDeja = false;
@@ -292,7 +275,6 @@ export async function creerCompte(d: DonneesInscription): Promise<Resultat> {
     if (claims.includes(cle)) freemiumDeja = true;
     else ecrire(K_CLAIMS, [...claims, cle]);
   }
-
   const maintenant = new Date().toISOString();
   const parrainWa = normaliserWa(d.parrain) || (code && code.numero) || null;
   const compte: any = {
@@ -325,12 +307,9 @@ export async function creerCompte(d: DonneesInscription): Promise<Resultat> {
     createdAt: maintenant,
     updatedAt: maintenant
   };
-
   await enregistrerMdp(cle, d.mdp);
   if (!sauverCompte(compte)) return echec("Stockage plein : impossible de créer le compte", "STOCKAGE");
   ecrireSession(compte);
-
-  // Si ce téléphone contient l'invitation correspondante, elle passe à « inscrit »
   if (parrainWa) {
     const inv = lire<any[]>(K_INVITES, []);
     let change = false;
@@ -343,10 +322,9 @@ export async function creerCompte(d: DonneesInscription): Promise<Resultat> {
     });
     if (change) ecrire(K_INVITES, inv);
   }
-  return { ok: true, compte };  pushCompteToSupabase(maj); // <-- V36 : boutique aussi dans Supabase
+  return { ok: true, compte };
 }
 
-// ========== Connexion ==========
 export async function connecter(waSaisi: any, mdp: string): Promise<Resultat> {
   const wa = normaliserWa(waSaisi);
   if (!wa) return echec("Numéro WhatsApp invalide", "WA");
@@ -356,13 +334,11 @@ export async function connecter(waSaisi: any, mdp: string): Promise<Resultat> {
   if (reste > 0) return echec("Trop d'essais. Réessayez dans " + Math.ceil(reste / 60000) + " min", "BLOQUE");
   const compte = trouverCompte(wa);
   if (!compte) return echec("Aucun compte avec ce numéro : créez-en un", "INCONNU");
-
   const auth = lire<any>(K_AUTH, {})[cle];
   let ok = false;
   if (auth) {
     ok = (await deriver(mdp, auth.sel)) === auth.hash;
   } else {
-    // Anciens comptes : mot de passe en clair, converti en empreinte à la première connexion réussie
     const ancien = lire<Record<string, string>>(K_LEGACY_PW, {});
     const k = Object.keys(ancien).find((x) => cle9(x) === cle);
     if (k === undefined) return echec("Ce compte n'a pas encore de mot de passe : créez-en un", "SANS_MDP");
@@ -379,12 +355,11 @@ export async function connecter(waSaisi: any, mdp: string): Promise<Resultat> {
   }
   effacerEchecs(cle);
   const maj = { ...compte, updatedAt: new Date().toISOString() };
-  sauverCompte(maj);  pushCompteToSupabase(compte); // <-- V36
-  ecrireSession(maj);  pushCompteToSupabase(compte); // <-- V36 : crée aussi le profil Supabase
-  return { ok: true, comp : crée aussi le profil Supabasete: maj };
+  sauverCompte(maj);
+  ecrireSession(maj);
+  return { ok: true, compte: maj };
 }
 
-/** Création du mot de passe d'un ancien compte qui n'en avait pas. */
 export async function definirMotDePasse(waSaisi: any, mdp: string): Promise<Resultat> {
   const wa = normaliserWa(waSaisi);
   if (!wa) return echec("Numéro WhatsApp invalide", "WA");
@@ -400,8 +375,6 @@ export async function definirMotDePasse(waSaisi: any, mdp: string): Promise<Resu
   return { ok: true, compte };
 }
 
-// ========== Client qui ouvre une boutique ==========
-/** Le client devient vendeur, sans période gratuite : l'origine du compte ne change pas. */
 export function ouvrirBoutique(infos: { nomBoutique: string; categorieId: string; activiteId: string; commune?: string }): Resultat {
   const s = lireSession();
   if (!s) return echec("Non connecté", "SESSION");
@@ -421,11 +394,10 @@ export function ouvrirBoutique(infos: { nomBoutique: string; categorieId: string
     commune: infos.commune || s.commune || "Gombe",
     updatedAt: new Date().toISOString()
   };
-  sauverCompte(maj); 
+  sauverCompte(maj);
   return { ok: true, compte: maj };
 }
 
-// ========== Invitations par numéro WhatsApp ==========
 export function listerInvitations(wa: any): any[] {
   const k = cle9(wa);
   const toutes = lire<any[]>(K_INVITES, []);
@@ -448,7 +420,6 @@ export function placesInvitation(wa: any): { total: number; utilisees: number; l
   return { total, utilisees, libres: Math.max(0, total - utilisees) };
 }
 
-/** Réserve une place 48 h et prépare le message WhatsApp que l'invitant enverra lui-même. */
 export function inviter(compte: any, d: { nom: string; whatsapp: string; type: "vendeur" | "client" }): Resultat {
   if (!compte) return echec("Non connecté", "SESSION");
   const wa = normaliserWa(d.whatsapp);
@@ -463,7 +434,6 @@ export function inviter(compte: any, d: { nom: string; whatsapp: string; type: "
     return echec("Ce numéro a déjà été invité", "DEJA");
   }
   if (placesInvitation(moi).libres <= 0) return echec("Plus de place d'invitation : attendez qu'une invitation expire", "PLACES");
-
   const maintenant = Date.now();
   const code = compte.codeAmbassadeur || compte.monCode || "WENZE-" + (moi || "").slice(-6);
   const invitation = {
@@ -479,15 +449,12 @@ export function inviter(compte: any, d: { nom: string; whatsapp: string; type: "
     reservedUntil: new Date(maintenant + RESERVATION_MS).toISOString()
   };
   if (!ecrire(K_INVITES, [...toutes, invitation])) return echec("Stockage plein", "STOCKAGE");
-
   const origine = typeof window !== "undefined" ? window.location.origin : "";
   const lienInscription = origine + "/inscription?invite=" + wa + "&parrain=" + moi + "&code=" + encodeURIComponent(code) + "&type=" + d.type;
   const message = "Bonjour " + nom + " ! " + (invitation.parrainNom || "Un ami") + " vous invite à créer votre compte sur WENZE WENZE BUSINESS (0% de commission). Inscription : " + lienInscription;
   return { ok: true, invitation, lien: "https://wa.me/" + wa + "?text=" + encodeURIComponent(message) };
 }
 
-// ========== Divers ==========
-/** N'accepte que les chemins internes du site (évite les redirections vers un autre site). */
 export function cheminSur(next: any): string {
   const v = (next || "").toString();
   return v.startsWith("/") && !v.startsWith("//") && !v.includes(":") && !v.includes("\\") ? v : "/";
@@ -500,10 +467,8 @@ export function niveauDe(compte: any): { niveau: number; titre: string; detail: 
   return { niveau: 1, titre: "Inscrit", detail: "Numéro non vérifié" };
 }
 
-/** Images gratuites auxquelles un type de compte aurait droit à l'inscription. */
 export function imagesGratuitesPour(type: TypeCompte): number {
   return freemiumImagesDe({ origine: type === "client" ? "client" : "vendeur", niveau: 1 });
 }
 
 export { originOf };
-        
