@@ -5,7 +5,61 @@
 // (vérification du numéro, mots de passe, niveaux, parrainage) viendra avec Supabase.
 
 import { originOf, freemiumImagesDe } from "./paiement-base";
+import { createClient } from "@/utils/supabase/client";
 
+// V36 HYBRIDE : Sync profil PUBLIC uniquement. JAMAIS mot de passe, JAMAIS K_AUTH
+async function pushCompteToSupabase(compte: any) {
+  try {
+    if (!compte) return;
+    const supabase = createClient();
+    const wa = compte.ownerWhatsapp || compte.whatsapp || compte.telephone;
+    if (!wa) return;
+    // On enlève tout ce qui est sensible avant envoi
+    const { mdp, password, hash, sel, ...publicCompte } = compte;
+    await supabase.from("profiles").upsert({
+      id: String(wa),
+      owner_whatsapp: String(wa),
+      telephone: String(wa),
+      whatsapp: String(wa),
+      nom: compte.nom || "",
+      name: compte.nom || "",
+      email: compte.email || null,
+      role: compte.role || "client",
+      user_type: compte.user_type || compte.role || "client",
+      origine: compte.origine || "client",
+      est_vendeur: !!compte.estVendeur,
+      vendeur_depuis: compte.vendeurDepuis || null,
+      niveau: compte.niveau || 1,
+      nom_boutique: compte.nomBoutique || "",
+      nom_etablissement: compte.nomEtablissement || compte.nom || "",
+      commune: compte.commune || "Gombe",
+      ville: compte.ville || "Kinshasa",
+      badge: compte.badge || "",
+      mon_code: compte.monCode || "",
+      code_parrainage: compte.codeParrainage || null,
+      parrain_wa: compte.parrainWa || null,
+      freemium_deja: !!compte.freemiumDeja,
+      whatsapp_verifie: !!compte.whatsappVerifie,
+      email_verifie: !!compte.emailVerifie,
+      data: publicCompte,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "id" });
+  } catch(e) { console.log("Supabase compte off, local only", e); }
+}
+
+export async function getComptesSupabase() {
+  const supabase = createClient();
+  const { data } = await supabase.from("profiles").select("*").order("created_at", { ascending: false }).limit(200);
+  return (data || []).map((r: any) => ({
+    id: r.owner_whatsapp || r.id,
+    ownerWhatsapp: r.owner_whatsapp,
+    whatsapp: r.telephone,
+    telephone: r.telephone,
+    nom: r.nom, role: r.role, origine: r.origine, niveau: r.niveau,
+    nomBoutique: r.nom_boutique, commune: r.commune, monCode: r.mon_code, parrainWa: r.parrain_wa,
+    createdAt: r.created_at,
+  }));
+}
 const K_SESSION = "wenze_user";
 const K_USERS = "wenze_all_users";
 const K_AUTH = "wenze_auth";
@@ -289,7 +343,7 @@ export async function creerCompte(d: DonneesInscription): Promise<Resultat> {
     });
     if (change) ecrire(K_INVITES, inv);
   }
-  return { ok: true, compte };
+  return { ok: true, compte };  pushCompteToSupabase(maj); // <-- V36 : boutique aussi dans Supabase
 }
 
 // ========== Connexion ==========
@@ -325,9 +379,9 @@ export async function connecter(waSaisi: any, mdp: string): Promise<Resultat> {
   }
   effacerEchecs(cle);
   const maj = { ...compte, updatedAt: new Date().toISOString() };
-  sauverCompte(maj);
-  ecrireSession(maj);
-  return { ok: true, compte: maj };
+  sauverCompte(maj);  pushCompteToSupabase(compte); // <-- V36
+  ecrireSession(maj);  pushCompteToSupabase(compte); // <-- V36 : crée aussi le profil Supabase
+  return { ok: true, comp : crée aussi le profil Supabasete: maj };
 }
 
 /** Création du mot de passe d'un ancien compte qui n'en avait pas. */
@@ -367,7 +421,7 @@ export function ouvrirBoutique(infos: { nomBoutique: string; categorieId: string
     commune: infos.commune || s.commune || "Gombe",
     updatedAt: new Date().toISOString()
   };
-  sauverCompte(maj);
+  sauverCompte(maj); 
   return { ok: true, compte: maj };
 }
 
