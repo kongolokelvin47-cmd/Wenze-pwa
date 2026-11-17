@@ -9,7 +9,7 @@ import { createClient } from "@/utils/supabase/client";
 async function pushInvitationToSupabase(inv: any, s: any) {
   try {
     const supabase = createClient();
-    const code = inv.codeParrainage || inv.id;
+    const code = inv.codeParrainage || inv.id;  pushInvitationToSupabase(inv, s); // <-- V36 : envoie aussi à Supabase
     await supabase.from("invitations").upsert({
       id: String(code),
       code: String(code),
@@ -170,8 +170,11 @@ export function revokeInvitation(id: string): boolean {
     return memeId && (estDG || cestMoi);
   });
   if (i < 0 || l[i].status !== "invité") return false;
-  l[i] = { ...l[i], status: "annulé", annuleLe: new Date().toISOString(), annulePar: monWa };
-  return writeList(K_INVITES, l);
+    l[i] = { ...l[i], status: "annulé", annuleLe: new Date().toISOString(), annulePar: monWa };
+  writeList(K_INVITES, l);
+  // V36 : annule aussi dans Supabase
+  createClient().from("invitations").update({ status: "annulé", statut: "ANNULE", annule_le: new Date().toISOString(), annule_par: monWa }).eq("id", String(id)).then(()=>{});
+  return true;
 }
 
 // Noms alternatifs utilisés par certaines pages
