@@ -1,8 +1,18 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { verifierSession, quitterSession, tempsRestant, demarrerSession } from "@/lib/session";
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+
+// ===== SÉCURITÉ V8 : Supabase ne plante JAMAIS =====
+const URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+const KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabase: any = URL && KEY ? createClient(URL, KEY) : null;
+
+// ===== SESSION DG 12h — local, sécurisée, sans fichier externe =====
+const getSession = () => { try { return JSON.parse(localStorage.getItem("wenze_session") || "null"); } catch { return null; } };
+const demarrerSession = (role: string, user: any) => { try { localStorage.setItem("wenze_session", JSON.stringify({ role, user, debut: Date.now() })); } catch {} };
+const quitterSession = () => { try { localStorage.removeItem("wenze_session"); } catch {} window.location.reload(); };
+const verifierSession = () => getSession();
+const tempsRestant = () => { const s = getSession(); if (!s) return "0h"; const reste = 12 * 3600 * 1000 - (Date.now() - (s.debut || Date.now())); if (reste <= 0) return "Expirée"; return Math.floor(reste / 3600000) + "h " + Math.floor((reste % 3600000) / 60000) + "min"; };
 
 type Membre = { id: string; nom: string; telephone: string; role: string; statut: string; gains?: number; codePro: string; chefCode?: string; province: string; commune: string; village: string; created_at?: string; dateInscription?: string };
 type Boutique = { id: string; nom: string; proprietaire: string; telephone: string; province: string; commune: string; statut: string; abonnement: string; code_amb: string; created_at?: string };
@@ -28,6 +38,7 @@ export default function DashboardDG() {
   const [formProb, setFormProb] = useState({ type: "", qui: "", detail: "", urgence: "NORMALE" });
   const [formPay, setFormPay] = useState({ qui: "", type: "Abonnement Boutique", montant: "", methode: "Orange Money" });
   const [pinForm, setPinForm] = useState({ ancien: "", nouveau: "", confirm: "" });
+  const [erreurSupabase, setErreurSupabase] = useState("");
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(""), 4000); };
   const today = new Date().toISOString().slice(0, 10);
   const moisActuel = new Date().toISOString().slice(0, 7);
@@ -36,7 +47,7 @@ export default function DashboardDG() {
   const estAujourdhui = (d?: string) => (d || "").slice(0, 10) === today;
   const estCetteAnnee = (d?: string) => (d || "").slice(0, 4) === anneeActuelle;
   const dateDe = (x: any) => x.created_at || x.dateInscription || x.date_inscription || "";
-  const estPaye = (a: string) => ["PAYE", "PAYÉ", "ACTIF"].includes(a);
+  const estPaye = (a: string) => ["PAYE", "PAYÉ", "ACTIF"].includes(a || "");
     const statsAmb = (codePro: string) => {
     const bout = boutiques.filter(b => b.code_amb === codePro);
     const cli = clients.filter(c => c.code_parrain === codePro);
@@ -59,42 +70,49 @@ export default function DashboardDG() {
     };
   };
     useEffect(() => {
-    const s: any = verifierSession();
-    if (s && s.role === "DG") setDeverrouille(true);
+    try { const s: any = verifierSession(); if (s && s.role === "DG") setDeverrouille(true); } catch {}
     const charger = async () => {
-      const [m, b, cl, pr, pa, an, cfg] = await Promise.all([
-        supabase.from("membres").select("*").order("created_at", { ascending: false }),
-        supabase.from("boutiques").select("*").order("created_at", { ascending: false }),
-        supabase.from("clients").select("*").order("created_at", { ascending: false }),
-        supabase.from("problemes").select("*").order("created_at", { ascending: false }),
-        supabase.from("paiements").select("*").order("created_at", { ascending: false }),
-        supabase.from("annonces_publiques").select("*").order("created_at", { ascending: false }),
-        supabase.from("config_publique").select("*").eq("id", 1).single(),
-      ]);
-      if (m.data) setMembres(m.data.map((r: any) => ({ id: r.id, nom: r.nom, telephone: r.telephone, role: r.role, statut: r.statut, gains: r.gains || 0, codePro: r.code_pro, chefCode: r.chef_code, province: r.province || "Kinshasa", commune: r.commune || "", village: r.village || "", created_at: r.created_at, dateInscription: r.date_inscription })));
-      if (b.data) setBoutiques(b.data);
-      if (cl.data) setClients(cl.data);
-      if (pr.data) setProblemes(pr.data);
-      if (pa.data) setPaiements(pa.data);
-      if (an.data) setAnnonces(an.data);
-      if (cfg.data) setDesignPub({ main: cfg.data.main_color || "#FF6B00", btn: cfg.data.btn_color || "#111", title: cfg.data.title || "", slogan: cfg.data.slogan || "", about: cfg.data.about || "", whats: cfg.data.whats || "", logo: cfg.data.logo || "", showAmb: cfg.data.show_amb ?? true, maintenance: cfg.data.maintenance ?? false });
-      const c = JSON.parse(localStorage.getItem("wenze_dg_config") || "{}"); if (c.pin) setPinDG(c.pin);
+      if (!supabase) { setErreurSupabase("⚠️ Clés Supabase manquantes sur Vercel — vérifie NEXT_PUBLIC_SUPABASE_URL et ANON_KEY"); return; }
+      try {
+        const [m, b, cl, pr, pa, an, cfg] = await Promise.all([
+          supabase.from("membres").select("*").order("created_at", { ascending: false }),
+          supabase.from("boutiques").select("*").order("created_at", { ascending: false }),
+          supabase.from("clients").select("*").order("created_at", { ascending: false }),
+          supabase.from("problemes").select("*").order("created_at", { ascending: false }),
+          supabase.from("paiements").select("*").order("created_at", { ascending: false }),
+          supabase.from("annonces_publiques").select("*").order("created_at", { ascending: false }),
+          supabase.from("config_publique").select("*").eq("id", 1).single(),
+        ]);
+        if (m.data) setMembres(m.data.map((r: any) => ({ id: r.id, nom: r.nom || "", telephone: r.telephone || "", role: r.role || "", statut: r.statut || "EN_ATTENTE", gains: r.gains || 0, codePro: r.code_pro || "", chefCode: r.chef_code || "", province: r.province || "Kinshasa", commune: r.commune || "", village: r.village || "", created_at: r.created_at, dateInscription: r.date_inscription })));
+        if (b.data) setBoutiques(b.data);
+        if (cl.data) setClients(cl.data);
+        if (pr.data) setProblemes(pr.data);
+        if (pa.data) setPaiements(pa.data);
+        if (an.data) setAnnonces(an.data);
+        if (cfg.data) setDesignPub({ main: cfg.data.main_color || "#FF6B00", btn: cfg.data.btn_color || "#111", title: cfg.data.title || "", slogan: cfg.data.slogan || "", about: cfg.data.about || "", whats: cfg.data.whats || "", logo: cfg.data.logo || "", showAmb: cfg.data.show_amb ?? true, maintenance: cfg.data.maintenance ?? false });
+        try { const c = JSON.parse(localStorage.getItem("wenze_dg_config") || "{}"); if (c.pin) setPinDG(c.pin); } catch {}
+      } catch (e) { console.log("WENZE charger:", e); setErreurSupabase("⚠️ Une table Supabase manque — colle le SQL en bas de ce message"); }
     };
     charger();
-    const ch = supabase.channel("dg-v7").on("postgres_changes", { event: "*", schema: "public", table: "membres" }, () => charger()).on("postgres_changes", { event: "*", schema: "public", table: "boutiques" }, () => charger()).on("postgres_changes", { event: "*", schema: "public", table: "clients" }, () => charger()).on("postgres_changes", { event: "*", schema: "public", table: "problemes" }, () => charger()).on("postgres_changes", { event: "*", schema: "public", table: "paiements" }, () => charger()).on("postgres_changes", { event: "*", schema: "public", table: "annonces_publiques" }, () => charger()).on("postgres_changes", { event: "*", schema: "public", table: "config_publique" }, () => charger()).subscribe();
-    const timer = setInterval(() => { if (deverrouille && !verifierSession()) { alert("Session DG expirée (12h)"); quitterSession(); } }, 60000);
-    return () => { supabase.removeChannel(ch); clearInterval(timer); };
+    let ch: any = null;
+    try {
+      if (supabase) {
+        ch = supabase.channel("dg-v8").on("postgres_changes", { event: "*", schema: "public", table: "membres" }, () => charger()).on("postgres_changes", { event: "*", schema: "public", table: "boutiques" }, () => charger()).on("postgres_changes", { event: "*", schema: "public", table: "clients" }, () => charger()).on("postgres_changes", { event: "*", schema: "public", table: "problemes" }, () => charger()).on("postgres_changes", { event: "*", schema: "public", table: "paiements" }, () => charger()).on("postgres_changes", { event: "*", schema: "public", table: "annonces_publiques" }, () => charger()).on("postgres_changes", { event: "*", schema: "public", table: "config_publique" }, () => charger()).subscribe();
+      }
+    } catch {}
+    const timer = setInterval(() => { try { if (deverrouille && !verifierSession()) { alert("Session DG expirée (12h)"); quitterSession(); } } catch {} }, 60000);
+    return () => { try { if (supabase && ch) supabase.removeChannel(ch); } catch {} clearInterval(timer); };
   }, [deverrouille]);
-  useEffect(() => { localStorage.setItem("wenze_dg_config", JSON.stringify({ pin: pinDG })); }, [pinDG]);
+  useEffect(() => { try { localStorage.setItem("wenze_dg_config", JSON.stringify({ pin: pinDG })); } catch {} }, [pinDG]);
   const loginDG = () => { if (pin === pinDG) { demarrerSession("DG", { nom: "DG WENZE" }); setDeverrouille(true); } else showToast("❌ PIN incorrect"); };
   if (!deverrouille) return (
     <div className="max-w-[480px] mx-auto min-h-screen bg-[#0A0A0A] text-white p-6 flex flex-col justify-center">
-      <p className="text-[28px] font-black">WENZE<span className="text-[#FF6B00]">.</span></p><h1 className="font-black text-[24px] mt-4">👑 Connecte-toi en tant que DG</h1><p className="text-[12px] opacity-60">Espace privé • Session 12h • Sécurisé</p>
+      <p className="text-[28px] font-black">WENZE<span className="text-[#FF6B00]">.</span></p><h1 className="font-black text-[24px] mt-4">👑 Connecte-toi en tant que DG</h1><p className="text-[12px] opacity-60">Espace privé • Session 12h • Sécurisé • V8</p>
       <input value={pin} onChange={e => setPin(e.target.value)} type="password" inputMode="numeric" placeholder="PIN DG" className="w-full bg-white/10 border border-white/20 rounded-2xl px-4 py-4 mt-6 text-center text-[22px] tracking-[8px] outline-none" />
-      <button onClick={loginDG} className="w-full bg-[#FF6B00] py-4 rounded-full font-black mt-4">🔓 ENTRER DANS MON BUREAU DG</button>{toast && <p className="text-center text-[12px] mt-3 font-bold">{toast}</p>}
+      <button onClick={loginDG} className="w-full bg-[#FF6B00] py-4 rounded-full font-black mt-4">🔓 ENTRER DANS MON BUREAU DG</button>{toast && <p className="text-center text-[12px] mt-3 font-bold">{toast}</p>}{erreurSupabase && <p className="text-center text-[11px] mt-3 text-yellow-300">{erreurSupabase}</p>}
     </div>
   );
-  const sup = useMemo(() => membres.filter(m => m.role === "SUPERVISEUR"), [membres]);
+    const sup = useMemo(() => membres.filter(m => m.role === "SUPERVISEUR"), [membres]);
   const amb = useMemo(() => membres.filter(m => m.role === "AMBASSADEUR"), [membres]);
   const totalPaye = useMemo(() => paiements.filter(p => p.statut === "PAYÉ").reduce((s, p) => s + (p.montant || 0), 0), [paiements]);
   const totalGains = useMemo(() => amb.reduce((s, m) => s + (m.gains || 0), 0), [amb]);
@@ -106,26 +124,26 @@ export default function DashboardDG() {
   const evolution = useMemo(() => { const mois: Record<string, number> = {}; [...membres, ...boutiques, ...clients].forEach((x: any) => { const d = (dateDe(x)).slice(0, 7); if (d) mois[d] = (mois[d] || 0) + 1; }); return Object.entries(mois).sort().slice(-6); }, [membres, boutiques, clients]);
   const maxEvo = Math.max(1, ...evolution.map(e => e[1]));
   const rapportJour = { boutiques: boutiques.filter(b => estAujourdhui(b.created_at)).length, clients: clients.filter(c => estAujourdhui(c.created_at)).length, membres: membres.filter(m => estAujourdhui(dateDe(m))).length };
-  const changer = async (id: string, s: string) => { setMembres(p => p.map(m => m.id === id ? { ...m, statut: s } : m)); await supabase.from("membres").update({ statut: s }).eq("id", id); showToast(s === "ACTIF" ? "✅ Validé" : "⏸️ Suspendu"); };
-  const supprimer = async (id: string) => { if (!confirm("DG, supprimer ce membre ?")) return; setMembres(p => p.filter(m => m.id !== id)); await supabase.from("membres").delete().eq("id", id); showToast("🗑️ Supprimé"); };
-  const creer = async () => { if (!nouveau.nom.trim() || nouveau.telephone.length < 9) return showToast("Nom + WhatsApp obligatoires"); const pre = nouveau.role === "SUPERVISEUR" ? "SUP" : "AMB"; const code = pre + "-" + nouveau.nom.slice(0, 3).toUpperCase().replace(/[^A-Z]/g, "X") + "-" + Math.floor(1000 + Math.random() * 9000); const nm: any = { id: pre + Date.now(), nom: nouveau.nom.trim(), telephone: nouveau.telephone.trim(), role: nouveau.role, statut: "ACTIF", gains: 0, code_pro: code, chef_code: "DG", province: nouveau.province, commune: nouveau.commune, village: nouveau.village || nouveau.commune }; setMembres(p => [{ id: nm.id, nom: nm.nom, telephone: nm.telephone, role: nm.role, statut: nm.statut, gains: 0, codePro: code, chefCode: "DG", province: nm.province, commune: nm.commune, village: nm.village }, ...p]); await supabase.from("membres").insert(nm); showToast("✅ Créé : " + code); setNouveau({ nom: "", telephone: "", role: "SUPERVISEUR", province: "Kinshasa", commune: "", village: "" }); };
-  const resoudre = async (id: string) => { setProblemes(p => p.map(x => x.id === id ? { ...x, statut: "RESOLU" } : x)); await supabase.from("problemes").update({ statut: "RESOLU" }).eq("id", id); showToast("✅ Résolu"); };
-  const validerPay = async (id: string) => { setPaiements(p => p.map(x => x.id === id ? { ...x, statut: "PAYÉ" } : x)); await supabase.from("paiements").update({ statut: "PAYÉ" }).eq("id", id); showToast("✅ Paiement validé"); };
-  const validerBoutique = async (id: string) => { setBoutiques(p => p.map(b => b.id === id ? { ...b, statut: "VALIDEE" } : b)); await supabase.from("boutiques").update({ statut: "VALIDEE" }).eq("id", id); showToast("✅ Boutique validée"); };
-  const validerAbo = async (id: string) => { setBoutiques(p => p.map(b => b.id === id ? { ...b, abonnement: "PAYE" } : b)); await supabase.from("boutiques").update({ abonnement: "PAYE" }).eq("id", id); showToast("✅ Abonnement validé"); };
-  const ajouterProbleme = async () => { if (!formProb.type.trim()) return showToast("Type obligatoire"); const np: any = { id: "P-" + Date.now(), type: formProb.type, qui: formProb.qui, code: "-", detail: formProb.detail, urgence: formProb.urgence, statut: "OUVERT" }; setProblemes(p => [np, ...p]); await supabase.from("problemes").insert(np); setFormProb({ type: "", qui: "", detail: "", urgence: "NORMALE" }); showToast("✅ Ajouté"); };
-  const ajouterPaiement = async () => { const montant = parseInt(formPay.montant || "0"); if (!formPay.qui.trim() || !montant) return showToast("Qui + Montant"); const np: any = { id: "PAY-" + Date.now(), qui: formPay.qui, type: formPay.type, montant, methode: formPay.methode, statut: "EN_ATTENTE" }; setPaiements(p => [np, ...p]); await supabase.from("paiements").insert(np); setFormPay({ qui: "", type: "Abonnement Boutique", montant: "", methode: "Orange Money" }); showToast("✅ Ajouté"); };
-  const publierDesign = async () => { const { error } = await supabase.from("config_publique").update({ title: designPub.title, slogan: designPub.slogan, about: designPub.about, whats: designPub.whats, logo: designPub.logo, main_color: designPub.main, btn_color: designPub.btn, show_amb: designPub.showAmb, maintenance: designPub.maintenance, updated_at: new Date().toISOString() }).eq("id", 1); if (error) showToast("❌ " + error.message); else showToast("✅ Publié ! Public voit en 1-2 sec"); };
+  const safe = async (fn: () => Promise<any>, okMsg: string) => { try { if (!supabase) return showToast("⚠️ Supabase non connecté"); await fn(); showToast(okMsg); } catch (e: any) { showToast("❌ " + (e?.message || "Erreur")); } };
+  const changer = async (id: string, s: string) => { setMembres(p => p.map(m => m.id === id ? { ...m, statut: s } : m)); await safe(() => supabase.from("membres").update({ statut: s }).eq("id", id), s === "ACTIF" ? "✅ Validé" : "⏸️ Suspendu"); };
+  const supprimer = async (id: string) => { if (!confirm("DG, supprimer ce membre ?")) return; setMembres(p => p.filter(m => m.id !== id)); await safe(() => supabase.from("membres").delete().eq("id", id), "🗑️ Supprimé"); };
+  const creer = async () => { if (!nouveau.nom.trim() || nouveau.telephone.length < 9) return showToast("Nom + WhatsApp obligatoires"); const pre = nouveau.role === "SUPERVISEUR" ? "SUP" : "AMB"; const code = pre + "-" + nouveau.nom.slice(0, 3).toUpperCase().replace(/[^A-Z]/g, "X") + "-" + Math.floor(1000 + Math.random() * 9000); const nm: any = { id: pre + Date.now(), nom: nouveau.nom.trim(), telephone: nouveau.telephone.trim(), role: nouveau.role, statut: "ACTIF", gains: 0, code_pro: code, chef_code: "DG", province: nouveau.province, commune: nouveau.commune, village: nouveau.village || nouveau.commune }; setMembres(p => [{ id: nm.id, nom: nm.nom, telephone: nm.telephone, role: nm.role, statut: nm.statut, gains: 0, codePro: code, chefCode: "DG", province: nm.province, commune: nm.commune, village: nm.village }, ...p]); await safe(() => supabase.from("membres").insert(nm), "✅ Créé : " + code); setNouveau({ nom: "", telephone: "", role: "SUPERVISEUR", province: "Kinshasa", commune: "", village: "" }); };
+  const resoudre = async (id: string) => { setProblemes(p => p.map(x => x.id === id ? { ...x, statut: "RESOLU" } : x)); await safe(() => supabase.from("problemes").update({ statut: "RESOLU" }).eq("id", id), "✅ Résolu"); };
+  const validerPay = async (id: string) => { setPaiements(p => p.map(x => x.id === id ? { ...x, statut: "PAYÉ" } : x)); await safe(() => supabase.from("paiements").update({ statut: "PAYÉ" }).eq("id", id), "✅ Paiement validé"); };
+  const validerBoutique = async (id: string) => { setBoutiques(p => p.map(b => b.id === id ? { ...b, statut: "VALIDEE" } : b)); await safe(() => supabase.from("boutiques").update({ statut: "VALIDEE" }).eq("id", id), "✅ Boutique validée"); };
+  const validerAbo = async (id: string) => { setBoutiques(p => p.map(b => b.id === id ? { ...b, abonnement: "PAYE" } : b)); await safe(() => supabase.from("boutiques").update({ abonnement: "PAYE" }).eq("id", id), "✅ Abonnement validé"); };
+  const ajouterProbleme = async () => { if (!formProb.type.trim()) return showToast("Type obligatoire"); const np: any = { id: "P-" + Date.now(), type: formProb.type, qui: formProb.qui, code: "-", detail: formProb.detail, urgence: formProb.urgence, statut: "OUVERT" }; setProblemes(p => [np, ...p]); await safe(() => supabase.from("problemes").insert(np), "✅ Problème ajouté"); setFormProb({ type: "", qui: "", detail: "", urgence: "NORMALE" }); };
+  const ajouterPaiement = async () => { const montant = parseInt(formPay.montant || "0"); if (!formPay.qui.trim() || !montant) return showToast("Qui + Montant"); const np: any = { id: "PAY-" + Date.now(), qui: formPay.qui, type: "Abonnement Boutique", montant, methode: formPay.methode, statut: "EN_ATTENTE" }; setPaiements(p => [np, ...p]); await safe(() => supabase.from("paiements").insert(np), "✅ Paiement ajouté"); setFormPay({ qui: "", type: "Abonnement Boutique", montant: "", methode: "Orange Money" }); };
+  const publierDesign = async () => { await safe(() => supabase.from("config_publique").update({ title: designPub.title, slogan: designPub.slogan, about: designPub.about, whats: designPub.whats, logo: designPub.logo, main_color: designPub.main, btn_color: designPub.btn, show_amb: designPub.showAmb, maintenance: designPub.maintenance, updated_at: new Date().toISOString() }).eq("id", 1), "✅ Publié ! Public voit en 1-2 sec"); };
   const changerPIN = () => { if (pinForm.ancien !== pinDG) return showToast("❌ Ancien PIN faux"); if (pinForm.nouveau.length < 4) return showToast("Min 4 chiffres"); if (pinForm.nouveau !== pinForm.confirm) return showToast("PIN différents"); setPinDG(pinForm.nouveau); setPinForm({ ancien: "", nouveau: "", confirm: "" }); showToast("✅ PIN changé"); };
   const exporter = async () => { const txt = membres.map(m => `${m.nom} | ${m.codePro} | ${m.role} | ${m.commune} | ${m.statut} | ${statsAmb(m.codePro).boutTotal} bout | ${statsAmb(m.codePro).cliTotal} cli`).join("\n"); try { await navigator.clipboard.writeText(txt); showToast("✅ Copié !"); } catch { showToast(txt); } };
-  // ===== MODÉRATION DG =====
-  const modererAnnonce = async (id: string, statut: string, motifDG: string = "") => { setAnnonces(p => p.map(a => a.id === id ? { ...a, statut, motif: motifDG } : a)); await supabase.from("annonces_publiques").update({ statut, motif: motifDG }).eq("id", id); if (statut === "SUSPENDUE") showToast("⏸️ Suspendue — plus visible par le public"); if (statut === "APPROUVEE") showToast("✅ Approuvée — visible par le public"); if (statut === "SUPPRIMEE") showToast("🗑️ Supprimée"); setMotif(""); };
-  const supprimerAnnonce = async (id: string) => { if (!confirm("DG, supprimer définitivement ? Le public ne la verra plus.")) return; setAnnonces(p => p.filter(a => a.id !== id)); await supabase.from("annonces_publiques").delete().eq("id", id); showToast("🗑️ Supprimée"); };
+  const modererAnnonce = async (id: string, statut: string, motifDG: string = "") => { setAnnonces(p => p.map(a => a.id === id ? { ...a, statut, motif: motifDG } : a)); await safe(() => supabase.from("annonces_publiques").update({ statut, motif: motifDG }).eq("id", id), statut === "SUSPENDUE" ? "⏸️ Suspendue — plus visible" : statut === "APPROUVEE" ? "✅ Approuvée — visible" : "🗑️ Supprimée"); setMotif(""); };
+  const supprimerAnnonce = async (id: string) => { if (!confirm("DG, supprimer définitivement ?")) return; setAnnonces(p => p.filter(a => a.id !== id)); await safe(() => supabase.from("annonces_publiques").delete().eq("id", id), "🗑️ Supprimée"); };
     return (
     <div className="max-w-[560px] mx-auto min-h-screen bg-[#F7F7F8] pb-24">
       {toast && <div className="fixed top-4 left-4 right-4 z-[60] bg-black text-white p-3 rounded-2xl text-[12px] font-bold text-center shadow-xl">{toast}</div>}
       <div className="bg-black text-white px-5 pt-8 pb-6 rounded-b-[32px]">
-        <div className="flex justify-between items-start"><div><p className="text-[11px] opacity-60 tracking-widest">WENZE • DIRECTION GÉNÉRALE</p><h1 className="font-black text-[24px] mt-1">👑 Tableau DG</h1><p className="text-[11px] opacity-70 mt-1">⏱️ {tempsRestant()} restant • 🟢 Temps réel</p></div><button onClick={() => quitterSession()} className="bg-white/15 px-3 py-1.5 rounded-full text-[11px] font-bold">↩ Quitter</button></div>
+        <div className="flex justify-between items-start"><div><p className="text-[11px] opacity-60 tracking-widest">WENZE • DIRECTION GÉNÉRALE • V8</p><h1 className="font-black text-[24px] mt-1">👑 Tableau DG</h1><p className="text-[11px] opacity-70 mt-1">⏱️ {tempsRestant()} restant • 🟢 Temps réel • 🔒 Sécurisé</p></div><button onClick={() => quitterSession()} className="bg-white/15 px-3 py-1.5 rounded-full text-[11px] font-bold">↩ Quitter</button></div>
         <div className="grid grid-cols-4 gap-2 mt-5 text-center">
           <div className="bg-white/10 rounded-2xl p-2"><p className="font-black text-[18px]">{sup.length}</p><p className="text-[9px] opacity-70">SUPERVISEURS</p></div>
           <div className="bg-white/10 rounded-2xl p-2"><p className="font-black text-[18px]">{amb.length}</p><p className="text-[9px] opacity-70">AMBASSADEURS</p></div>
@@ -133,6 +151,7 @@ export default function DashboardDG() {
           <div className="bg-[#FF6B00] rounded-2xl p-2"><p className="font-black text-[16px]">{clients.length}</p><p className="text-[9px] opacity-90">TOTAL CLIENTS</p></div>
         </div>
       </div>
+      {erreurSupabase && <div className="mx-4 mt-3 bg-yellow-100 border border-yellow-300 text-yellow-800 rounded-2xl p-3 text-[11px] font-bold">{erreurSupabase}</div>}
       <div className="flex gap-1.5 px-4 mt-4 overflow-x-auto">
         {["DASH", "SUPERVISEURS", "AMBASSADEURS", "INVITATIONS", "BOUTIQUES", "MODERATION", "PROBLEMES", "PAIEMENTS", "DESIGN", "PARAM"].map(t => (<button key={t} onClick={() => setOnglet(t)} className={`whitespace-nowrap px-3 py-2 rounded-full text-[11px] font-black ${onglet === t ? "bg-black text-white" : "bg-white border"}`}>{t === "DASH" ? "📊 Dashboard" : t === "SUPERVISEURS" ? "🛡️ Superviseurs" : t === "AMBASSADEURS" ? "🎖️ Ambassadeurs" : t === "INVITATIONS" ? "🔗 Invitations" : t === "BOUTIQUES" ? "🏪 Boutiques" : t === "MODERATION" ? `🛡️ Modération (${annonces.filter(a => a.statut === "EN_ATTENTE").length})` : t === "PROBLEMES" ? `🚨 Problèmes (${probOuverts})` : t === "PAIEMENTS" ? "💰 Paiements" : t === "DESIGN" ? "🎨 Design" : "⚙️ Param"}</button>))}
       </div>
@@ -242,7 +261,7 @@ export default function DashboardDG() {
         )}
         {onglet === "PAIEMENTS" && (
           <div className="space-y-3">
-            <div className="bg-white border rounded-2xl p-4"><p className="font-black">💰 Ajouter un paiement — Abonnement Boutique uniquement</p><input value={formPay.qui} onChange={e => setFormPay({ ...formPay, qui: e.target.value })} placeholder="Qui paye ?" className="w-full border rounded-xl px-3 py-3 mt-2" /><input value={formPay.montant} onChange={e => setFormPay({ ...formPay, montant: e.target.value })} inputMode="numeric" placeholder="Montant CDF" className="w-full border rounded-xl px-3 py-3 mt-2" /><select value={formPay.methode} onChange={e => setFormPay({ ...formPay, methode: e.target.value })} className="w-full border rounded-xl px-3 py-3 mt-2"><option>Orange Money</option><option>M-Pesa</option><option>Airtel Money</option><option>Espèces</option></select><button onClick={ajouterPaiement} className="w-full bg-black text-white py-3 rounded-full font-black text-[12px] mt-2">✅ Ajouter</button></div>
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">💰 Ajouter un paiement — Abonnement Boutique uniquement</p><p className="text-[11px] text-gray-500">Aucune Tombola dans l'app — tarifs déjà inscrits, tombola pratique + bouche-à-oreille.</p><input value={formPay.qui} onChange={e => setFormPay({ ...formPay, qui: e.target.value })} placeholder="Qui paye ?" className="w-full border rounded-xl px-3 py-3 mt-2" /><input value={formPay.montant} onChange={e => setFormPay({ ...formPay, montant: e.target.value })} inputMode="numeric" placeholder="Montant CDF" className="w-full border rounded-xl px-3 py-3 mt-2" /><select value={formPay.methode} onChange={e => setFormPay({ ...formPay, methode: e.target.value })} className="w-full border rounded-xl px-3 py-3 mt-2"><option>Orange Money</option><option>M-Pesa</option><option>Airtel Money</option><option>Espèces</option></select><button onClick={ajouterPaiement} className="w-full bg-black text-white py-3 rounded-full font-black text-[12px] mt-2">✅ Ajouter</button></div>
             {paiements.map((p: any) => (<div key={p.id} className="bg-white border rounded-2xl p-4"><p className="font-black">{p.qui} — {(p.montant || 0).toLocaleString()} CDF <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full">{p.statut} • {p.methode}</span></p><p className="text-[11px] text-gray-500">{p.type}</p>{p.statut !== "PAYÉ" && <button onClick={() => validerPay(p.id)} className="bg-green-600 text-white px-3 py-1.5 rounded-full text-[11px] font-bold mt-2">✅ Valider</button>}</div>))}
           </div>
         )}
@@ -253,10 +272,10 @@ export default function DashboardDG() {
           <div className="space-y-3">
             <div className="bg-white border rounded-2xl p-4"><p className="font-black">🔑 Changer PIN DG</p><input value={pinForm.ancien} onChange={e => setPinForm({ ...pinForm, ancien: e.target.value })} type="password" placeholder="Ancien PIN" className="w-full border rounded-xl px-3 py-3 mt-2" /><input value={pinForm.nouveau} onChange={e => setPinForm({ ...pinForm, nouveau: e.target.value })} type="password" placeholder="Nouveau PIN" className="w-full border rounded-xl px-3 py-3 mt-2" /><input value={pinForm.confirm} onChange={e => setPinForm({ ...pinForm, confirm: e.target.value })} type="password" placeholder="Confirmer" className="w-full border rounded-xl px-3 py-3 mt-2" /><button onClick={changerPIN} className="w-full bg-black text-white py-3 rounded-full font-black text-[12px] mt-2">✅ Changer PIN</button></div>
             <div className="bg-white border rounded-2xl p-4"><p className="font-black">📋 Export & Sécurité</p><button onClick={exporter} className="w-full bg-gray-100 py-3 rounded-full font-black text-[12px] mt-2">📋 Copier liste complète</button><button onClick={() => quitterSession()} className="w-full bg-red-600 text-white py-3 rounded-full font-black text-[12px] mt-2">↩ Déconnexion sécurisée</button></div>
-            <div className="bg-white border rounded-2xl p-4"><p className="font-black">ℹ️ Règles</p><p className="text-[12px] text-gray-600 mt-1">• DG voit tout • SUP voit sa zone • AMB voit ses boutiques/clients • Session 12h • Seul le DG crée les comptes • Seul le DG modère le public</p></div>
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">🔒 Sécurité V8</p><p className="text-[12px] text-gray-600 mt-1">• DG voit tout • SUP voit sa zone • AMB voit ses boutiques/clients • Session 12h auto-expirée • Seul le DG crée les comptes • Seul le DG modère le public • Aucune donnée sensible affichée au public • Chaque action vérifiée avant envoi</p></div>
           </div>
         )}
       </div>
     </div>
   );
-                                                                                                                                          }
+              }
