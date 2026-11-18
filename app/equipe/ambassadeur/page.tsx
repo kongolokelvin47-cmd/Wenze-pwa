@@ -2,6 +2,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@supabase/supabase-js";
+import { verifierSession, quitterSession, tempsRestant } from "@/lib/session";
+
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 
 export default function AmbassadeurPerso() {
@@ -15,32 +17,43 @@ export default function AmbassadeurPerso() {
   const [clients, setClients] = useState<any[]>([]);
 
   const showToast = (m: string) => { setToast(m); setTimeout(() => setToast(""), 3500); };
-  const initiales = (nom: string) => nom.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase();
+  const initiales = (nom: string) => nom ? nom.split(" ").map(w => w[0]).slice(0, 2).join("").toUpperCase() : "AM";
   const salutation = () => { const h = new Date().getHours(); return h < 12 ? "Bonjour" : h < 18 ? "Bon après-midi" : "Bonsoir"; };
 
   useEffect(() => {
-    const s: any = JSON.parse(localStorage.getItem("wenze_session") || "null");
-    if (!s || s.role !== "AMBASSADEUR") { router.push("/"); return; }
-    setMoi(s);
+    const s: any = verifierSession();
+    if (!s || s.role !== "AMBASSADEUR" || !s.data) { router.push("/"); return; }
+    const moiData = s.data;
+    setMoi(moiData);
     const charger = async () => {
-      const { data: bout } = await supabase.from("boutiques").select("*").eq("code_amb", s.codePro);
+      // STRICT : seulement MES boutiques (mon code)
+      const { data: bout } = await supabase.from("boutiques").select("id, nom, proprietaire, telephone, province, commune, village, statut, abonnement, code_amb").eq("code_amb", moiData.codePro);
       if (bout) setBoutiques(bout);
-      const { data: cli } = await supabase.from("clients").select("*").eq("code_parrain", s.codePro);
+      // STRICT : seulement MES clients (mon code parrain)
+      const { data: cli } = await supabase.from("clients").select("id, nom, telephone, code_parrain, province, commune, statut").eq("code_parrain", moiData.codePro);
       if (cli) setClients(cli);
+      // Recharge TES gains frais depuis la base (seul toi + DG)
+      const { data: frais } = await supabase.from("membres").select("gains, statut").eq("id", moiData.id).single();
+      if (frais) {
+        if (frais.statut === "SUSPENDU") { alert("⛔ Suspendu par le DG."); quitterSession(); return; }
+        setMoi((m: any) => ({ ...m, gains: frais.gains, statut: frais.statut }));
+      }
     };
     charger();
-    const ch = supabase.channel("amb-perso-" + s.id)
+    const ch = supabase.channel("amb-perso-" + moiData.id)
       .on("postgres_changes", { event: "*", schema: "public", table: "boutiques" }, () => charger())
       .on("postgres_changes", { event: "*", schema: "public", table: "clients" }, () => charger())
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "membres", filter: `id=eq.${s.id}` }, (pl: any) => {
-        if (pl.new.statut === "SUSPENDU") { alert("⛔ Suspendu par le DG."); localStorage.removeItem("wenze_session"); router.push("/"); }
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "membres", filter: `id=eq.${moiData.id}` }, (pl: any) => {
+        if (pl.new.statut === "SUSPENDU") { alert("⛔ Suspendu par le DG."); quitterSession(); return; }
         setMoi((m: any) => ({ ...m, gains: pl.new.gains }));
       })
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    const timer = setInterval(() => {
+      if (!verifierSession()) { alert('Session expirée (12h). Reconnecte-toi.'); quitterSession(); }
+    }, 60000);
+    return () => { supabase.removeChannel(ch); clearInterval(timer); };
   }, [router]);
-
-  const boutValidees = useMemo(() => boutiques.filter(b => b.statut === "VALIDEE").length, [boutiques]);
+    const boutValidees = useMemo(() => boutiques.filter(b => b.statut === "VALIDEE").length, [boutiques]);
   const boutAttente = useMemo(() => boutiques.filter(b => b.statut === "EN_ATTENTE").length, [boutiques]);
 
   const creerBout = async () => {
@@ -60,7 +73,8 @@ export default function AmbassadeurPerso() {
       {toast && <div className="fixed top-4 left-4 right-4 z-50 bg-black text-white p-3 rounded-xl text-[12px] font-bold text-center">{toast}</div>}
       {/* HEADER PERSONNALISÉ */}
       <div className="bg-black text-white px-5 pt-8 pb-5 rounded-b-[28px]">
-        <div className="flex justify-between"><p className="text-[11px] opacity-70">WENZE • MON BUREAU AMBASSADEUR</p><button onClick={() => { localStorage.removeItem("wenze_session"); router.push("/"); }} className="bg-white/15 px-3 py-1 rounded-full text-[11px] font-bold">↩ Quitter</button></div>
+        <div className="flex justify-between"><p className="text-[11px] opacity-70">WENZE • MON BUREAU AMBASSADEUR</p><button onClick={() => quitterSession()} className="bg-white/15 px-3 py-1 rounded-full text-[11px] font-bold">↩ Quitter</button></div>
+        <p className="text-[11px] opacity-70 mt-1">⏱️ Session : {tempsRestant()} restant • 🔒 Tes données seules</p>
         <div className="flex items-center gap-3 mt-3">
           <div className="w-[62px] h-[62px] bg-[#FF6B00] rounded-full flex items-center justify-center font-black text-[20px] shrink-0">{initiales(moi.nom)}</div>
           <div>
@@ -71,7 +85,7 @@ export default function AmbassadeurPerso() {
         </div>
         <div className="bg-white/10 rounded-xl p-3 mt-4 text-[12px]">💰 <b>TES gains :</b> {(moi.gains || 0).toLocaleString()} CDF<br />🔗 <b>Ton code :</b> {moi.codePro} — Donne-le à tes clients, ils seront liés à toi.</div>
       </div>
-      <div className="flex gap-1.5 px-4 mt-4 overflow-x-auto">
+            <div className="flex gap-1.5 px-4 mt-4 overflow-x-auto">
         {["ACCUEIL", "BOUTIQUES", "CLIENTS", "CREER"].map(t => (<button key={t} onClick={() => setOnglet(t)} className={`whitespace-nowrap px-3 py-2 rounded-full text-[11px] font-black ${onglet === t ? "bg-black text-white" : "bg-white border"}`}>{t === "ACCUEIL" ? "🏠 Mon Accueil" : t === "BOUTIQUES" ? "🏪 Mes Boutiques" : t === "CLIENTS" ? "👥 Mes Clients" : "➕ Créer"}</button>))}
       </div>
       <div className="px-4 mt-4">
@@ -87,7 +101,7 @@ export default function AmbassadeurPerso() {
             <button onClick={() => setOnglet("CREER")} className="w-full bg-[#FF6B00] text-white py-4 rounded-full font-black text-[13px]">➕ Créer une boutique / un client</button>
           </div>
         )}
-        {onglet === "BOUTIQUES" && (<div className="space-y-2">{boutiques.map(b => (<div key={b.id} className="bg-white border rounded-2xl p-4"><p className="font-black">{b.nom} <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full">{b.statut}</span></p><p className="text-[11px] text-gray-500">{b.proprietaire} • {b.commune} • {b.telephone}</p></div>))}{boutiques.length === 0 && <p className="text-[12px] text-gray-500">Aucune boutique.</p>}</div>)}
+                {onglet === "BOUTIQUES" && (<div className="space-y-2">{boutiques.map(b => (<div key={b.id} className="bg-white border rounded-2xl p-4"><p className="font-black">{b.nom} <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full">{b.statut}</span></p><p className="text-[11px] text-gray-500">{b.proprietaire} • {b.commune} • {b.telephone}</p></div>))}{boutiques.length === 0 && <p className="text-[12px] text-gray-500">Aucune boutique.</p>}</div>)}
         {onglet === "CLIENTS" && (<div className="space-y-2">{clients.map((c: any) => (<div key={c.id} className="bg-white border rounded-2xl p-4"><div className="flex items-center gap-3"><div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center font-black">{initiales(c.nom)}</div><div><p className="font-black text-[14px]">{c.nom}</p><p className="text-[11px] text-gray-500">{c.telephone} • Lié à toi via {c.code_parrain}</p></div></div></div>))}{clients.length === 0 && <p className="text-[12px] text-gray-500">Aucun client lié à ton code pour l'instant.</p>}</div>)}
         {onglet === "CREER" && (
           <div className="space-y-3">
@@ -98,4 +112,4 @@ export default function AmbassadeurPerso() {
       </div>
     </div>
   );
-      }
+}
