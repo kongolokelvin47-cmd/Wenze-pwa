@@ -26,7 +26,7 @@ export function HomeHeader({ ab, payantCount, boostedCount, notifCount, cartCoun
 
   return (
     <div className="sticky top-0 z-30 bg-[#FFFBF0]/95 backdrop-blur pb-2 pt-2">
-      {/* SEARCH + PANIER + NOTIFS */}
+      {/* SEARCH + PANIER + NOTIFS - Recherche et Cloche restent ICI, en haut */}
       <div className="px-4 flex gap-2 items-center">
         <div className="flex-1 flex items-center bg-white border rounded-full px-3 py-2.5">
           <span className="text-[14px]">🔍</span>
@@ -117,34 +117,35 @@ export function AnnonceCard({ a, icon, onMedia, onOpen, onCart, onContact }: any
     </div>
   );
 }
-
-// ================= IMAGE VIEWER =================
-export function ImageViewer({ a, onClose, onOpen, onCart, onContact }: any) {
+// ================= IMAGE VIEWER - Accepte src OU a, pour ne plus planter ===
+export function ImageViewer({ a, src, onClose, onOpen, onCart, onContact }: any) {
   const router = useRouter();
-  if (!a) return null;
+  const data = a || (typeof src === "string" ? { photo: src, titre: "Image" } : src);
+  if (!data) return null;
+  const photo = data.photo || data.src || src;
   return (
     <div className="fixed inset-0 z-50 bg-black/90 flex flex-col">
       <div className="flex justify-between items-center p-4">
         <button onClick={onClose} className="w-10 h-10 bg-white rounded-full font-black text-[18px]">✕</button>
-        <p className="text-white font-black text-[12px] flex-1 text-center px-2 truncate">{a.titre}</p>
+        <p className="text-white font-black text-[12px] flex-1 text-center px-2 truncate">{data.titre || "WENZE"}</p>
         <button onClick={() => { onClose(); router.back(); }} className="w-10 h-10 bg-white rounded-full font-black text-[18px]">←</button>
       </div>
       <div className="flex-1 flex items-center justify-center p-4">
-        {a.isVideo ? (
-          <video src={a.photo} controls autoPlay className="max-w-full max-h-full rounded-2xl" />
+        {data.isVideo ? (
+          <video src={photo} controls autoPlay className="max-w-full max-h-full rounded-2xl" />
         ) : (
-          <img src={a.photo} alt={a.titre} className="max-w-full max-h-full object-contain rounded-2xl" />
+          <img src={photo} alt={data.titre} className="max-w-full max-h-full object-contain rounded-2xl" />
         )}
       </div>
       <div className="p-4 bg-white rounded-t-[24px] space-y-2">
-        <p className="font-black text-[15px]">{a.titre}</p>
-        <p className="text-[12px] text-gray-600">{a.description}</p>
-        <p className="font-black text-[16px]">{fmtUSD(a.prix)} • {a.prixCDF}</p>
+        <p className="font-black text-[15px]">{data.titre}</p>
+        <p className="text-[12px] text-gray-600">{data.description}</p>
+        <p className="font-black text-[16px]">{fmtUSD(data.prix)} • {data.prixCDF}</p>
         <div className="flex gap-2">
-          <button onClick={() => onCart(a)} className="flex-1 bg-black text-white py-3.5 rounded-full font-black text-[12px]">🛒 Ajouter au panier</button>
-          <button onClick={() => onContact && onContact(a)} className="flex-1 bg-green-500 text-white py-3.5 rounded-full font-black text-[12px]">💬 Contacter</button>
+          <button onClick={() => onCart && onCart(data)} className="flex-1 bg-black text-white py-3.5 rounded-full font-black text-[12px]">🛒 Ajouter au panier</button>
+          <button onClick={() => onContact && onContact(data)} className="flex-1 bg-green-500 text-white py-3.5 rounded-full font-black text-[12px]">💬 Contacter</button>
         </div>
-        <button onClick={() => onOpen(a)} className="w-full bg-[#FFFBF0] border-2 border-black py-3 rounded-full font-black text-[12px]">Voir la page produit →</button>
+        {onOpen && <button onClick={() => onOpen(data)} className="w-full bg-[#FFFBF0] border-2 border-black py-3 rounded-full font-black text-[12px]">Voir la page produit →</button>}
         <button onClick={onClose} className="w-full text-center text-[11px] text-gray-500 underline py-1">Fermer</button>
       </div>
     </div>
@@ -166,31 +167,38 @@ export function BandeauVisiteur() {
   );
 }
 
-// ================= BOTTOM NAV - TOUS LES BOUTONS MARCHENT =================
-export function BottomNav({ notifCount }: any) {
+// ================= BOTTOM NAV - NOUVELLE VERSION DG =================
+// ✅ Vidéo à la place de Recherche
+// ✅ Boutique à la place de la Cloche
+// ✅ Recherche et Cloche restent en haut dans le Header, pas perdues
+export function BottomNav({ notifCount, cartCount }: any) {
   const router = useRouter();
   const [active, setActive] = useState("/");
   const go = (path: string) => { setActive(path); router.push(path); };
 
-  const btn = (path: string, emoji: string, label: string, badge?: number) => (
-    <button onClick={() => go(path)} className={`flex-1 flex flex-col items-center py-2 relative ${active === path ? "text-black" : "text-gray-400"}`}>
-      <span className="text-[20px] relative">
-        {emoji}
-        {badge && badge > 0 ? <span className="absolute -top-1 -right-3 bg-red-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center">{badge}</span> : null}
-      </span>
+  const btn = (path: string, emoji: string, label: string, badge?: number, center?: boolean) => (
+    <button onClick={() => go(path)} className={`flex-1 flex flex-col items-center py-2 relative ${active === path ? "text-black" : "text-gray-400"} ${center ? "-mt-5" : ""}`}>
+      {center ? (
+        <span className="w-12 h-12 bg-black text-white rounded-full flex items-center justify-center text-[22px] shadow-lg border-4 border-[#FFFBF0]">➕</span>
+      ) : (
+        <span className="text-[20px] relative">
+          {emoji}
+          {badge && badge > 0 ? <span className="absolute -top-1 -right-3 bg-red-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center">{badge}</span> : null}
+        </span>
+      )}
       <span className="text-[9px] font-black mt-0.5">{label}</span>
-      {active === path && <span className="w-6 h-1 bg-black rounded-full mt-1" />}
+      {active === path && !center && <span className="w-6 h-1 bg-black rounded-full mt-1" />}
     </button>
   );
 
   return (
     <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white border-t shadow-[0_-4px_20px_rgba(0,0,0,0.08)] flex px-2 z-40">
       {btn("/", "🏠", "Accueil")}
-      {btn("/recherche", "🔍", "Recherche")}
-      {btn("/publier", "➕", "Publier")}
-      {btn("/panier", "🛒", "Panier")}
-      {btn("/notifications", "🔔", "Notifs", notifCount)}
+      {btn("/video", "🎬", "Vidéo")}
+      {btn("/publier", "➕", "Publier", undefined, true)}
+      {btn("/boutiques", "🏪", "Boutique")}
+      {btn("/panier", "🛒", "Panier", cartCount)}
       {btn("/profil", "👤", "Profil")}
     </div>
   );
-      }
+}
