@@ -7,7 +7,6 @@ import { toCDFString, verifierAbonnement, isCompteCache, checkFreemiumWenze } fr
 import { HomeHeader, AnnonceCard, ImageViewer, BottomNav, BandeauVisiteur, fmtUSD, waLink, APP_NAME } from "./HomeParts";
 import { estConnecte, exigerCompte } from "@/lib/acces";
 import TombolaActivite from "./TombolaActivite";
-<TombolaActivite />
 
 export const dynamic = "force-dynamic";
 const cleanWa = (n: any): string => (n || "").toString().replace(/[^0-9]/g, "").replace(/^0+/, "");
@@ -27,6 +26,42 @@ const DEFAULT_DESIGN = {
   whatsapp: "+243810000000", logo: "", couleur: "#FF6B00", couleurBouton: "#000000",
   showAmbassadeur: true, maintenance: false, showTombola: true,
 };
+
+// === FLASH VIDEO - Pubs video a jour, clique = ouvre /video ===
+function FlashVideo({ annonces, onOpen }: any) {
+  const videos = useMemo(() => {
+    const list = (annonces || []).filter((a: any) => a.isVideo || a.video || a.videoUrl || (typeof a.photo === "string" && a.photo.startsWith("data:video")));
+    // Boost d'abord, puis les plus recents
+    return list.sort((a: any, b: any) => {
+      if (a.isBoosted !== b.isBoosted) return a.isBoosted ? -1 : 1;
+      return new Date(b.created_at || b.createdAt || 0).getTime() - new Date(a.created_at || a.createdAt || 0).getTime();
+    }).slice(0, 8);
+  }, [annonces]);
+  if (videos.length === 0) return null;
+  return (
+    <div className="bg-black text-white rounded-2xl p-4">
+      <div className="flex justify-between items-center">
+        <p className="font-black text-[14px]">⚡ FLASH VIDEO</p>
+        <button onClick={() => window.location.href = "/video"} className="text-[11px] bg-white text-black px-3 py-1 rounded-full font-black">Tout voir →</button>
+      </div>
+      <p className="text-[11px] text-white/70 mt-1">Pubs video a jour - Clique pour regarder en plein ecran</p>
+      <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
+        {videos.map((v: any) => (
+          <button key={v.id} onClick={() => onOpen(v)} className="min-w-[120px] w-[120px] text-left bg-white/10 rounded-2xl overflow-hidden shrink-0">
+            <div className="h-[90px] bg-white/20 flex items-center justify-center relative">
+              {v.photo && !String(v.photo).startsWith("data:video") ? <img src={v.photo} className="w-full h-full object-cover" alt="" /> : <span className="text-[28px]">🎬</span>}
+              <span className="absolute inset-0 flex items-center justify-center"><span className="w-9 h-9 bg-white rounded-full flex items-center justify-center text-[14px]">▶️</span></span>
+              {v.isBoosted && <span className="absolute top-1 left-1 bg-[#FF6B00] text-[9px] font-black px-1.5 py-0.5 rounded-full">BOOST</span>}
+              {v.vendeurBadge && <span className="absolute bottom-1 right-1 bg-black/70 text-[8px] px-1 rounded-full">{v.vendeurBadge}</span>}
+            </div>
+            <p className="font-black text-[11px] p-2 leading-tight truncate">{v.titre}</p>
+            <p className="text-[10px] text-white/70 px-2 pb-2 -mt-1 truncate">{v.commune} • {fmtUSD(v.prix)}$</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function WenzeBusiness() {
   const router = useRouter();
@@ -103,7 +138,7 @@ export default function WenzeBusiness() {
     return () => { cancelled = true; if (stopNotifs) stopNotifs(); window.removeEventListener("storage", onChange); window.removeEventListener("wenze-update", onChange); };
   }, [loadAnnonces]);
 
-  // === 2. RÔLES + COHABITATION ===
+  // === 2. ROLES + COHABITATION ===
   const monRole = moi?.role || (moi?.estVendeur ? "vendeur" : "client");
   const jeSuisDG = moi?.roleAdmin === "dg" || moi?.role === "dg" || moi?.role === "DG";
   const jeSuisGrossiste = monRole === "grossiste" || jeSuisDG;
@@ -186,9 +221,8 @@ export default function WenzeBusiness() {
         <div className="mt-6"><button onClick={goBack} className="text-[12px] underline text-gray-500">← Retour</button></div>
       </div>
     );
-  }
-
-  return (
+      }
+    return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-24">
       {/* BARRE RETOUR + LOGO DG */}
       <div className="px-4 pt-3 flex items-center justify-between">
@@ -213,21 +247,24 @@ export default function WenzeBusiness() {
         {design.maintenance && jeSuisDG && <p className="text-center text-[10px] font-black text-orange-600 mt-2">⚠️ MODE MAINTENANCE ACTIF - Seul toi DG vois la page</p>}
       </div>
 
+      {/* 🎟️ TOMBOLA WENZE - PUBLIC SEULEMENT - AUTOMATIQUE - MEME CHIFFRE QUE LE DG */}
+      <TombolaActivite />
+
       <HomeHeader ab={ab} payantCount={payantCount} boostedCount={boostedCount} notifCount={notifCount} cartCount={cartCount} search={search} onSearch={setSearch} tabs={tabs} selectedCat={selectedCat} onSelectCat={setSelectedCat} totalCount={annonces.length} />
       {visiteur ? <BandeauVisiteur /> : null}
 
       <div className="p-4 space-y-3">
         {toast ? <div className="bg-black text-white p-3 rounded-xl text-[12px] font-bold text-center">{toast}</div> : null}
 
-        {/* BOUTONS RAPIDES */}
+        {/* BOUTONS RAPIDES - Cloche gardee ici, pas en bas */}
         <div className="grid grid-cols-4 gap-2">
           <button onClick={() => router.push("/panier")} className="bg-white border rounded-2xl py-3 text-center"><p className="text-[18px]">🛒</p><p className="text-[9px] font-black">Panier ({cartCount})</p></button>
-          <button onClick={() => router.push("/notifications")} className="bg-white border rounded-2xl py-3 text-center"><p className="text-[18px]">🔔</p><p className="text-[9px] font-black">Notifs ({notifCount})</p></button>
+          <button onClick={() => router.push("/notifications")} className="bg-white border rounded-2xl py-3 text-center relative"><p className="text-[18px]">🔔</p><p className="text-[9px] font-black">Notifs ({notifCount})</p>{notifCount > 0 && <span className="absolute top-1 right-2 w-4 h-4 bg-red-500 text-white text-[9px] rounded-full flex items-center justify-center font-black">{notifCount}</span>}</button>
           <button onClick={() => { if (!exigerCompte(router, "/")) return; router.push("/publier"); }} className="bg-white border rounded-2xl py-3 text-center"><p className="text-[18px]">➕</p><p className="text-[9px] font-black">Publier</p></button>
           <button onClick={goWhatsAppDG} className="bg-white border rounded-2xl py-3 text-center"><p className="text-[18px]">💬</p><p className="text-[9px] font-black">Aide</p></button>
         </div>
 
-        {/* BANDEAU RÔLE */}
+        {/* BANDEAU ROLE */}
         {!voirTout ? (
           <div className="bg-yellow-50 border border-yellow-300 rounded-2xl p-3.5"><p className="font-black text-[13px]">⭐ Recommandé pour toi à {maCommune}</p><p className="text-[10px] text-gray-600 mt-0.5">Sélection vérifiée par Wenze. {filtered.length} boutique(s) vérifiée(s).</p></div>
         ) : monRole === "grossiste" ? (
@@ -244,6 +281,9 @@ export default function WenzeBusiness() {
           <p className="font-black text-[11px]">{filtered.length} annonce(s){payantCount > 0 ? " • ✅ " + payantCount + " payants" : ""} • {prixMoyen}$ moyen</p>
           <button onClick={() => router.push("/recherche")} className="text-[10px] text-black font-bold border px-3 py-1 rounded-full bg-white">Recherche →</button>
         </div>
+
+        {/* ⚡ FLASH VIDEO - Pubs video a jour */}
+        <FlashVideo annonces={annonces} onOpen={(a: any) => openVideoPage(a)} />
 
         <div className="grid grid-cols-2 gap-3">
           {filtered.length === 0 ? (
@@ -267,20 +307,16 @@ export default function WenzeBusiness() {
           )}
         </div>
 
-        {design.showTombola && (
-          <div className="bg-black text-white rounded-2xl p-5"><p className="font-black text-[16px]">🎟️ Tombola WENZE</p><p className="text-[12px] text-white/70 mt-1">Achète ton ticket et tente de gagner.</p><button onClick={() => router.push("/inscription")} className="w-full mt-4 bg-white text-black py-3 rounded-full font-black text-[13px]">Prendre mon ticket →</button></div>
-        )}
-
         <div className="text-center pt-4 space-y-2">
           <button onClick={goBack} className="block w-full bg-white border py-3 rounded-full font-black text-[12px]">← Retour</button>
           <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} className="block w-full text-[11px] text-gray-500 underline">↑ Remonter en haut</button>
           <p className="text-[10px] text-gray-400">WENZE © 2026 • Kinshasa • {design.whatsapp}</p>
-          <button onClick={() => router.push("/dg-prive/connexion")} className="text-[10px] text-gray-300 underline">Tu es membre de l'équipe ? Connexion équipe ici</button>
+          <button onClick={() => router.push("/dg-prive/connexion")} className="text-[10px] text-gray-300 underline">Tu es membre de l'équipe ? Connexion équipe</button>
         </div>
       </div>
 
-      <BottomNav notifCount={notifCount} />
-      {selectedImage ? <ImageViewer a={selectedImage} onClose={() => setSelectedImage(null)} onOpen={(x: any) => { setSelectedImage(null); openProduit(x); }} onCart={addPanier} onContact={contacter} /> : null}
+      {selectedImage && <ImageViewer src={selectedImage.photo || selectedImage} onClose={() => setSelectedImage(null)} />}
+      <BottomNav cartCount={cartCount} />
     </div>
   );
-}
+                                                                                      }
