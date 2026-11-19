@@ -6,6 +6,8 @@ import { CATEGORIES_WENZE, getCategorieById, normalizeCategorie } from "@/lib/ca
 import { toCDFString, verifierAbonnement, isCompteCache, checkFreemiumWenze } from "@/lib/paiement";
 import { HomeHeader, AnnonceCard, ImageViewer, BottomNav, BandeauVisiteur, fmtUSD, waLink, APP_NAME } from "./HomeParts";
 import { estConnecte, exigerCompte } from "@/lib/acces";
+import TombolaActivite from "./TombolaActivite";
+<TombolaActivite />
 
 export const dynamic = "force-dynamic";
 const cleanWa = (n: any): string => (n || "").toString().replace(/[^0-9]/g, "").replace(/^0+/, "");
