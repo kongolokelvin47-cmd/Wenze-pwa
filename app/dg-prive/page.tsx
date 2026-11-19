@@ -28,11 +28,34 @@ export default function DashboardDG() {
   const [tombolaCfg, setTombolaCfg] = useState<any>({ lot: "1 Telephone + 50.000 CDF", plafond: 100, duree_jours: 7, regle_gagnant: "PLAFOND", active: false, statut: "FERMEE" });
   const [tempsTombola, setTempsTombola] = useState("");
   const [nouvelleAlerte, setNouvelleAlerte] = useState("");
+  // ✅ NOUVEAU - Notifications personnalisées
+  const [notifsPerso, setNotifsPerso] = useState<any[]>([]);
+  const [titreAnnonce, setTitreAnnonce] = useState("");
+  const [msgAnnonce, setMsgAnnonce] = useState("");
+  const [cibleAnnonce, setCibleAnnonce] = useState("TOUS");
+  const [personneAnnonce, setPersonneAnnonce] = useState("");
   const show = (m: string) => { setToast(m); setTimeout(() => setToast(""), 4000); };
+
+  // ===== NOTIFICATIONS PERSONNALISEES DG =====
+  const notifier = async (d: { user_id?: string, type_compte?: string, code_invitation?: string, titre: string, message: string, type: string, lien?: string }) => {
+    if (!supabase) return;
+    await supabase.from("notifications_perso").insert({
+      id: "notif-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+      user_id: d.user_id || null, type_compte: d.type_compte || "TOUS", code_invitation: d.code_invitation || null,
+      titre: d.titre, message: d.message, type: d.type, lien: d.lien || "", lu: false,
+    });
+  };
+  const envoyerAnnonceDG = async () => {
+    if (!titreAnnonce.trim() || !msgAnnonce.trim()) return show("⚠️ Écris titre + message");
+    if (cibleAnnonce === "UNE_PERSONNE" && !personneAnnonce) return show("⚠️ Choisis la personne");
+    await notifier({ user_id: cibleAnnonce === "UNE_PERSONNE" ? personneAnnonce : undefined, type_compte: cibleAnnonce === "UNE_PERSONNE" ? "TOUS" : cibleAnnonce, titre: titreAnnonce, message: msgAnnonce, type: "ANNONCE_DG", lien: "/" });
+    show(cibleAnnonce === "UNE_PERSONNE" ? "📢 Annonce envoyée à 1 personne seule !" : `📢 Annonce envoyée pour : ${cibleAnnonce} !`);
+    setTitreAnnonce(""); setMsgAnnonce(""); charger();
+  };
 
   const charger = async () => {
     if (!supabase) return;
-    const [m, b, c, p, a, pr, cfg, t] = await Promise.all([
+    const [m, b, c, p, a, pr, cfg, t, np] = await Promise.all([
       supabase.from("membres").select("*").order("created_at", { ascending: false }),
       supabase.from("boutiques").select("*").order("created_at", { ascending: false }),
       supabase.from("clients").select("*").order("created_at", { ascending: false }),
@@ -41,6 +64,7 @@ export default function DashboardDG() {
       supabase.from("problemes").select("*").order("created_at", { ascending: false }),
       supabase.from("config_publique").select("*").eq("id", 1).single(),
       supabase.from("tombola_config").select("*").eq("id", 1).single(),
+      supabase.from("notifications_perso").select("*").order("created_at", { ascending: false }).limit(100),
     ]);
     if (m.data) setMembres(m.data);
     if (b.data) setBoutiques(b.data);
@@ -50,6 +74,7 @@ export default function DashboardDG() {
     if (pr.data) setProblemes(pr.data);
     if (cfg.data) setConfig({ title: cfg.data.title, slogan: cfg.data.slogan, about: cfg.data.about, whats: cfg.data.whats, main: cfg.data.main_color, btn: cfg.data.btn_color });
     if (t.data) setTombolaCfg(t.data);
+    if (np.data) setNotifsPerso(np.data);
   };
 
   useEffect(() => {
@@ -62,6 +87,7 @@ export default function DashboardDG() {
       .on("postgres_changes", { event: "*", schema: "public", table: "clients" }, charger)
       .on("postgres_changes", { event: "*", schema: "public", table: "annonces_publiques" }, charger)
       .on("postgres_changes", { event: "*", schema: "public", table: "problemes" }, charger)
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications_perso" }, charger)
       .on("postgres_changes", { event: "*", schema: "public", table: "tombola_config" }, (pay: any) => { if (pay.new) setTombolaCfg(pay.new); charger(); })
       .subscribe();
     const interval = setInterval(charger, 10000);
@@ -88,7 +114,8 @@ export default function DashboardDG() {
       {toast && <p className="text-center text-[12px] mt-3 font-bold">{toast}</p>}
     </div>
   );
-    // ===== REGLES REELLES =====
+
+  // ===== REGLES REELLES =====
   const estActif = (s: string) => s === "ACTIF" || s === "VALIDEE" || s === "PAYE";
   const estPaye = (p: any) => p.statut === "PAYÉ" || p.statut === "PAYE";
   const premiers = paiements.filter(p => p.type === "PREMIER" && estPaye(p));
@@ -125,20 +152,79 @@ export default function DashboardDG() {
   const classement = participants.filter(x => x.pts.total > 0);
   const gagnantPotentiel = classement[0];
 
-  const validerPaiement = async (id: string) => { await supabase.from("paiements").update({ statut: "PAYÉ" }).eq("id", id); show("✅ Paiement valide — compta + points + tombola mis a jour"); charger(); };
-  const moderer = async (id: string, statut: string) => { if (statut === "SUSPENDUE" && !motif.trim()) return show("⚠️ Ecris d'abord le motif"); await supabase.from("annonces_publiques").update({ statut, motif }).eq("id", id); show(statut === "APPROUVEE" ? "✅ Approuvee — visible au public" : "⏸️ Suspendue — plus visible"); setMotif(""); charger(); };
-  const changerMembre = async (id: string, statut: string) => { await supabase.from("membres").update({ statut }).eq("id", id); show("✅ Mis a jour"); charger(); };
-  const resoudre = async (id: string) => { await supabase.from("problemes").update({ statut: "RESOLU" }).eq("id", id); charger(); };
+  // ===== ACTIONS DG - TOUTES AVEC NOTIFICATION PERSONNALISEE =====
+  const validerPaiement = async (id: string) => {
+    const p = paiements.find(x => x.id === id);
+    await supabase.from("paiements").update({ statut: "PAYÉ" }).eq("id", id);
+    if (p) {
+      const b = boutiques.find(x => x.id === p.boutique_id);
+      await notifier({ user_id: p.boutique_id || p.user_id || b?.id, titre: "💰 Paiement validé !", message: `Ton paiement de ${Number(p.montant || 0).toLocaleString()} CDF (${p.type}) a été validé par le DG.`, type: "PAIEMENT", lien: "/profil" });
+      if (b && (b.code_invitation || b.code_amb) && (p.type === "PREMIER" || p.type === "OCCASIONNELLE")) {
+        await notifier({ user_id: b.code_invitation || b.code_amb, titre: "🎉 +20 pts Tombola !", message: `Ton invité ${b.nom} a payé son abonnement. Tu gagnes +20 pts.`, type: "TOMBOLA", lien: "/" });
+      }
+    }
+    show("✅ Paiement valide — compta + points + tombola mis a jour"); charger();
+  };
+  const moderer = async (id: string, statut: string) => {
+    if (statut === "SUSPENDUE" && !motif.trim()) return show("⚠️ Ecris d'abord le motif");
+    const a = annonces.find(x => x.id === id);
+    await supabase.from("annonces_publiques").update({ statut, motif }).eq("id", id);
+    if (a) {
+      if (statut === "APPROUVEE") await notifier({ user_id: a.user_id || a.auteur_id || a.boutique_id, titre: "✅ Ton annonce est approuvée !", message: `"${a.titre}" est maintenant visible sur WENZE.`, type: "MODERATION", lien: "/" });
+      if (statut === "SUSPENDUE") await notifier({ user_id: a.user_id || a.auteur_id || a.boutique_id, titre: "⏸️ Ton annonce est suspendue", message: `Motif du DG : ${motif}`, type: "MODERATION", lien: "/profil" });
+    }
+    show(statut === "APPROUVEE" ? "✅ Approuvee — visible au public" : "⏸️ Suspendue — plus visible"); setMotif(""); charger();
+  };
+  const changerMembre = async (id: string, statut: string) => {
+    const m = membres.find(x => x.id === id);
+    await supabase.from("membres").update({ statut }).eq("id", id);
+    if (m) await notifier({ user_id: m.id, type_compte: m.role, titre: statut === "ACTIF" ? "✅ Ton compte est activé !" : "⏸️ Ton compte est suspendu", message: statut === "ACTIF" ? "Le DG a activé ton compte. Tu peux travailler." : "Le DG a suspendu ton compte. Contacte-le.", type: "COMPTE", lien: "/profil" });
+    show("✅ Mis a jour"); charger();
+  };
+  const resoudre = async (id: string) => {
+    const pb = problemes.find(x => x.id === id);
+    await supabase.from("problemes").update({ statut: "RESOLU" }).eq("id", id);
+    if (pb) await notifier({ user_id: pb.user_id || pb.qui_id || pb.boutique_id, titre: "✅ Ton problème est résolu !", message: `Le DG a résolu : ${pb.type} - ${pb.detail || ""}`, type: "PROBLEME", lien: "/profil" });
+    charger();
+  };
   const publierDesign = async () => { await supabase.from("config_publique").update({ title: config.title, slogan: config.slogan, about: config.about, whats: config.whats, main_color: config.main, btn_color: config.btn, updated_at: new Date().toISOString() }).eq("id", 1); show("✅ Publie — public voit en 1-2 sec"); };
-  const lancerTombola = async () => { const debut = new Date(); const fin = new Date(debut.getTime() + Number(tombolaCfg.duree_jours || 7) * 24 * 3600 * 1000); await supabase.from("tombola_config").upsert({ id: 1, lot: tombolaCfg.lot, plafond: Number(tombolaCfg.plafond), regle_gagnant: tombolaCfg.regle_gagnant, duree_jours: Number(tombolaCfg.duree_jours), active: true, statut: "OUVERTE", date_debut: debut.toISOString(), date_fin: fin.toISOString(), gagnant_nom: null, gagnant_tel: null, gagnant_points: 0 }); await supabase.from("notifications_publiques").insert({ id: "tomb-" + Date.now(), titre: "🎟️ TOMBOLA LANCEE !", message: `Plafond : ${tombolaCfg.plafond} pts - Lot : ${tombolaCfg.lot} - ${tombolaCfg.duree_jours} jours`, type: "TOMBOLA" }); show(`✅ Tombola lancee ! Plafond ${tombolaCfg.plafond} pts`); charger(); };
+  const lancerTombola = async () => {
+    const debut = new Date(); const fin = new Date(debut.getTime() + Number(tombolaCfg.duree_jours || 7) * 24 * 3600 * 1000);
+    await supabase.from("tombola_config").upsert({ id: 1, lot: tombolaCfg.lot, plafond: Number(tombolaCfg.plafond), regle_gagnant: tombolaCfg.regle_gagnant, duree_jours: Number(tombolaCfg.duree_jours), active: true, statut: "OUVERTE", date_debut: debut.toISOString(), date_fin: fin.toISOString(), gagnant_nom: null, gagnant_tel: null, gagnant_points: 0 });
+    for (const t of TYPES_PUBLIC) { await notifier({ type_compte: t, titre: "🎟️ TOMBOLA LANCEE !", message: `Plafond : ${tombolaCfg.plafond} pts - Lot : ${tombolaCfg.lot} - ${tombolaCfg.duree_jours} jours. Invite et gagne des points !`, type: "TOMBOLA", lien: "/" }); }
+    show(`✅ Tombola lancee ! Plafond ${tombolaCfg.plafond} pts`); charger();
+  };
   const fermerTombola = async () => { await supabase.from("tombola_config").update({ active: false, statut: "FERMEE" }).eq("id", 1); show("⏹️ Tombola fermee"); charger(); };
-  const cloturerGagnant = async () => { if (!gagnantPotentiel) return show("Aucun joueur"); await supabase.from("tombola_config").update({ active: false, statut: "TERMINEE", gagnant_nom: gagnantPotentiel.nom, gagnant_tel: gagnantPotentiel.telephone, gagnant_points: gagnantPotentiel.pts.total }).eq("id", 1); await supabase.from("notifications_publiques").insert({ id: "gagn-" + Date.now(), titre: "🎉 GAGNANT TOMBOLA", message: `${gagnantPotentiel.nom} gagne avec ${gagnantPotentiel.pts.total} pts ! Lot : ${tombolaCfg.lot}`, type: "TOMBOLA" }); show("🏆 Gagnant : " + gagnantPotentiel.nom); charger(); };
-  const validerBoutique = async (b: any) => { await supabase.from("boutiques").update({ statut: "VALIDEE", abonnement: "Freemium" }).eq("id", b.id); show(`✅ ${b.nom} validee ! Son inviteur gagne +5 pts Tombola`); charger(); };
-  const rejeterBoutique = async (b: any) => { await supabase.from("boutiques").update({ statut: "REJETEE" }).eq("id", b.id); show("⛔ Boutique rejetee - 0 point"); charger(); };
+  const cloturerGagnant = async () => {
+    if (!gagnantPotentiel) return show("Aucun joueur");
+    await supabase.from("tombola_config").update({ active: false, statut: "TERMINEE", gagnant_nom: gagnantPotentiel.nom, gagnant_tel: gagnantPotentiel.telephone, gagnant_points: gagnantPotentiel.pts.total }).eq("id", 1);
+    await notifier({ user_id: gagnantPotentiel.id, titre: "🏆 TU AS GAGNÉ LA TOMBOLA !", message: `Bravo ${gagnantPotentiel.nom} ! Tu gagnes avec ${gagnantPotentiel.pts.total} pts. Lot : ${tombolaCfg.lot}. Contacte le DG.`, type: "TOMBOLA", lien: "/" });
+    for (const t of TYPES_PUBLIC) { await notifier({ type_compte: t, titre: "🎉 GAGNANT TOMBOLA", message: `${gagnantPotentiel.nom} gagne avec ${gagnantPotentiel.pts.total} pts ! Lot : ${tombolaCfg.lot}`, type: "TOMBOLA", lien: "/" }); }
+    show("🏆 Gagnant : " + gagnantPotentiel.nom); charger();
+  };
+  const validerBoutique = async (b: any) => {
+    await supabase.from("boutiques").update({ statut: "VALIDEE", abonnement: "Freemium" }).eq("id", b.id);
+    await notifier({ user_id: b.id, titre: "✅ Ta boutique est validée !", message: `${b.nom} est maintenant visible sur WENZE.`, type: "BOUTIQUE", lien: "/boutiques" });
+    if (b.code_invitation || b.code_amb) { await notifier({ user_id: b.code_invitation || b.code_amb, titre: "🎉 +5 pts Tombola !", message: `Ta boutique invitée ${b.nom} a été validée par le DG. Tu gagnes +5 pts.`, type: "TOMBOLA", lien: "/" }); }
+    show(`✅ ${b.nom} validee ! Son inviteur gagne +5 pts Tombola`); charger();
+  };
+  const rejeterBoutique = async (b: any) => {
+    await supabase.from("boutiques").update({ statut: "REJETEE" }).eq("id", b.id);
+    await notifier({ user_id: b.id, titre: "⛔ Ta boutique est rejetée", message: `Ta boutique ${b.nom} n'a pas été validée par le DG. Corrige et réessaie.`, type: "BOUTIQUE", lien: "/profil" });
+    show("⛔ Boutique rejetee - 0 point"); charger();
+  };
 
-  const ONGLETS = ["DASH", "TOMBOLA", "SUPERVISEURS", "AMBASSADEURS", "INVITATIONS", "COMPTA", "STATS", "BOUTIQUES", "MODERATION", "PAIEMENTS", "PROBLEMES", "DESIGN", "PARAMETRES"];
-  const labelOnglet = (t: string) => t === "DASH" ? "📊 Dashboard" : t === "TOMBOLA" ? "🎟️ Tombola" : t === "SUPERVISEURS" ? `👔 Superviseurs (${sup.length})` : t === "AMBASSADEURS" ? `🎖️ Ambassadeurs (${amb.length})` : t === "INVITATIONS" ? "🏆 Invitations" : t === "COMPTA" ? "💰 Comptabilite" : t === "STATS" ? "📍 Stats Milieu" : t === "BOUTIQUES" ? "🏪 Boutiques" : t === "MODERATION" ? `🛡️ Moderation (${annonces.filter(a => a.statut === "EN_ATTENTE").length})` : t === "PAIEMENTS" ? "💰 Paiements" : t === "PROBLEMES" ? `🚨 Problemes (${problemes.filter(p => p.statut === "OUVERT").length})` : t === "PARAMETRES" ? "⚙️ Parametres" : "🎨 Design";
-    return (
+  // ===== FILTRES =====
+  const filtre = (x: any) => {
+    if (filtreType !== "TOUS" && (x.type_public || x.type || x.role) !== filtreType && !(filtreType === "CLIENT" && !x.type_public && !x.type)) return false;
+    if (!recherche) return true;
+    const s = recherche.toLowerCase();
+    return (x.nom || x.proprietaire || x.telephone || x.whatsapp || x.commune || x.quartier || "").toLowerCase().includes(s);
+  };
+
+  const ONGLETS = ["DASH", "TOMBOLA", "NOTIFICATIONS", "SUPERVISEURS", "AMBASSADEURS", "INVITATIONS", "COMPTA", "STATS", "BOUTIQUES", "MODERATION", "PAIEMENTS", "PROBLEMES", "DESIGN", "PARAMETRES"];
+  const labelOnglet = (t: string) => t === "DASH" ? "📊 Dashboard" : t === "TOMBOLA" ? "🎟️ Tombola" : t === "NOTIFICATIONS" ? `📢 Notifications (${notifsPerso.length})` : t === "SUPERVISEURS" ? `👔 Superviseurs (${sup.length})` : t === "AMBASSADEURS" ? `🎖️ Ambassadeurs (${amb.length})` : t === "INVITATIONS" ? "🏆 Invitations" : t === "COMPTA" ? "💰 Comptabilite" : t === "STATS" ? "📍 Stats Milieu" : t === "BOUTIQUES" ? "🏪 Boutiques" : t === "MODERATION" ? `🛡️ Moderation (${annonces.filter(a => a.statut === "EN_ATTENTE").length})` : t === "PAIEMENTS" ? "💰 Paiements" : t === "PROBLEMES" ? `🚨 Problemes (${problemes.filter(p => p.statut === "OUVERT").length})` : t === "PARAMETRES" ? "⚙️ Parametres" : "🎨 Design";
+return (
     <div className="max-w-[560px] mx-auto min-h-screen bg-[#F7F7F8] pb-24">
       {toast && <div className="fixed top-4 left-4 right-4 z-[60] bg-black text-white p-3 rounded-2xl text-[12px] font-bold text-center">{toast}</div>}
       {nouvelleAlerte && <div className="fixed top-16 left-4 right-4 z-[60] bg-[#FF6B00] text-white p-3 rounded-2xl text-[12px] font-bold text-center animate-bounce">{nouvelleAlerte}</div>}
@@ -154,14 +240,21 @@ export default function DashboardDG() {
         {tombolaCfg.active && <div className="bg-[#FF6B00] rounded-2xl p-2 mt-2 text-center text-[11px] font-black">🎟️ TOMBOLA OUVERTE - Plafond {tombolaCfg.plafond} pts - ⏱️ {tempsTombola} - Lot : {tombolaCfg.lot}</div>}
       </div>
       <div className="flex gap-1.5 px-4 mt-4 overflow-x-auto">{ONGLETS.map(t => <button key={t} onClick={() => setOnglet(t)} className={`whitespace-nowrap px-3 py-2 rounded-full text-[11px] font-black ${onglet === t ? "bg-black text-white" : "bg-white border"}`}>{labelOnglet(t)}</button>)}</div>
+      <div className="px-4 mt-3 flex gap-2">
+        <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="🔍 Rechercher nom, téléphone, commune..." className="flex-1 border rounded-full px-4 py-2.5 text-[12px] bg-white outline-none" />
+        <select value={filtreType} onChange={e => setFiltreType(e.target.value)} className="border rounded-full px-2 py-2.5 text-[11px] bg-white font-black">
+          <option value="TOUS">TOUS</option><option value="CLIENT">CLIENT</option><option value="BOUTIQUE">BOUTIQUE</option><option value="PRESTATAIRE">PRESTATAIRE</option><option value="GROSSISTE">GROSSISTE</option><option value="AMBASSADEUR">AMBASSADEUR</option><option value="SUPERVISEUR">SUPERVISEUR</option>
+        </select>
+      </div>
       <div className="px-4 mt-4">
         {onglet === "DASH" && (
           <div className="space-y-3">
-            {boutiques.length === 0 && clients.length === 0 && <div className="bg-yellow-100 border border-yellow-300 rounded-2xl p-4 text-[12px] font-bold">📭 Aucune donnee reelle pour l'instant. Des que le public creera une boutique ou un client, ca apparaitra ici automatiquement.</div>}
-            <div className="bg-white border rounded-2xl p-4"><p className="font-black">💰 Ventes reelles</p><p className="text-[13px] mt-1">Total : <b>{totalVentes.toLocaleString()} CDF</b> • Commission : <b>{commission.toLocaleString()} CDF</b> ({pctCommission}%) • Benefice : <b className={benefice >= 0 ? "text-green-600" : "text-red-600"}>{benefice.toLocaleString()} CDF</b></p></div>
+            {boutiques.length === 0 && clients.length === 0 && <div className="bg-yellow-100 border border-yellow-300 rounded-2xl p-4 text-[12px] font-bold">📭 Aucune donnee reelle pour l'instant.</div>}
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">💰 Ventes reelles</p><p className="text-[13px] mt-1">Total : <b>{totalVentes.toLocaleString()} CDF</b> • Commission : <b>{commission.toLocaleString()} CDF</b> ({pctCommission}%) • Benefice : <b className={benefice >= 0 ? "text-green-600" : "text-red-600"}>{benefice.toLocaleString()} CDF</b></p><p className="text-[11px] text-gray-500 mt-1">Premiers : {premiers.length} • Occasionnels : {occasionnels.length} • Renouvellements : {renouvellements.length}</p></div>
             {tombolaCfg.active && <div className="bg-black text-white rounded-2xl p-4"><p className="font-black">🎟️ Tombola en cours - {tombolaCfg.lot}</p><p className="text-[12px] mt-1">Plafond : {tombolaCfg.plafond} pts • Reste : {tempsTombola}</p><p className="text-[12px]">Top 1 : {gagnantPotentiel ? `${gagnantPotentiel.nom} - ${gagnantPotentiel.pts.total} pts` : "Aucun point"}</p><button onClick={() => setOnglet("TOMBOLA")} className="mt-2 bg-[#FF6B00] text-white px-4 py-2 rounded-full text-[11px] font-black">Voir Tombola →</button></div>}
             <div className="bg-white border rounded-2xl p-4"><p className="font-black">🏆 Top 3 Concours — Points reels</p>{classement.slice(0, 3).map((c: any, i: number) => <p key={i} className="text-[12px] mt-1">{i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"} {c.nom} — {c.pts.total} pts ({c.pts.bout} bout. x5 + {c.pts.cli} cli. x3 + {c.pts.abo} abo. x20)</p>)}{classement.length === 0 && <p className="text-[12px] text-gray-500">Aucun point pour l'instant.</p>}</div>
             <div className="bg-white border rounded-2xl p-4"><p className="font-black">🚨 Problemes ouverts : {problemes.filter(p => p.statut === "OUVERT").length}</p><p className="text-[12px]">En attente paiements : {paiements.filter(p => !estPaye(p)).length} • Annonces en attente : {annonces.filter(a => a.statut === "EN_ATTENTE").length} • Boutiques en attente : {boutiques.filter(b => b.statut === "EN_ATTENTE").length}</p></div>
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">📢 Dernières notifications envoyées</p>{notifsPerso.slice(0, 3).map((n: any) => <p key={n.id} className="text-[11px] mt-1">• {n.titre} → Pour : {n.user_id ? "1 personne" : n.type_compte} {n.lu ? "✅ Lue" : "🔴 Non lue"}</p>)}{notifsPerso.length === 0 && <p className="text-[11px] text-gray-500">Aucune notification envoyée.</p>}<button onClick={() => setOnglet("NOTIFICATIONS")} className="mt-2 bg-black text-white px-4 py-2 rounded-full text-[11px] font-black">Envoyer une annonce DG →</button></div>
           </div>
         )}
         {onglet === "TOMBOLA" && (
@@ -173,85 +266,103 @@ export default function DashboardDG() {
               <div className="flex gap-2"><button onClick={() => setTombolaCfg({ ...tombolaCfg, regle_gagnant: "PLAFOND" })} className={`flex-1 py-3 rounded-xl font-black text-[11px] ${tombolaCfg.regle_gagnant === "PLAFOND" ? "bg-black text-white" : "bg-gray-100"}`}>🏁 1er au plafond gagne</button><button onClick={() => setTombolaCfg({ ...tombolaCfg, regle_gagnant: "TOP_1_FIN" })} className={`flex-1 py-3 rounded-xl font-black text-[11px] ${tombolaCfg.regle_gagnant === "TOP_1_FIN" ? "bg-black text-white" : "bg-gray-100"}`}>🏆 Plus de pts a la fin gagne</button></div>
               {!tombolaCfg.active ? <button onClick={lancerTombola} className="w-full bg-[#FF6B00] text-white py-4 rounded-full font-black">🚀 LANCER LA TOMBOLA - {tombolaCfg.plafond} pts - {tombolaCfg.duree_jours} jours</button> : <div className="flex gap-2"><button onClick={fermerTombola} className="flex-1 bg-red-600 text-white py-4 rounded-full font-black">⏹️ FERMER</button><button onClick={cloturerGagnant} className="flex-1 bg-black text-white py-4 rounded-full font-black">🏆 CLOTURER + GAGNANT</button></div>}
             </div>
-            <div className="bg-white border rounded-2xl p-4"><p className="font-black">👥 Participants - Public Seulement</p><p className="text-[11px] text-gray-500">Nom + Numero enregistres avec le profil.</p>{participants.map((p: any, i: number) => <div key={p.id} className="mt-3"><div className="flex justify-between"><p className="text-[12px] font-black">{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`} {p.nom} - {p.telephone}</p><p className="text-[11px] font-black text-[#FF6B00]">{p.pts.total} / {tombolaCfg.plafond} pts</p></div><p className="text-[11px] text-gray-500">{p.type_public} • {p.commune} • Code : {p.code}</p><div className="w-full bg-gray-100 h-2.5 rounded-full mt-1"><div className="bg-[#FF6B00] h-2.5 rounded-full" style={{ width: `${Math.min(100, p.pts.total / (tombolaCfg.plafond || 100) * 100)}%` }} /></div><p className="text-[11px] text-gray-500 mt-1">{p.pts.bout} bout. x5 = {p.pts.ptsBout} • {p.pts.cli} cli. x3 = {p.pts.ptsCli} • {p.pts.abo} abos x20 = {p.pts.ptsBonus}</p></div>)}{participants.length === 0 && <p className="text-[12px] text-gray-500 mt-2">Aucun participant pour l'instant.</p>}</div>
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">👥 Participants - Public Seulement</p>{participants.map((p: any, i: number) => <div key={p.id} className="mt-3 border rounded-2xl p-3"><div className="flex justify-between"><p className="font-black text-[12px]">{i + 1}. {p.nom} - {p.type_public}</p><p className="font-black text-[12px] text-[#FF6B00]">{p.pts.total} pts</p></div><p className="text-[11px] text-gray-600">{p.telephone} • {p.commune} {p.quartier || ""} • Code : {p.code}</p><p className="text-[11px] mt-1">{p.pts.bout} bout. x5 = {p.pts.ptsBout} pts • {p.pts.cli} cli. x3 = {p.pts.ptsCli} pts • {p.pts.abo} abo. x20 = {p.pts.ptsBonus} pts</p></div>)}{participants.length === 0 && <p className="text-[12px] text-gray-500 mt-2">Aucun participant.</p>}</div>
           </div>
         )}
-                {onglet === "SUPERVISEURS" && (
-          <div className="space-y-2">
-            <div className="bg-black text-white rounded-2xl p-4"><p className="font-black">👔 Superviseurs - DG SEUL</p><p className="text-[11px] opacity-80">Ils supervisent les Ambassadeurs. Ils ne jouent JAMAIS a la Tombola.</p></div>
-            {sup.map((m: any) => <div key={m.id} className="bg-white border rounded-2xl p-4"><p className="font-black">{m.nom} <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full">{m.statut} • {m.commune}</span></p><p className="text-[11px] text-gray-500">{m.telephone} • Code : {m.code_pro || m.code_invitation || "—"}</p><p className="text-[11px]">Ambassadeurs sous lui : {amb.filter(a => a.superviseur_id === m.id || a.code_sup === m.code_pro).length}</p><div className="flex gap-2 mt-2"><button onClick={() => changerMembre(m.id, "ACTIF")} className="bg-green-600 text-white px-3 py-1.5 rounded-full text-[11px] font-black">✅ Activer</button><button onClick={() => changerMembre(m.id, "SUSPENDU")} className="bg-orange-500 text-white px-3 py-1.5 rounded-full text-[11px] font-black">⏸️ Suspendre</button><button onClick={() => changerMembre(m.id, "REJETE")} className="bg-red-100 text-red-600 px-3 py-1.5 rounded-full text-[11px] font-black">⛔ Rejeter</button></div></div>)}
-            {sup.length === 0 && <p className="text-[12px] text-gray-500 bg-white border rounded-2xl p-4">Aucun superviseur reel.</p>}
+        {onglet === "NOTIFICATIONS" && (
+          <div className="space-y-3">
+            <div className="bg-black text-white rounded-2xl p-4"><p className="font-black">📢 Annonce DG - Pour qui ?</p><p className="text-[11px] opacity-80 mt-1">Tu choisis qui voit. Les autres ne voient rien.</p></div>
+            <div className="bg-white border rounded-2xl p-4 space-y-3">
+              <label className="block"><span className="text-[11px] font-black">Titre de l'annonce</span><input value={titreAnnonce} onChange={e => setTitreAnnonce(e.target.value)} placeholder="Ex: Nouvelle règle Tombola" className="w-full border rounded-xl px-3 py-3 mt-1" /></label>
+              <label className="block"><span className="text-[11px] font-black">Message</span><textarea value={msgAnnonce} onChange={e => setMsgAnnonce(e.target.value)} placeholder="Écris ton message ici..." className="w-full border rounded-xl px-3 py-3 mt-1" rows={3} /></label>
+              <div><p className="text-[11px] font-black mb-2">Pour qui ?</p><div className="flex gap-1.5 flex-wrap">{["TOUS", "CLIENT", "BOUTIQUE", "PRESTATAIRE", "GROSSISTE", "AMBASSADEUR", "SUPERVISEUR", "UNE_PERSONNE"].map(t => <button key={t} onClick={() => setCibleAnnonce(t)} className={`px-3 py-2 rounded-full text-[11px] font-black ${cibleAnnonce === t ? "bg-black text-white" : "bg-gray-100"}`}>{t === "TOUS" ? "🌍 TOUS" : t === "UNE_PERSONNE" ? "👤 1 Personne seule" : t}</button>)}</div></div>
+              {cibleAnnonce === "UNE_PERSONNE" && (<div><p className="text-[11px] font-black mb-2">Choisis la personne :</p><select value={personneAnnonce} onChange={e => setPersonneAnnonce(e.target.value)} className="w-full border rounded-xl px-3 py-3"><option value="">-- Choisir --</option>{[...boutiques, ...clients, ...membres].map((u: any) => <option key={u.id} value={u.id}>{u.nom || u.proprietaire || u.telephone} - {u.type_public || u.type || u.role} - {u.telephone || u.whatsapp}</option>)}</select></div>)}
+              <button onClick={envoyerAnnonceDG} className="w-full bg-[#FF6B00] text-white py-4 rounded-full font-black">📢 ENVOYER L'ANNONCE {cibleAnnonce === "UNE_PERSONNE" ? "À 1 PERSONNE" : `POUR ${cibleAnnonce}`}</button>
+            </div>
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">📜 Historique ({notifsPerso.length})</p>{notifsPerso.length === 0 && <p className="text-[12px] text-gray-500 mt-3">Aucune notification envoyée.</p>}{notifsPerso.slice(0, 30).map((n: any) => <div key={n.id} className="mt-3 border rounded-2xl p-3"><div className="flex justify-between gap-2"><p className="font-black text-[12px]">{n.titre}</p><span className="text-[9px] bg-gray-100 px-2 py-0.5 rounded-full shrink-0">{n.type}</span></div><p className="text-[11px] text-gray-600 mt-1">{n.message}</p><p className="text-[10px] text-gray-400 mt-1">{new Date(n.created_at).toLocaleDateString()} • {n.user_id ? " Pour 1 personne" : ` Pour : ${n.type_compte}`} • {n.lu ? " ✅ Lue" : " 🔴 Non lue"}</p></div>)}</div>
+          </div>
+        )}
+        {onglet === "SUPERVISEURS" && (
+          <div className="space-y-3">
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">👔 Superviseurs ({sup.length})</p><p className="text-[11px] text-gray-500">Ils ne jouent PAS à la Tombola.</p></div>
+            {sup.filter(filtre).map((m: any) => <div key={m.id} className="bg-white border rounded-2xl p-4"><div className="flex justify-between"><p className="font-black">{m.nom || m.telephone}</p><span className="text-[10px] px-2 py-1 rounded-full bg-gray-100 font-black">{m.statut || "ACTIF"}</span></div><p className="text-[11px] text-gray-600 mt-1">{m.telephone || m.whatsapp} • {m.commune || ""} • Code : {m.code_pro || m.code_invitation || m.id}</p><div className="flex gap-2 mt-3"><button onClick={() => changerMembre(m.id, "ACTIF")} className="flex-1 bg-green-600 text-white py-2.5 rounded-full text-[11px] font-black">✅ Activer</button><button onClick={() => changerMembre(m.id, "SUSPENDU")} className="flex-1 bg-red-600 text-white py-2.5 rounded-full text-[11px] font-black">⏸️ Suspendre</button><button onClick={() => { setPersonneAnnonce(m.id); setCibleAnnonce("UNE_PERSONNE"); setOnglet("NOTIFICATIONS"); }} className="flex-1 bg-black text-white py-2.5 rounded-full text-[11px] font-black">📢 Notifier</button></div></div>)}
+            {sup.filter(filtre).length === 0 && <p className="text-[12px] text-gray-500 bg-white border rounded-2xl p-4">Aucun superviseur.</p>}
           </div>
         )}
         {onglet === "AMBASSADEURS" && (
-          <div className="space-y-2">
-            <div className="bg-black text-white rounded-2xl p-4"><p className="font-black">🎖️ Ambassadeurs - DG SEUL</p><p className="text-[11px] opacity-80">Ils creent des boutiques. Ils ne jouent JAMAIS a la Tombola. Leurs boutiques arrivent ici en temps reel.</p></div>
-            {amb.map((m: any) => <div key={m.id} className="bg-white border rounded-2xl p-4"><p className="font-black">{m.nom} <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full">{m.statut} • {m.commune} - {m.quartier}</span></p><p className="text-[11px] text-gray-500">{m.telephone} • Code : {m.code_pro || m.code_invitation || "—"}</p><p className="text-[11px]">🏪 Boutiques creees par lui : <b>{boutiques.filter(b => b.code_amb === m.code_pro || b.code_invitation === m.code_pro || b.code_invitation === m.id).length}</b></p><p className="text-[11px]">💰 Paiements de ses boutiques : <b>{paiements.filter(p => { const b = boutiques.find(x => x.id === p.boutique_id); return b && (b.code_amb === m.code_pro || b.code_invitation === m.code_pro); }).filter(p => p.statut === "PAYÉ" || p.statut === "PAYE").reduce((s, p) => s + Number(p.montant || 0), 0).toLocaleString()} CDF</b></p><div className="flex gap-2 mt-2"><button onClick={() => changerMembre(m.id, "ACTIF")} className="bg-green-600 text-white px-3 py-1.5 rounded-full text-[11px] font-black">✅ Activer</button><button onClick={() => changerMembre(m.id, "SUSPENDU")} className="bg-orange-500 text-white px-3 py-1.5 rounded-full text-[11px] font-black">⏸️ Suspendre</button><button onClick={() => changerMembre(m.id, "REJETE")} className="bg-red-100 text-red-600 px-3 py-1.5 rounded-full text-[11px] font-black">⛔ Rejeter</button></div></div>)}
-            {amb.length === 0 && <p className="text-[12px] text-gray-500 bg-white border rounded-2xl p-4">Aucun ambassadeur reel.</p>}
+          <div className="space-y-3">
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">🎖️ Ambassadeurs ({amb.length})</p><p className="text-[11px] text-gray-500">Ils ne jouent PAS à la Tombola.</p></div>
+            {amb.filter(filtre).map((m: any) => <div key={m.id} className="bg-white border rounded-2xl p-4"><div className="flex justify-between"><p className="font-black">{m.nom || m.telephone}</p><span className="text-[10px] px-2 py-1 rounded-full bg-gray-100 font-black">{m.statut || "ACTIF"}</span></div><p className="text-[11px] text-gray-600 mt-1">{m.telephone || m.whatsapp} • {m.commune || ""} • Code : {m.code_pro || m.code_invitation || m.id}</p><div className="flex gap-2 mt-3"><button onClick={() => changerMembre(m.id, "ACTIF")} className="flex-1 bg-green-600 text-white py-2.5 rounded-full text-[11px] font-black">✅ Activer</button><button onClick={() => changerMembre(m.id, "SUSPENDU")} className="flex-1 bg-red-600 text-white py-2.5 rounded-full text-[11px] font-black">⏸️ Suspendre</button><button onClick={() => { setPersonneAnnonce(m.id); setCibleAnnonce("UNE_PERSONNE"); setOnglet("NOTIFICATIONS"); }} className="flex-1 bg-black text-white py-2.5 rounded-full text-[11px] font-black">📢 Notifier</button></div></div>)}
+            {amb.filter(filtre).length === 0 && <p className="text-[12px] text-gray-500 bg-white border rounded-2xl p-4">Aucun ambassadeur.</p>}
           </div>
         )}
-        {onglet === "INVITATIONS" && (
-          <div className="space-y-2">
-            <div className="bg-black text-white rounded-2xl p-4"><p className="font-black">🏆 Invitations — Reserve au public</p><p className="text-[11px] opacity-80 mt-1">Client actif = 3 pts • Boutique active = 5 pts • +20 pts par abonnement paye par l'invite. En attente / suspendu = 0 pt.</p></div>
-            {classement.map((c: any, i: number) => <div key={i} className="bg-white border rounded-2xl p-4"><p className="font-black">{i < 3 ? ["🥇", "🥈", "🥉"][i] : `#${i + 1}`} {c.nom} <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full">{c.type_public} • {c.commune}</span></p><p className="text-[12px] mt-1">{c.pts.bout} bout. x5 = {c.pts.ptsBout} pts • {c.pts.cli} cli. x3 = {c.pts.ptsCli} pts • {c.pts.abo} abo. payes x20 = {c.pts.ptsBonus} pts</p><p className="font-black text-[14px] mt-1">TOTAL : {c.pts.total} pts</p><p className="text-[11px] text-gray-500">{c.telephone}</p></div>)}
-            {classement.length === 0 && <p className="text-[12px] text-gray-500 bg-white border rounded-2xl p-4">Aucune invitation validee pour l'instant.</p>}
+                {onglet === "INVITATIONS" && (
+          <div className="space-y-3">
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">🏆 Invitations - Classement Tombola</p><p className="text-[11px] text-gray-500">Boutique validée = +5 pts • Client actif = +3 pts • Abo payé = +20 pts</p></div>
+            {classement.map((c: any, i: number) => <div key={c.id} className="bg-white border rounded-2xl p-4"><div className="flex justify-between"><p className="font-black">{i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`} {c.nom} - {c.type_public}</p><p className="font-black text-[#FF6B00]">{c.pts.total} pts</p></div><p className="text-[11px] text-gray-600 mt-1">{c.telephone} • {c.commune} • Code : {c.code}</p><p className="text-[11px] mt-1">{c.pts.bout} bout. x5 = {c.pts.ptsBout} pts • {c.pts.cli} cli. x3 = {c.pts.ptsCli} pts • {c.pts.abo} abo. x20 = {c.pts.ptsBonus} pts</p></div>)}
+            {classement.length === 0 && <p className="text-[12px] text-gray-500 bg-white border rounded-2xl p-4">Aucun point pour l'instant.</p>}
           </div>
         )}
         {onglet === "COMPTA" && (
           <div className="space-y-3">
-            <div className="bg-white border rounded-2xl p-4"><p className="font-black">⚙️ Parametres DG</p><div className="flex gap-2 mt-2"><label className="text-[11px] flex-1">% Commission<input value={pctCommission} onChange={e => setPctCommission(Number(e.target.value))} type="number" className="w-full border rounded-xl px-3 py-2 mt-1" /></label><label className="text-[11px] flex-1">Prix abonnement CDF<input value={prixAbo} onChange={e => setPrixAbo(Number(e.target.value))} type="number" className="w-full border rounded-xl px-3 py-2 mt-1" /></label></div><p className="text-[11px] text-gray-500 mt-2">Commission = uniquement sur 1er abonnement + vente occasionnelle. Renouvellement = 0 CDF.</p></div>
-            <div className="bg-black text-white rounded-2xl p-4"><p className="font-black">💰 Comptabilite reelle - Instantanee</p><p className="text-[13px] mt-1">Ventes totales : {totalVentes.toLocaleString()} CDF</p><p className="text-[13px]">Base commission (1ers + occasionnelles) : {baseCommission.toLocaleString()} CDF</p><p className="text-[13px]">Renouvellements : {renouvellements.reduce((s, p) => s + Number(p.montant || 0), 0).toLocaleString()} CDF → commission 0 CDF</p><p className="text-[13px]">Commission ({pctCommission}%) : {commission.toLocaleString()} CDF</p><p className="font-black mt-1">Benefice net : {benefice.toLocaleString()} CDF</p></div>
-            <div className="bg-white border rounded-2xl p-4"><p className="font-black">📋 Rapport jour a jour — ce mois</p>{paiements.filter(p => estPaye(p)).slice(0, 20).map(p => <p key={p.id} className="text-[12px] mt-1">• {(p.created_at || "").slice(0, 10)} — {p.qui} — {Number(p.montant).toLocaleString()} CDF — {p.type} {p.type === "RENOUVELLEMENT" ? "(0 commission)" : `(${Math.round(Number(p.montant) * pctCommission / 100).toLocaleString()} CDF commission)`}</p>)}{paiements.filter(estPaye).length === 0 && <p className="text-[12px] text-gray-500">Aucun paiement reel.</p>}</div>
+            <div className="bg-white border rounded-2xl p-4 space-y-3"><p className="font-black">💰 Comptabilité réelle</p><label className="block"><span className="text-[11px] font-black">% Commission Ambassadeur / Superviseur</span><input type="number" value={pctCommission} onChange={e => setPctCommission(Number(e.target.value))} className="w-full border rounded-xl px-3 py-3 mt-1" /></label><label className="block"><span className="text-[11px] font-black">Prix abonnement de base (CDF)</span><input type="number" value={prixAbo} onChange={e => setPrixAbo(Number(e.target.value))} className="w-full border rounded-xl px-3 py-3 mt-1" /></label></div>
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">Résumé</p><p className="text-[12px] mt-1">Total ventes payées : <b>{totalVentes.toLocaleString()} CDF</b></p><p className="text-[12px]">Base commission (Premier + Occasionnel) : <b>{baseCommission.toLocaleString()} CDF</b></p><p className="text-[12px]">Commission ({pctCommission}%) : <b>{commission.toLocaleString()} CDF</b></p><p className="text-[12px]">Bénéfice DG : <b className={benefice >= 0 ? "text-green-600" : "text-red-600"}>{benefice.toLocaleString()} CDF</b></p><p className="text-[12px]">Premiers payés : {premiers.length} • Occasionnels payés : {occasionnels.length} • Renouvellements payés : {renouvellements.length}</p></div>
           </div>
         )}
         {onglet === "STATS" && (
           <div className="space-y-3">
-            <div className="bg-white border rounded-2xl p-4"><p className="font-black">🏪 Boutiques par Commune — Reel</p>{statsMilieu(boutiques, "commune").map(([k, v]) => <p key={k} className="text-[12px] mt-1">• {k} : <b>{v} boutiques</b></p>)}{boutiques.length === 0 && <p className="text-[12px] text-gray-500">Aucune boutique reelle.</p>}</div>
-            <div className="bg-white border rounded-2xl p-4"><p className="font-black">🏪 Boutiques par Quartier — Reel</p>{statsMilieu(boutiques, "quartier").map(([k, v]) => <p key={k} className="text-[12px] mt-1">• {k} : <b>{v}</b></p>)}</div>
-            <div className="bg-white border rounded-2xl p-4"><p className="font-black">👥 Clients par Commune — Reel</p>{statsMilieu(clients, "commune").map(([k, v]) => <p key={k} className="text-[12px] mt-1">• {k} : <b>{v} clients</b></p>)}{clients.length === 0 && <p className="text-[12px] text-gray-500">Aucun client reel.</p>}</div>
-            <div className="bg-white border rounded-2xl p-4"><p className="font-black">👥 Clients par Quartier — Reel</p>{statsMilieu(clients, "quartier").map(([k, v]) => <p key={k} className="text-[12px] mt-1">• {k} : <b>{v}</b></p>)}</div>
-            <div className="bg-white border rounded-2xl p-4"><p className="font-black">🌍 Par Province — Reel</p><p className="text-[12px] mt-1">Boutiques : {statsMilieu(boutiques, "province").map(([k, v]) => `${k} (${v})`).join(", ") || "—"}</p><p className="text-[12px]">Clients : {statsMilieu(clients, "province").map(([k, v]) => `${k} (${v})`).join(", ") || "—"}</p></div>
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">📍 Stats Milieu - Communes Boutiques</p>{statsMilieu(boutiques, "commune").map(([k, v]: any) => <p key={k} className="text-[12px] mt-1">{k} : <b>{v}</b></p>)}</div>
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">📍 Stats Milieu - Communes Clients</p>{statsMilieu(clients, "commune").map(([k, v]: any) => <p key={k} className="text-[12px] mt-1">{k} : <b>{v}</b></p>)}</div>
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">📍 Stats Milieu - Quartiers Boutiques</p>{statsMilieu(boutiques, "quartier").map(([k, v]: any) => <p key={k} className="text-[12px] mt-1">{k} : <b>{v}</b></p>)}</div>
           </div>
         )}
-                {onglet === "BOUTIQUES" && (
-          <div className="space-y-2">
-            <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="Rechercher boutique reelle..." className="w-full border rounded-full px-3 py-2.5 text-[12px]" />
-            {boutiques.filter(b => b.nom.toLowerCase().includes(recherche.toLowerCase())).map(b => <div key={b.id} className="bg-white border rounded-2xl p-4"><p className="font-black">{b.nom} <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full">{b.statut} • {b.abonnement}</span></p><p className="text-[11px] text-gray-500">{b.proprietaire} • {b.telephone} • 📍 {b.commune} — {b.quartier}</p><p className="text-[11px]">Type : {b.type_abonnement} • Code invitation : {b.code_invitation || "—"} • Inviteur : {b.code_amb || "—"}</p>{b.statut === "EN_ATTENTE" && <div className="flex gap-2 mt-2"><button onClick={() => validerBoutique(b)} className="bg-green-600 text-white px-3 py-1.5 rounded-full text-[11px] font-black">✅ Valider - +5 pts inviteur</button><button onClick={() => rejeterBoutique(b)} className="bg-red-100 text-red-600 px-3 py-1.5 rounded-full text-[11px] font-black">⛔ Rejeter</button></div>}</div>)}
-            {boutiques.length === 0 && <p className="text-[12px] text-gray-500 bg-white border rounded-2xl p-4">Aucune boutique reelle.</p>}
+        {onglet === "BOUTIQUES" && (
+          <div className="space-y-3">
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">🏪 Boutiques ({boutiques.length})</p><p className="text-[11px] text-gray-500">En attente : {boutiques.filter(b => b.statut === "EN_ATTENTE").length} • Validées : {boutiques.filter(b => b.statut === "VALIDEE").length} • Rejetées : {boutiques.filter(b => b.statut === "REJETEE").length}</p></div>
+            {boutiques.filter(filtre).map((b: any) => <div key={b.id} className="bg-white border rounded-2xl p-4"><div className="flex justify-between"><p className="font-black">{b.nom}</p><span className="text-[10px] px-2 py-1 rounded-full bg-gray-100 font-black">{b.statut}</span></div><p className="text-[11px] text-gray-600 mt-1">{b.proprietaire || ""} • {b.telephone || b.whatsapp} • {b.commune} {b.quartier || ""}</p><p className="text-[11px] text-gray-500">Type : {b.type_public || b.type} • Code invité par : {b.code_invitation || b.code_amb || "Aucun"} • Abonnement : {b.abonnement || "Freemium"}</p>{b.statut === "EN_ATTENTE" && <div className="flex gap-2 mt-3"><button onClick={() => validerBoutique(b)} className="flex-1 bg-green-600 text-white py-2.5 rounded-full text-[11px] font-black">✅ Valider (+5 pts inviteur)</button><button onClick={() => rejeterBoutique(b)} className="flex-1 bg-red-600 text-white py-2.5 rounded-full text-[11px] font-black">⛔ Rejeter</button></div>}<button onClick={() => { setPersonneAnnonce(b.id); setCibleAnnonce("UNE_PERSONNE"); setOnglet("NOTIFICATIONS"); }} className="w-full mt-2 bg-black text-white py-2.5 rounded-full text-[11px] font-black">📢 Notifier cette boutique seule</button></div>)}
+            {boutiques.filter(filtre).length === 0 && <p className="text-[12px] text-gray-500 bg-white border rounded-2xl p-4">Aucune boutique.</p>}
           </div>
         )}
         {onglet === "MODERATION" && (
           <div className="space-y-3">
-            <div className="bg-red-600 text-white rounded-2xl p-4"><p className="font-black">🛡️ Moderation DG</p><p className="text-[11px] opacity-90">Seul le DG approuve. Le public ne voit que les APPROUVEES.</p></div>
-            <input value={motif} onChange={e => setMotif(e.target.value)} placeholder="Motif DG avant de suspendre..." className="w-full border rounded-xl px-3 py-3 text-[12px]" />
-            {annonces.map(a => <div key={a.id} className="bg-white border rounded-2xl p-4"><p className="font-black">{a.titre} <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full">{a.statut}</span></p><p className="text-[12px] text-gray-600">{a.description}</p><p className="text-[11px] text-gray-500">{a.auteur} • {a.telephone} • {a.commune} • {Number(a.prix || 0).toLocaleString()} CDF</p>{a.motif && <p className="text-[11px] text-red-600 font-bold">Motif : {a.motif}</p>}<div className="flex gap-1.5 mt-2"><button onClick={() => moderer(a.id, "APPROUVEE")} className="bg-green-600 text-white px-3 py-1.5 rounded-full text-[11px] font-bold">✅ Approuver</button><button onClick={() => moderer(a.id, "SUSPENDUE")} className="bg-orange-500 text-white px-3 py-1.5 rounded-full text-[11px] font-bold">⏸️ Suspendre</button><button onClick={() => moderer(a.id, "SUPPRIMEE")} className="bg-red-100 text-red-600 px-3 py-1.5 rounded-full text-[11px] font-bold">🗑️ Supprimer</button></div></div>)}
-            {annonces.length === 0 && <p className="text-[12px] text-gray-500 bg-white border rounded-2xl p-4">Aucune annonce reelle.</p>}
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">🛡️ Modération ({annonces.filter(a => a.statut === "EN_ATTENTE").length} en attente)</p><p className="text-[11px] text-gray-500">Si tu suspends, écris d'abord le motif. L'auteur seul verra le motif.</p><label className="block mt-3"><span className="text-[11px] font-black">Motif de suspension</span><input value={motif} onChange={e => setMotif(e.target.value)} placeholder="Ex: Photo non conforme..." className="w-full border rounded-xl px-3 py-3 mt-1" /></label></div>
+            {annonces.filter(filtre).map((a: any) => <div key={a.id} className="bg-white border rounded-2xl p-4"><div className="flex justify-between"><p className="font-black">{a.titre}</p><span className="text-[10px] px-2 py-1 rounded-full bg-gray-100 font-black">{a.statut}</span></div><p className="text-[11px] text-gray-600 mt-1">{a.description || ""}</p><p className="text-[11px] text-gray-500">Par : {a.user_id || a.auteur_id || "Inconnu"} • {a.commune || ""}</p>{a.statut === "EN_ATTENTE" && <div className="flex gap-2 mt-3"><button onClick={() => moderer(a.id, "APPROUVEE")} className="flex-1 bg-green-600 text-white py-2.5 rounded-full text-[11px] font-black">✅ Approuver</button><button onClick={() => moderer(a.id, "SUSPENDUE")} className="flex-1 bg-red-600 text-white py-2.5 rounded-full text-[11px] font-black">⏸️ Suspendre</button></div>}</div>)}
+            {annonces.filter(filtre).length === 0 && <p className="text-[12px] text-gray-500 bg-white border rounded-2xl p-4">Aucune annonce.</p>}
           </div>
         )}
         {onglet === "PAIEMENTS" && (
           <div className="space-y-3">
-            <div className="flex gap-1.5">{["TOUS", "PREMIER", "RENOUVELLEMENT", "OCCASIONNELLE"].map(f => <button key={f} onClick={() => setFiltreType(f)} className={`px-3 py-2 rounded-full text-[11px] font-black ${filtreType === f ? "bg-black text-white" : "bg-white border"}`}>{f === "TOUS" ? "Tous" : f === "PREMIER" ? "🆕 1er" : f === "RENOUVELLEMENT" ? "🔄 Renouv." : "🎯 Occas."}</button>)}</div>
-            <div className="bg-white border rounded-2xl p-4"><p className="font-black">💰 Boutiques ayant paye — Reel - Instantane</p><p className="text-[12px]">Total encaisse : {totalVentes.toLocaleString()} CDF • Payees : {paiements.filter(estPaye).length}</p></div>
-            {paiements.filter(p => estPaye(p) && (filtreType === "TOUS" || p.type === filtreType)).map(p => <div key={p.id} className="bg-white border rounded-2xl p-4"><p className="font-black">{p.qui} — {Number(p.montant).toLocaleString()} CDF <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full">{p.type} • {p.methode} • {(p.created_at || "").slice(0, 10)}</span></p><p className="text-[11px]">{p.type === "RENOUVELLEMENT" ? "🔄 Renouvellement — Commission 0 CDF" : `🆕 Commission ${Math.round(Number(p.montant) * pctCommission / 100).toLocaleString()} CDF (${pctCommission}%)`}</p></div>)}
-            <div className="bg-white border rounded-2xl p-4"><p className="font-black">⏳ En attente de validation</p>{paiements.filter(p => !estPaye(p)).map(p => <div key={p.id} className="flex justify-between items-center mt-2"><p className="text-[12px]">{p.qui} — {Number(p.montant).toLocaleString()} CDF — {p.type}</p><button onClick={() => validerPaiement(p.id)} className="bg-green-600 text-white px-3 py-1.5 rounded-full text-[11px] font-bold">✅ Valider</button></div>)}{paiements.filter(p => !estPaye(p)).length === 0 && <p className="text-[12px] text-gray-500">Aucun en attente.</p>}</div>
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">💰 Paiements ({paiements.length})</p><p className="text-[11px] text-gray-500">Payés : {paiements.filter(estPaye).length} • En attente : {paiements.filter(p => !estPaye(p)).length} • Total payé : {totalVentes.toLocaleString()} CDF</p></div>
+            {paiements.filter(filtre).map((p: any) => <div key={p.id} className="bg-white border rounded-2xl p-4"><div className="flex justify-between"><p className="font-black">{Number(p.montant || 0).toLocaleString()} CDF - {p.type}</p><span className="text-[10px] px-2 py-1 rounded-full bg-gray-100 font-black">{p.statut}</span></div><p className="text-[11px] text-gray-600 mt-1">{p.qui || p.boutique_id || ""} • {new Date(p.created_at).toLocaleDateString()}</p>{!estPaye(p) && <button onClick={() => validerPaiement(p.id)} className="w-full mt-3 bg-green-600 text-white py-2.5 rounded-full text-[11px] font-black">✅ Valider le paiement (+20 pts Tombola si abo)</button>}</div>)}
+            {paiements.filter(filtre).length === 0 && <p className="text-[12px] text-gray-500 bg-white border rounded-2xl p-4">Aucun paiement.</p>}
           </div>
         )}
         {onglet === "PROBLEMES" && (
-          <div className="space-y-2">{problemes.map(p => <div key={p.id} className="bg-white border rounded-2xl p-4"><p className="font-black">{p.type} <span className="text-[10px] bg-gray-100 px-2 py-0.5 rounded-full">{p.urgence} • {p.statut}</span></p><p className="text-[12px]">{p.qui} • {p.detail}</p>{p.statut === "OUVERT" && <button onClick={() => resoudre(p.id)} className="bg-green-600 text-white px-3 py-1.5 rounded-full text-[11px] font-bold mt-2">✅ Resoudre</button>}</div>)}{problemes.length === 0 && <p className="text-[12px] text-gray-500 bg-white border rounded-2xl p-4">Aucun probleme reel.</p>}</div>
+          <div className="space-y-3">
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">🚨 Problèmes ({problemes.filter(p => p.statut === "OUVERT").length} ouverts)</p></div>
+            {problemes.filter(filtre).map((pb: any) => <div key={pb.id} className="bg-white border rounded-2xl p-4"><div className="flex justify-between"><p className="font-black">{pb.type}</p><span className="text-[10px] px-2 py-1 rounded-full bg-gray-100 font-black">{pb.statut}</span></div><p className="text-[11px] text-gray-600 mt-1">{pb.detail || ""}</p><p className="text-[11px] text-gray-500">Par : {pb.user_id || pb.qui_id || pb.qui || ""} • {new Date(pb.created_at).toLocaleDateString()}</p>{pb.statut === "OUVERT" && <button onClick={() => resoudre(pb.id)} className="w-full mt-3 bg-black text-white py-2.5 rounded-full text-[11px] font-black">✅ Marquer résolu (notifie la personne seule)</button>}</div>)}
+            {problemes.filter(filtre).length === 0 && <p className="text-[12px] text-gray-500 bg-white border rounded-2xl p-4">Aucun problème.</p>}
+          </div>
         )}
         {onglet === "DESIGN" && (
-          <div className="bg-white border rounded-2xl p-4"><p className="font-black">🎨 Design Public</p><input value={config.title} onChange={e => setConfig({ ...config, title: e.target.value })} placeholder="Titre" className="w-full border rounded-xl px-3 py-3 mt-2" /><input value={config.slogan} onChange={e => setConfig({ ...config, slogan: e.target.value })} placeholder="Slogan" className="w-full border rounded-xl px-3 py-3 mt-2" /><input value={config.about} onChange={e => setConfig({ ...config, about: e.target.value })} placeholder="A propos" className="w-full border rounded-xl px-3 py-3 mt-2" /><input value={config.whats} onChange={e => setConfig({ ...config, whats: e.target.value })} placeholder="WhatsApp" className="w-full border rounded-xl px-3 py-3 mt-2" /><button onClick={publierDesign} className="w-full bg-[#FF6B00] text-white py-4 rounded-full font-black text-[13px] mt-3">🚀 PUBLIER — Public voit en 1-2 sec</button></div>
+          <div className="space-y-3">
+            <div className="bg-white border rounded-2xl p-4 space-y-3"><p className="font-black">🎨 Design Public</p>
+              <label className="block"><span className="text-[11px] font-black">Titre</span><input value={config.title} onChange={e => setConfig({ ...config, title: e.target.value })} className="w-full border rounded-xl px-3 py-3 mt-1" /></label>
+              <label className="block"><span className="text-[11px] font-black">Slogan</span><input value={config.slogan} onChange={e => setConfig({ ...config, slogan: e.target.value })} className="w-full border rounded-xl px-3 py-3 mt-1" /></label>
+              <label className="block"><span className="text-[11px] font-black">À propos</span><textarea value={config.about} onChange={e => setConfig({ ...config, about: e.target.value })} className="w-full border rounded-xl px-3 py-3 mt-1" rows={3} /></label>
+              <label className="block"><span className="text-[11px] font-black">WhatsApp DG</span><input value={config.whats} onChange={e => setConfig({ ...config, whats: e.target.value })} className="w-full border rounded-xl px-3 py-3 mt-1" /></label>
+              <div className="flex gap-2"><label className="flex-1"><span className="text-[11px] font-black">Couleur principale</span><input value={config.main} onChange={e => setConfig({ ...config, main: e.target.value })} className="w-full border rounded-xl px-3 py-3 mt-1" /></label><label className="flex-1"><span className="text-[11px] font-black">Couleur bouton</span><input value={config.btn} onChange={e => setConfig({ ...config, btn: e.target.value })} className="w-full border rounded-xl px-3 py-3 mt-1" /></label></div>
+              <button onClick={publierDesign} className="w-full bg-black text-white py-4 rounded-full font-black">✅ Publier le design</button>
+            </div>
+          </div>
         )}
         {onglet === "PARAMETRES" && (
           <div className="space-y-3">
-            <div className="bg-black text-white rounded-2xl p-4"><p className="font-black">⚙️ Parametres DG - Tout WENZE</p><p className="text-[11px] opacity-80">Seul le DG change ca. Ca s'applique partout, en temps reel.</p></div>
-            <div className="bg-white border rounded-2xl p-4 space-y-3"><p className="font-black">💰 Argent</p><label className="block text-[11px] font-black">% Commission (1er + Occasionnelle)<input value={pctCommission} onChange={e => setPctCommission(Number(e.target.value))} type="number" className="w-full border rounded-xl px-3 py-3 mt-1" /></label><label className="block text-[11px] font-black">Prix Abonnement CDF<input value={prixAbo} onChange={e => setPrixAbo(Number(e.target.value))} type="number" className="w-full border rounded-xl px-3 py-3 mt-1" /></label><p className="text-[11px] text-gray-500">Renouvellement = 0 CDF de commission, toujours.</p></div>
-            <div className="bg-white border rounded-2xl p-4 space-y-3"><p className="font-black">🎟️ Tombola - Points</p><p className="text-[12px]">Client finalise = <b>3 pts</b> • Boutique validee = <b>5 pts</b> • Abonnement paye par l'invite = <b>20 pts</b></p><p className="text-[11px] text-gray-500">Public seulement : Client, Boutique, Prestataire, Grossiste. Ambassadeur / Superviseur = 0 pt, jamais dans le classement.</p><label className="block text-[11px] font-black">Plafond par defaut<input value={tombolaCfg.plafond} onChange={e => setTombolaCfg({ ...tombolaCfg, plafond: Number(e.target.value) })} type="number" className="w-full border rounded-xl px-3 py-3 mt-1" /></label><label className="block text-[11px] font-black">Duree par defaut (jours)<input value={tombolaCfg.duree_jours} onChange={e => setTombolaCfg({ ...tombolaCfg, duree_jours: Number(e.target.value) })} type="number" className="w-full border rounded-xl px-3 py-3 mt-1" /></label></div>
-            <div className="bg-white border rounded-2xl p-4 space-y-3"><p className="font-black">🏪 Regles Boutiques</p><p className="text-[12px]">✅ Boutique creee par Ambassadeur ou Public = <b>EN_ATTENTE</b> → DG valide → Visible au Public</p><p className="text-[12px]">✅ Boutique non validee = <b>0 point</b> pour l'inviteur</p><p className="text-[12px]">✅ Annonce = <b>EN_ATTENTE</b> → DG approuve → Visible au Public</p></div>
-            <button onClick={() => show("✅ Parametres enregistres dans cette session DG")} className="w-full bg-black text-white py-4 rounded-full font-black">💾 ENREGISTRER PARAMETRES</button>
+            <div className="bg-white border rounded-2xl p-4 space-y-3"><p className="font-black">⚙️ Paramètres</p><label className="block"><span className="text-[11px] font-black">% Commission</span><input type="number" value={pctCommission} onChange={e => setPctCommission(Number(e.target.value))} className="w-full border rounded-xl px-3 py-3 mt-1" /></label><label className="block"><span className="text-[11px] font-black">Prix abonnement de base (CDF)</span><input type="number" value={prixAbo} onChange={e => setPrixAbo(Number(e.target.value))} className="w-full border rounded-xl px-3 py-3 mt-1" /></label><p className="text-[11px] text-gray-500">Tombola et Notifications sont dans leurs onglets dédiés.</p></div>
+            <div className="bg-white border rounded-2xl p-4"><p className="font-black">🔒 Sécurité</p><p className="text-[11px] text-gray-500 mt-1">PIN DG : 2026 - Ne partage jamais ton PIN. Tout est en temps réel depuis Supabase.</p></div>
           </div>
         )}
       </div>
     </div>
   );
-}
+                                                                                                                                                                                                                                           }
