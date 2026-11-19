@@ -104,6 +104,7 @@ export default function DashboardDG() {
     return () => clearInterval(i);
   }, [tombolaCfg]);
 
+  // ✅ PIN DG - OBLIGATOIREMENT APRES TOUS LES HOOKS, SINON REACT PLANTE
   if (!ok) return (
     <div className="max-w-[480px] mx-auto min-h-screen bg-[#0A0A0A] text-white p-6 flex flex-col justify-center">
       <p className="text-[28px] font-black">WENZE<span className="text-[#FF6B00]">.</span></p>
@@ -114,6 +115,9 @@ export default function DashboardDG() {
       {toast && <p className="text-center text-[12px] mt-3 font-bold">{toast}</p>}
     </div>
   );
+
+  return (
+    <div className="max-w-[560px] mx-auto min-h-screen bg-[#F7F7F8] pb-24">
 
   // ===== REGLES REELLES =====
   const estActif = (s: string) => s === "ACTIF" || s === "VALIDEE" || s === "PAYE";
