@@ -1,4 +1,104 @@
-  // ===== CALCULS — TOUS AVANT LE IF, SINON CRASH =====
+"use client";
+import { useEffect, useMemo, useState } from "react";
+import { supabase, estPublic, estPaye, estActif, typePaiement } from "../../lib/supabase";
+
+export default function DashboardDG() {
+  const [pin, setPin] = useState("");
+  const [ok, setOk] = useState(false);
+  const [membres, setMembres] = useState<any[]>([]);
+  const [boutiques, setBoutiques] = useState<any[]>([]);
+  const [clients, setClients] = useState<any[]>([]);
+  const [paiements, setPaiements] = useState<any[]>([]);
+  const [annonces, setAnnonces] = useState<any[]>([]);
+  const [problemes, setProblemes] = useState<any[]>([]);
+  const [onglet, setOnglet] = useState("DASH");
+  const [recherche, setRecherche] = useState("");
+  const [toast, setToast] = useState("");
+  const [config, setConfig] = useState<any>({ title: "WENZE", slogan: "", about: "", whats: "", main: "#FF6B00", btn: "#111111" });
+  const [filtreType, setFiltreType] = useState("TOUS");
+  const [motif, setMotif] = useState("");
+  const [pctCommission, setPctCommission] = useState(10);
+  const [prixAbo, setPrixAbo] = useState(50000);
+  const [tombolaCfg, setTombolaCfg] = useState<any>({ lot: "1 Telephone + 50.000 CDF", plafond: 100, duree_jours: 7, regle_gagnant: "PLAFOND", active: false, statut: "FERMEE" });
+  const [tempsTombola, setTempsTombola] = useState("");
+  const [nouvelleAlerte, setNouvelleAlerte] = useState("");
+  const [notifsPerso, setNotifsPerso] = useState<any[]>([]);
+  const [titreAnnonce, setTitreAnnonce] = useState("");
+  const [msgAnnonce, setMsgAnnonce] = useState("");
+  const [cibleAnnonce, setCibleAnnonce] = useState("TOUS");
+  const [personneAnnonce, setPersonneAnnonce] = useState("");
+
+  // ✅ NOUVEAU : Créer Superviseur / Ambassadeur
+  const [nomNouveau, setNomNouveau] = useState("");
+  const [telNouveau, setTelNouveau] = useState("");
+  const [communeNouveau, setCommuneNouveau] = useState("Gombe");
+  const [roleNouveau, setRoleNouveau] = useState("SUPERVISEUR");
+  // ✅ NOUVEAU : Cliquer sur un membre = voir ses stats
+  const [membreSelectionne, setMembreSelectionne] = useState<any>(null);
+
+  const show = (m: string) => { setToast(m); setTimeout(() => setToast(""), 4000); };
+
+  const notifier = async (d: any) => {
+    if (!supabase) return;
+    await supabase.from("notifications_perso").insert({
+      id: "notif-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
+      user_id: d.user_id || null, type_compte: d.type_compte || "TOUS", code_invitation: d.code_invitation || null,
+      titre: d.titre, message: d.message, type: d.type, lien: d.lien || "", lu: false,
+    });
+  };
+
+  const charger = async () => {
+    if (!supabase) return;
+    const [m, b, c, p, a, pr, cfg, t, np] = await Promise.all([
+      supabase.from("membres").select("*").order("created_at", { ascending: false }),
+      supabase.from("boutiques").select("*").order("created_at", { ascending: false }),
+      supabase.from("clients").select("*").order("created_at", { ascending: false }),
+      supabase.from("paiements").select("*").order("created_at", { ascending: false }),
+      supabase.from("annonces").select("*").order("created_at", { ascending: false }),
+      supabase.from("problemes").select("*").order("created_at", { ascending: false }),
+      supabase.from("config_publique").select("*").eq("id", 1).maybeSingle(),
+      supabase.from("tombola_config").select("*").eq("id", 1).maybeSingle(),
+      supabase.from("notifications_perso").select("*").order("created_at", { ascending: false }).limit(100),
+    ]);
+    if (m.data) setMembres(m.data);
+    if (b.data) setBoutiques(b.data);
+    if (c.data) setClients(c.data);
+    if (p.data) setPaiements(p.data);
+    if (a.data) setAnnonces(a.data);
+    if (pr.data) setProblemes(pr.data);
+    if (cfg.data) setConfig({ title: cfg.data.title, slogan: cfg.data.slogan, about: cfg.data.about, whats: cfg.data.whats, main: cfg.data.main || cfg.data.main_color || "#FF6B00", btn: cfg.data.btn || cfg.data.btn_color || "#111111" });
+    if (t.data) setTombolaCfg(t.data);
+    if (np.data) setNotifsPerso(np.data);
+  };
+
+  useEffect(() => {
+    charger();
+    if (!supabase) return;
+    const ch = supabase.channel("wenze-dg")
+      .on("postgres_changes", { event: "*", schema: "public", table: "membres" }, charger)
+      .on("postgres_changes", { event: "*", schema: "public", table: "boutiques" }, charger)
+      .on("postgres_changes", { event: "*", schema: "public", table: "clients" }, charger)
+      .on("postgres_changes", { event: "*", schema: "public", table: "paiements" }, charger)
+      .on("postgres_changes", { event: "*", schema: "public", table: "annonces" }, charger)
+      .on("postgres_changes", { event: "*", schema: "public", table: "problemes" }, charger)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tombola_config" }, (pay: any) => { if (pay.new) setTombolaCfg(pay.new); charger(); })
+      .on("postgres_changes", { event: "*", schema: "public", table: "notifications_perso" }, charger)
+      .subscribe();
+    const interval = setInterval(charger, 10000);
+    return () => { supabase.removeChannel(ch); clearInterval(interval); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!tombolaCfg?.date_fin || !tombolaCfg?.active) return;
+    const i = setInterval(() => {
+      const rest = new Date(tombolaCfg.date_fin).getTime() - Date.now();
+      if (rest <= 0) setTempsTombola("TERMINEE");
+      else setTempsTombola(`${Math.floor(rest / 86400000)}j ${Math.floor((rest % 86400000) / 3600000)}h ${Math.floor((rest % 3600000) / 60000)}min`);
+    }, 1000);
+    return () => clearInterval(i);
+  }, [tombolaCfg]);
+// ===== CALCULS — TOUS AVANT LE IF, SINON CRASH =====
   const premiers = paiements.filter(p => typePaiement(p) === "PREMIER" && estPaye(p));
   const occasionnels = paiements.filter(p => typePaiement(p) === "OCCASIONNELLE" && estPaye(p));
   const renouvellements = paiements.filter(p => typePaiement(p) === "RENOUVELLEMENT" && estPaye(p));
