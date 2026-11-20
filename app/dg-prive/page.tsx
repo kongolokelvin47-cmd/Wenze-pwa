@@ -446,7 +446,7 @@ export default function DashboardDG() {
       {showTelegramModal && (<div className="fixed inset-0 z-[80] bg-black/60 flex items-center justify-center p-4"><div className="bg-white text-black w-full max-w-[360px] rounded-[24px] p-5 space-y-3"><p className="font-black">📲 Vérification Telegram</p><input value={codeTelegram} onChange={e => setCodeTelegram(e.target.value)} inputMode="numeric" placeholder="Code à 6 chiffres" className="w-full border rounded-xl px-3 py-3 text-center text-[20px] tracking-[6px]" /><button onClick={validerCodeTelegram} className="w-full bg-black text-white py-3 rounded-full font-black">Vérifier</button><button onClick={() => setShowTelegramModal(false)} className="w-full bg-gray-100 py-3 rounded-full font-black">Annuler</button></div></div>)}
     </div>
   );
-
+}
   return (
     <div className="max-w-[560px] mx-auto min-h-screen bg-[#F7F7F8] pb-24">
       {toast && <div className="fixed top-4 left-4 right-4 z-[60] pointer-events-none bg-black text-white p-3 rounded-2xl text-[12px] font-bold text-center">{toast}</div>}
@@ -1212,7 +1212,5 @@ export default function DashboardDG() {
         Sauvegarde auto quotidienne
       </label>
     </div>
-
-  </div>
-)}
-        
+  );
+ }
