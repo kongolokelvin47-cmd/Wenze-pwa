@@ -1004,21 +1004,17 @@ export default function DashboardDG() {
               <button onClick={() => setShowTelegramModal(false)} className="w-full mt-2 py-2 text-[12px] font-bold">
                 Annuler
               </button>
+              )}
             </div>
-          </div>
-        )}
-      </div>
-    );
-  }
+          );
+  } // <-- ferme SEULEMENT le if (!ok)
 
-  // ===== TABLEAU — 2e RETURN (le seul autre) =====
+  // ===== TABLEAU - 2e RETURN (le seul autre) =====
   return (
     <div className="max-w-[560px] mx-auto min-h-screen bg-[#F7F7F8] pb-24">
       {toast && (
         <div className="fixed top-4 left-4 right-4 z-[60] pointer-events-none">
-          <div className="max-w-[560px] mx-auto bg-black text-white text-[13px] font-bold px-4 py-3 rounded-xl shadow-xl text-center">
-            {toast}
-          </div>
+          <div className="max-w-[560px] mx-auto bg-black text-white text-[13px] font-bold px-4 py-3 rounded-xl shadow-xl text-center">{toast}</div>
         </div>
       )}
       <div className="bg-[#111] text-white px-4 pt-4 pb-3 sticky top-0 z-40">
