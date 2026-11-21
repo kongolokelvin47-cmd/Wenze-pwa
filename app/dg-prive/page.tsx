@@ -841,10 +841,19 @@ export default function DashboardDG() {
       </div>
     );
   }
+  });
+};
 
-  // ===== TABLEAU — 2e RETURN (le seul autre) =====
+// Fermeture du composant avant le 2e return
+if (!ok) {
   return (
-    <div className="max-w-[560px] mx-auto min-h-screen bg-[#F7F7F8] pb-24">
+    <div>... page PIN ...</div>
+  );
+}
+
+// ===== TABLEAU - 2e RETURN (le seul autre) =====
+return (
+  <div className="max-w-[560px] mx-auto min-h-screen bg-[#F7F7F8] pb-24">
       {toast && (
         <div className="fixed top-4 left-4 right-4 z-[60] pointer-events-none">
           <div className="max-w-[560px] mx-auto bg-black text-white text-[13px] font-bold px-4 py-3 rounded-xl shadow-xl text-center">
