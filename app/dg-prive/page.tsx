@@ -317,8 +317,7 @@ export default function DashboardDG() {
     setCodeTelegramAttendu("");
     if (actionApresTelegram) actionApresTelegram();
     show("✅ Vérification Telegram OK");
-  };
-    // ===== CHARGER =====
+  }; // ===== CHARGER =====
   const charger = async () => {
     if (!supabase) return;
     const [m, b, c, p, a, pr, cfg, t, np, j, comm] =
@@ -364,9 +363,7 @@ export default function DashboardDG() {
     if (np.data) setNotifsPerso(np.data);
     if (j.data) setJournal(j.data);
     if (comm.data) setCommissions(comm.data);
-  };
-
-  // ===== EFFETS =====
+  }; // ===== EFFETS =====
   useEffect(() => {
     charger();
     const majLigne = () => setEnLigne(navigator.onLine);
@@ -453,7 +450,6 @@ export default function DashboardDG() {
   const commission = totalCommissionsValidees;
   const benefice = revenuWenze - totalCommissionsValidees;
   const baseCommission = totalCommissionsValidees + totalCommissionsEnAttente;
-
   // ===== FILTRE PERIODE =====
   const dansPeriode = (dateStr: string) => {
     if (!dateStr) return true;
@@ -958,8 +954,7 @@ export default function DashboardDG() {
     localStorage.removeItem("wenze_file_attente");
     show("🔄 File synchronisée");
     charger();
-  };
-    // ===== LOGIN — 1er RETURN =====
+  }; // ===== LOGIN — 1er RETURN =====
   if (!ok) {
     return (
       <div className="max-w-[420px] mx-auto min-h-screen bg-[#111] text-white flex flex-col items-center justify-center px-5">
