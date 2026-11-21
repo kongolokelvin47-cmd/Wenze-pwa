@@ -1137,11 +1137,40 @@ export default function DashboardDG() {
         </div>
       )}
 
+      {
       {showSuspendModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-5 w-full max-w-[360px]">
             <h3 className="font-black text-[16px]">⛔ Suspendre — {showSuspendModal.titre || showSuspendModal.nom || ""}</h3>
-            <select value={motifSuspension} onChange={(e) => setMotifSuspension(e.target.value)} className="w-full mt-3 p-3 border rounded-xl"><option>Fausse annonce</option><option>Contenu immoral</option><option>Arnaque</option><option>Autre</option></select>
-            <input value={motifSuspensionLibre} onChange={(e) => setMotifSuspensionLibre(e.target.value)} placeholder="Motif libre (optionnel)" className="w-full mt-2 p-3 border rounded-xl" />
+            <input value={motifSuspensionLibre} onChange={(e) => setMotifSuspensionLibre(e.target.value)} placeholder="Motif libre (optionnel)" className="w-full mt-3 p-3 border rounded-xl" />
+            <select value={motifSuspension} onChange={(e) => setMotifSuspension(e.target.value)} className="w-full mt-2 p-3 border rounded-xl"><option>Fausse annonce</option><option>Contenu immoral</option><option>Arnaque</option><option>Autre</option></select>
             <select value={dureeSuspension} onChange={(e) => setDureeSuspension(e.target.value)} className="w-full mt-2 p-3 border rounded-xl"><option value="1">1 jour</option><option value="7">7 jours</option><option value="30">30 jours</option><option value="365">Définitif</option></select>
-            <button onClick={() => { if (showSuspen
+            <button onClick={() => { if (showSuspendModal.titre || showSuspendModal.title) suspendreAnnonce(showSuspendModal.id); else changerStatutBoutique(showSuspendModal.id, "SUSPENDUE", motifSuspensionLibre.trim() || motifSuspension); }} className="w-full mt-3 bg-orange-500 text-white font-black py-3 rounded-xl">SUSPENDRE</button>
+            <button onClick={() => setShowSuspendModal(null)} className="w-full mt-2 py-2 text-[12px] font-bold">Annuler</button>
+          </div>
+        </div>
+      )}
+
+      {showPreuve && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl p-5 w-full max-w-[400px]">
+            <h3 className="font-black">🧾 Preuve paiement</h3>
+            <p className="text-[12px] mt-2 break-all">{showPreuve.preuve_url}</p>
+            <a href={showPreuve.preuve_url} target="_blank" rel="noreferrer" className="block mt-3 bg-black text-white text-center font-black py-3 rounded-xl">Ouvrir la preuve</a>
+            <button onClick={() => setShowPreuve(null)} className="w-full mt-2 py-2 text-[12px] font-bold">Fermer</button>
+          </div>
+        </div>
+      )}
+
+      {showTransfertZone && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl p-5 w-full max-w-[360px]">
+            <h3 className="font-black">⚠️ Zone déjà occupée</h3>
+            <p className="text-[12px] mt-2">{showTransfertZone.commune} est occupée par {showTransfertZone.occupant?.nom} ({showTransfertZone.occupant?.code_pro}).</p>
+            <button onClick={() => setShowTransfertZone(null)} className="w-full mt-3 bg-black text-white font-black py-3 rounded-xl">COMPRIS</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+                                                }
