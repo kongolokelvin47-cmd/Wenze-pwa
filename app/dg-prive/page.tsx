@@ -35,8 +35,8 @@ export default function DashboardDG() {
   });
   const [filtreType, setFiltreType] = useState("TOUS");
   const [motif, setMotif] = useState("");
-  // ❌ SUPPRIMÉ : pctCommission (10%) et prixAbo (50000) morts
-  // ✅ VRAIE SOURCE : commissionAmb (20%) + tarifs ci-dessous
+  const [pctCommission, setPctCommission] = useState(10);
+  const [prixAbo, setPrixAbo] = useState(50000);
   const [tombolaCfg, setTombolaCfg] = useState<any>({
     lot: "1 Telephone + 50.000 CDF",
     plafond: 100,
@@ -46,6 +46,7 @@ export default function DashboardDG() {
     statut: "FERMEE",
   });
   const [tempsTombola, setTempsTombola] = useState("");
+  const [nouvelleAlerte, setNouvelleAlerte] = useState("");
   const [notifsPerso, setNotifsPerso] = useState<any[]>([]);
   const [titreAnnonce, setTitreAnnonce] = useState("");
   const [msgAnnonce, setMsgAnnonce] = useState("");
@@ -56,173 +57,6 @@ export default function DashboardDG() {
   const [communeNouveau, setCommuneNouveau] = useState("Gombe");
   const [roleNouveau, setRoleNouveau] = useState("SUPERVISEUR");
   const [membreSelectionne, setMembreSelectionne] = useState<any>(null);
-
-  // ===== PROBLEMES — BRANCHÉ ✅ =====
-  const [filtreProbleme, setFiltreProbleme] = useState("TOUS");
-  const [problemeSelectionne, setProblemeSelectionne] = useState<any>(null);
-  const [reponseProbleme, setReponseProbleme] = useState("");
-  const [statutProbleme, setStatutProbleme] = useState("EN_COURS");
-
-  // ===== NOTIFS / ALERTES — BRANCHÉ ✅ =====
-  const [filtreNotif, setFiltreNotif] = useState("TOUS");
-  // nouvelleAlerte = texte de l'alerte DG, branchée sur publierAnnonce (Partie 5)
-  const [nouvelleAlerte, setNouvelleAlerte] = useState("");
-  const [titreAlerte, setTitreAlerte] = useState("");
-
-  // ===== PARAMETRES : TAUX + TARIFS + COMMISSION =====
-  const [tauxCDF, setTauxCDF] = useState(2300);
-  const [commissionAmb, setCommissionAmb] = useState(20);
-  // Alias pour compat : pctCommission = commissionAmb (toujours synchro)
-  const pctCommission = commissionAmb;
-  const [tarifs, setTarifs] = useState<any>({
-    standard_7j_usd: 5,
-    standard_30j_usd: 15,
-    pro_15j_usd: 20,
-    pro_30j_usd: 30,
-    premium_30j_usd: 50,
-    occasionnel_3j_usd: 2,
-    freemium_images: 3,
-    freemium_jours: 30,
-  });
-  // Alias pour compat : prixAbo = prix PRO 15j en FC (recalculé avec taux)
-  const prixAbo = prixCDFHelper(Number(tarifs.pro_15j_usd || 20), tauxCDF);
-  const [pinActuel, setPinActuel] = useState("");
-  const [nouveauPin, setNouveauPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
-  const [telegramChatId, setTelegramChatId] = useState("");
-  const [telegramToken, setTelegramToken] = useState("");
-  const [codeTelegram, setCodeTelegram] = useState("");
-  const [codeTelegramAttendu, setCodeTelegramAttendu] = useState("");
-  const [showTelegramModal, setShowTelegramModal] = useState(false);
-  const [actionApresTelegram, setActionApresTelegram] = useState<any>(null);
-  const [derniereSauvegarde, setDerniereSauvegarde] = useState("");
-  const [sauvegardeAuto, setSauvegardeAuto] = useState(true);
-  const [periodeStats, setPeriodeStats] = useState("MOIS");
-  const [journal, setJournal] = useState<any[]>([]);
-  const [commissions, setCommissions] = useState<any[]>([]);
-  const [fileAttente, setFileAttente] = useState<any[]>([]);
-  const [enLigne, setEnLigne] = useState(true);
-  const [motifSuspension, setMotifSuspension] = useState("Fausse annonce");
-  const [motifSuspensionLibre, setMotifSuspensionLibre] = useState("");
-  const [dureeSuspension, setDureeSuspension] = useState("7");
-  const [showSuspendModal, setShowSuspendModal] = useState<any>(null);
-  const [showPreuve, setShowPreuve] = useState<any>(null);
-  const [showTransfertZone, setShowTransfertZone] = useState<any>(null);
-
-  // ===== HELPERS =====
-  const show = (m: string) => {
-    setToast(m);
-    setTimeout(() => setToast(""), 4000);
-  };
-  const prixCDF = (usd: number) => prixCDFHelper(usd, tauxCDF);
-
-  const notifier = async (d: any) => {
-    if (!supabase) return;
-    await supabase.from("notifications_perso").insert({
-      id: "notif-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6),
-      user_id: d.user_id || null,
-      type_compte: d.type_compte || "TOUS",
-      code_invitation: d.code_invitation || null,
-      titre: d.titre,
-      message: d.message,
-      type: d.type,
-      lien: d.lien || "",
-      lu: false,
-    });
-  };
-
-  const ecrireJournalDG = async (
-    action: string,
-    cible_type: any,
-    cible_id: any,
-    apres: any,
-    avant?: any
-  ) => {
-    if (!supabase) return;
-    await supabase.from("wenze_journal").insert({
-      acteur: "DG",
-      acteur_role: "DG",
-      action,
-      cible_type,
-      cible_id,
-      avant: avant || null,
-      apres: apres || null,
-    });
-  };
-
-  const demanderCodeTelegram = (apresOK?: () => void) => {
-    const code = String(Math.floor(100000 + Math.random() * 900000));
-    setCodeTelegramAttendu(code);
-    setActionApresTelegram(() => apresOK || null);
-    setShowTelegramModal(true);
-    show("📲 Code Telegram : " + code + " (démo)");
-  };
-
-  const validerCodeTelegram = () => {
-    if (codeTelegram !== codeTelegramAttendu) {
-      return show("❌ Code Telegram incorrect");
-    }
-    setShowTelegramModal(false);
-    setCodeTelegram("");
-    setCodeTelegramAttendu("");
-    if (actionApresTelegram) actionApresTelegram();
-    show("✅ Vérification Telegram OK");
-  };
-
-  // ===== PROBLEMES : RÉPONDRE + CHANGER STATUT — BRANCHÉ ✅ =====
-  const repondreProbleme = async (id: string) => {
-    if (!reponseProbleme.trim()) return show("⚠️ Écris ta réponse");
-    demanderCodeTelegram(async () => {
-      await supabase.from("problemes").update({
-        statut: statutProbleme,
-        reponse_dg: reponseProbleme,
-        date_reponse: new Date().toISOString(),
-      }).eq("id", id);
-      const pr = problemes.find((x) => x.id === id);
-      if (pr) {
-        await notifier({
-          user_id: pr.user_id || pr.boutique_id || null,
-          titre: "📩 Réponse DG à ton problème",
-          message: reponseProbleme,
-          type: "PROBLEME",
-          lien: "/profil",
-        });
-      }
-      await ecrireJournalDG("REPONSE_PROBLEME", "probleme", id, {
-        statut: statutProbleme,
-        reponse: reponseProbleme,
-      });
-      show("✅ Réponse envoyée");
-      setReponseProbleme("");
-      setProblemeSelectionne(null);
-      charger();
-    });
-  };
-
-  // ===== ALERTE DG : ENVOYER — BRANCHÉ ✅ =====
-  // Utilise nouvelleAlerte + titreAlerte + cibleAnnonce
-  const envoyerAlerteDG = async () => {
-    const texte = (nouvelleAlerte || msgAnnonce).trim();
-    const titre = (titreAlerte || titreAnnonce).trim() || "📢 Alerte DG";
-    if (!texte) return show("⚠️ Écris le texte de l'alerte");
-    await notifier({
-      user_id: personneAnnonce || null,
-      type_compte: cibleAnnonce,
-      titre,
-      message: texte,
-      type: "ALERTE",
-      lien: "",
-    });
-    await ecrireJournalDG("ALERTE", "notification", "alerte-" + Date.now(), {
-      titre,
-      cible: cibleAnnonce,
-    });
-    show("📢 Alerte envoyée");
-    setNouvelleAlerte("");
-    setTitreAlerte("");
-    setMsgAnnonce("");
-    charger();
-  };
     // ===== PARAMETRES : TAUX + TARIFS + COMMISSION =====
   const [tauxCDF, setTauxCDF] = useState(2300);
   const [commissionAmb, setCommissionAmb] = useState(20);
@@ -317,7 +151,8 @@ export default function DashboardDG() {
     setCodeTelegramAttendu("");
     if (actionApresTelegram) actionApresTelegram();
     show("✅ Vérification Telegram OK");
-  }; // ===== CHARGER =====
+  };
+    // ===== CHARGER =====
   const charger = async () => {
     if (!supabase) return;
     const [m, b, c, p, a, pr, cfg, t, np, j, comm] =
@@ -363,7 +198,9 @@ export default function DashboardDG() {
     if (np.data) setNotifsPerso(np.data);
     if (j.data) setJournal(j.data);
     if (comm.data) setCommissions(comm.data);
-  }; // ===== EFFETS =====
+  };
+
+  // ===== EFFETS =====
   useEffect(() => {
     charger();
     const majLigne = () => setEnLigne(navigator.onLine);
@@ -450,6 +287,7 @@ export default function DashboardDG() {
   const commission = totalCommissionsValidees;
   const benefice = revenuWenze - totalCommissionsValidees;
   const baseCommission = totalCommissionsValidees + totalCommissionsEnAttente;
+
   // ===== FILTRE PERIODE =====
   const dansPeriode = (dateStr: string) => {
     if (!dateStr) return true;
@@ -954,7 +792,8 @@ export default function DashboardDG() {
     localStorage.removeItem("wenze_file_attente");
     show("🔄 File synchronisée");
     charger();
-  }; // ===== LOGIN — 1er RETURN =====
+  };
+    // ===== LOGIN — 1er RETURN =====
   if (!ok) {
     return (
       <div className="max-w-[420px] mx-auto min-h-screen bg-[#111] text-white flex flex-col items-center justify-center px-5">
@@ -966,14 +805,12 @@ export default function DashboardDG() {
           inputMode="numeric"
           value={pin}
           onChange={(e) => setPin(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && pin.trim()) connexionDG(); }}
           placeholder="PIN DG"
           className="w-full mt-6 p-3 rounded-xl bg-white text-black text-center text-[20px] font-black tracking-[6px]"
         />
         <button
           onClick={connexionDG}
-          disabled={!pin.trim()}
-          className="w-full mt-3 bg-[#FF6B00] text-white font-black py-3 rounded-xl disabled:opacity-50"
+          className="w-full mt-3 bg-[#FF6B00] text-white font-black py-3 rounded-xl"
         >
           ENTRER →
         </button>
@@ -989,7 +826,6 @@ export default function DashboardDG() {
               <input
                 value={codeTelegram}
                 onChange={(e) => setCodeTelegram(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") validerCodeTelegram(); }}
                 placeholder="Code 6 chiffres"
                 className="w-full mt-3 p-3 border rounded-xl text-center font-black text-[18px]"
               />
@@ -999,19 +835,24 @@ export default function DashboardDG() {
               <button onClick={() => setShowTelegramModal(false)} className="w-full mt-2 py-2 text-[12px] font-bold">
                 Annuler
               </button>
-              )}
             </div>
-          );
-  } // <-- ferme SEULEMENT le if (!ok)
+          </div>
+        )}
+      </div>
+    );
+  }
 
-  // ===== TABLEAU - 2e RETURN (le seul autre) =====
+  // ===== TABLEAU — 2e RETURN (le seul autre) =====
   return (
     <div className="max-w-[560px] mx-auto min-h-screen bg-[#F7F7F8] pb-24">
       {toast && (
         <div className="fixed top-4 left-4 right-4 z-[60] pointer-events-none">
-          <div className="max-w-[560px] mx-auto bg-black text-white text-[13px] font-bold px-4 py-3 rounded-xl shadow-xl text-center">{toast}</div>
+          <div className="max-w-[560px] mx-auto bg-black text-white text-[13px] font-bold px-4 py-3 rounded-xl shadow-xl text-center">
+            {toast}
+          </div>
         </div>
       )}
+
       <div className="bg-[#111] text-white px-4 pt-4 pb-3 sticky top-0 z-40">
         <div className="flex justify-between items-center">
           <div>
@@ -1022,9 +863,8 @@ export default function DashboardDG() {
             Déconnexion
           </button>
         </div>
-        {/* ✅ CORRIGÉ : PROBLEMES + NOTIFS ajoutés */}
         <div className="flex gap-2 mt-3 overflow-x-auto pb-1" id="barre-onglets">
-          {["DASH", "MEMBRES", "BOUTIQUES", "CLIENTS", "PAIEMENTS", "ANNONCES", "TOMBOLA", "DETTES", "ZONES", "FILE", "PUB", "PARAMETRES", "JOURNAL", "PROBLEMES", "NOTIFS"].map((o) => (
+          {["DASH", "MEMBRES", "BOUTIQUES", "CLIENTS", "PAIEMENTS", "ANNONCES", "TOMBOLA", "DETTES", "ZONES", "FILE", "PUB", "PARAMETRES", "JOURNAL"].map((o) => (
             <button
               key={o}
               id={"onglet-" + o}
@@ -1066,10 +906,6 @@ export default function DashboardDG() {
               <div className="text-[12px] mt-1">Lot : {tombolaCfg.lot} • Plafond {tombolaCfg.plafond} pts</div>
               <div className="text-[12px]">Leader : {gagnantPotentiel ? gagnantPotentiel.nom + " — " + gagnantPotentiel.pts.total + " pts" : "Aucun"}</div>
             </div>
-            <div className="bg-white rounded-xl p-3 mt-2">
-              <div className="font-black text-[13px]">🛠️ Problèmes : {problemes.length} • 🔔 Notifs : {notifsPerso.length}</div>
-              <div className="text-[12px]">Problèmes en attente : {problemes.filter((p) => p.statut === "EN_ATTENTE" || p.statut === "OUVERT").length}</div>
-            </div>
           </div>
         )}
 
@@ -1082,8 +918,7 @@ export default function DashboardDG() {
               <div className="flex gap-2 mt-2">
                 <select value={roleNouveau} onChange={(e) => setRoleNouveau(e.target.value)} className="flex-1 p-3 border rounded-xl"><option>SUPERVISEUR</option><option>AMBASSADEUR</option></select>
                 <select value={communeNouveau} onChange={(e) => setCommuneNouveau(e.target.value)} className="flex-1 p-3 border rounded-xl">
-                  {/* ✅ CORRIGÉ : Gombe une seule fois */}
-                  {["Gombe", "Kintambo", "Lingwala", "Kinshasa", "Barumbu", "Bandalungwa", "Bumbu", "Selembao", "Ngiri-Ngiri", "Kasa-Vubu", "Ngaba", "Kalamu", "Limete", "Matete", "Ndjili", "Kimbanseke", "Masina", "Nsele", "Maluku", "Mont-Ngafula", "Kisenso", "Lemba", "Ngaliema"].map((c) => (<option key={c}>{c}</option>))}
+                  {["Gombe", "Kintambo", "Lingwala", "Kinshasa", "Barumbu", "Bandalungwa", "Bumbu", "Selembao", "Ngiri-Ngiri", "Kasa-Vubu", "Ngaba", "Kalamu", "Limete", "Matete", "Ndjili", "Kimbanseke", "Masina", "Nsele", "Maluku", "Mont-Ngafula", "Kisenso", "Lemba", "Ngaliema", "Gombe"].map((c) => (<option key={c}>{c}</option>))}
                 </select>
               </div>
               <button onClick={creerMembre} className="w-full mt-3 bg-[#FF6B00] text-white font-black py-3 rounded-xl">CRÉER</button>
@@ -1121,8 +956,7 @@ export default function DashboardDG() {
             </div>
             {boutiques.filter((b) => filtreType === "TOUS" || b.statut === filtreType).map((b) => (
               <div key={b.id} className="bg-white rounded-xl p-3 mt-2">
-                {/* ✅ CORRIGÉ : String(b.id) au lieu de b.id?.slice */}
-                <div className="font-black text-[14px]">{b.nom || b.nomEtablissement} — N° {b.numero_boutique || String(b.id || "").slice(-4)}</div>
+                <div className="font-black text-[14px]">{b.nom || b.nomEtablissement} — N° {b.numero_boutique || b.id?.slice(-4)}</div>
                 <div className="text-[12px] opacity-70">{b.commune} • {b.telephone} • {b.statut}</div>
                 <div className="flex gap-2 mt-2">
                   <button onClick={() => changerStatutBoutique(b.id, "VALIDEE")} className="flex-1 bg-green-600 text-white font-bold py-2 rounded-lg text-[12px]">✅ Valider</button>
@@ -1133,72 +967,7 @@ export default function DashboardDG() {
             ))}
           </div>
         )}
-
-        {onglet === "PROBLEMES" && (
-          <div>
-            <div className="bg-white rounded-xl p-3">
-              <div className="font-black">🛠️ Problèmes — {problemes.length}</div>
-              <div className="text-[12px] mt-1">En attente : {problemes.filter((p) => p.statut === "EN_ATTENTE" || p.statut === "OUVERT").length} • En cours : {problemes.filter((p) => p.statut === "EN_COURS").length} • Résolus : {problemes.filter((p) => p.statut === "RESOLU" || p.statut === "FERME").length}</div>
-            </div>
-            <div className="flex gap-2 mt-2">
-              {["TOUS", "EN_ATTENTE", "EN_COURS", "RESOLU"].map((f) => (
-                <button key={f} onClick={() => setFiltreProbleme(f)} className={"px-3 py-2 rounded-full text-[11px] font-black " + (filtreProbleme === f ? "bg-black text-white" : "bg-white")}>{f}</button>
-              ))}
-            </div>
-            {problemes.filter((p) => filtreProbleme === "TOUS" || p.statut === filtreProbleme || (filtreProbleme === "EN_ATTENTE" && p.statut === "OUVERT")).map((p) => (
-              <button key={p.id} onClick={() => { setProblemeSelectionne(p); setReponseProbleme(p.reponse_dg || ""); setStatutProbleme(p.statut === "RESOLU" ? "RESOLU" : "EN_COURS"); }} className="w-full text-left bg-white rounded-xl p-3 mt-2">
-                <div className="font-black text-[14px]">{p.titre || p.sujet || "Problème"}</div>
-                <div className="text-[12px] opacity-70">{p.statut} • {new Date(p.created_at || Date.now()).toLocaleDateString("fr-FR")}</div>
-                <div className="text-[12px] mt-1">{p.description || p.message || ""}</div>
-                <div className="text-[12px] font-bold">Cliquer pour répondre →</div>
-              </button>
-            ))}
-            {problemes.length === 0 && <p className="text-center text-[12px] opacity-60 mt-4">Aucun problème signalé.</p>}
-            {problemeSelectionne && (
-              <div className="bg-black text-white rounded-xl p-4 mt-3">
-                <div className="font-black text-[15px]">🛠️ {problemeSelectionne.titre || problemeSelectionne.sujet || "Problème"}</div>
-                <div className="text-[12px] opacity-80 mt-1">{problemeSelectionne.description || problemeSelectionne.message || ""}</div>
-                <select value={statutProbleme} onChange={(e) => setStatutProbleme(e.target.value)} className="w-full mt-3 p-3 rounded-xl text-black"><option>EN_COURS</option><option>RESOLU</option><option>FERME</option></select>
-                <textarea value={reponseProbleme} onChange={(e) => setReponseProbleme(e.target.value)} placeholder="Ta réponse DG..." className="w-full mt-2 p-3 rounded-xl text-black" />
-                <button onClick={() => repondreProbleme(problemeSelectionne.id)} className="w-full mt-2 bg-[#FF6B00] text-white font-black py-3 rounded-xl">📩 ENVOYER RÉPONSE</button>
-                <button onClick={() => setProblemeSelectionne(null)} className="w-full mt-2 py-2 text-[12px] font-bold">Fermer</button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {onglet === "NOTIFS" && (
-          <div>
-            <div className="bg-white rounded-xl p-3">
-              <div className="font-black">🔔 Notifications / Alertes — {notifsPerso.length}</div>
-            </div>
-            <div className="bg-white rounded-xl p-3 mt-2">
-              <div className="font-black text-[13px]">📢 Nouvelle alerte DG</div>
-              <input value={titreAlerte} onChange={(e) => setTitreAlerte(e.target.value)} placeholder="Titre de l'alerte" className="w-full mt-2 p-3 border rounded-xl" />
-              <textarea value={nouvelleAlerte} onChange={(e) => setNouvelleAlerte(e.target.value)} placeholder="Texte de l'alerte..." className="w-full mt-2 p-3 border rounded-xl" />
-              <div className="flex gap-2 mt-2">
-                <select value={cibleAnnonce} onChange={(e) => setCibleAnnonce(e.target.value)} className="flex-1 p-3 border rounded-xl"><option>TOUS</option><option>SUPERVISEUR</option><option>AMBASSADEUR</option><option>CLIENT</option><option>BOUTIQUE_VENDEUR</option></select>
-                <input value={personneAnnonce} onChange={(e) => setPersonneAnnonce(e.target.value)} placeholder="ID personne (optionnel)" className="flex-1 p-3 border rounded-xl" />
-              </div>
-              <button onClick={envoyerAlerteDG} className="w-full mt-3 bg-[#FF6B00] text-white font-black py-3 rounded-xl">📢 ENVOYER L'ALERTE</button>
-            </div>
-            <div className="flex gap-2 mt-2 overflow-x-auto pb-1">
-              {["TOUS", "ALERTE", "ANNONCE", "PAIEMENT", "TOMBOLA", "PROBLEME", "COMPTE"].map((f) => (
-                <button key={f} onClick={() => setFiltreNotif(f)} className={"shrink-0 px-3 py-2 rounded-full text-[11px] font-black " + (filtreNotif === f ? "bg-black text-white" : "bg-white")}>{f}</button>
-              ))}
-            </div>
-            {notifsPerso.filter((n) => filtreNotif === "TOUS" || n.type === filtreNotif).slice(0, 50).map((n) => (
-              <div key={n.id} className="bg-white rounded-xl p-3 mt-2">
-                <div className="font-black text-[14px]">{n.titre}</div>
-                <div className="text-[12px] opacity-70">{n.type} • {n.type_compte} • {new Date(n.created_at || Date.now()).toLocaleString("fr-FR")}</div>
-                <div className="text-[12px] mt-1">{n.message}</div>
-              </div>
-            ))}
-            {notifsPerso.length === 0 && <p className="text-center text-[12px] opacity-60 mt-4">Aucune notification.</p>}
-          </div>
-        )}
-        {
-                  {onglet === "CLIENTS" && (
+                {onglet === "CLIENTS" && (
           <div>
             {clients.map((c) => (
               <div key={c.id} className="bg-white rounded-xl p-3 mt-2">
@@ -1252,8 +1021,8 @@ export default function DashboardDG() {
           <div>
             <div className="bg-white rounded-xl p-3">
               <div className="font-black">📢 Publier annonce DG</div>
-              <input value={titreAlerte} onChange={(e) => setTitreAlerte(e.target.value)} placeholder="Titre" className="w-full mt-2 p-3 border rounded-xl" />
-              <textarea value={nouvelleAlerte} onChange={(e) => setNouvelleAlerte(e.target.value)} placeholder="Message..." className="w-full mt-2 p-3 border rounded-xl" />
+              <input value={titreAnnonce} onChange={(e) => setTitreAnnonce(e.target.value)} placeholder="Titre" className="w-full mt-2 p-3 border rounded-xl" />
+              <textarea value={msgAnnonce} onChange={(e) => setMsgAnnonce(e.target.value)} placeholder="Message..." className="w-full mt-2 p-3 border rounded-xl" />
               <div className="flex gap-2 mt-2">
                 <select value={cibleAnnonce} onChange={(e) => setCibleAnnonce(e.target.value)} className="flex-1 p-3 border rounded-xl"><option>TOUS</option><option>SUPERVISEUR</option><option>AMBASSADEUR</option><option>CLIENT</option><option>BOUTIQUE_VENDEUR</option></select>
                 <input value={personneAnnonce} onChange={(e) => setPersonneAnnonce(e.target.value)} placeholder="ID personne (optionnel)" className="flex-1 p-3 border rounded-xl" />
@@ -1273,7 +1042,6 @@ export default function DashboardDG() {
                 </div>
               </div>
             ))}
-            {annonces.length === 0 && <p className="text-center text-[12px] opacity-60 mt-4">Aucune annonce.</p>}
           </div>
         )}
 
@@ -1298,8 +1066,7 @@ export default function DashboardDG() {
           </div>
         )}
 
-        {/* ===== FIN 7A — Colle 7B juste en dessous ===== */}
-                {onglet === "DETTES" && (
+        {onglet === "DETTES" && (
           <div>
             <div className="bg-white rounded-xl p-3"><div className="font-black">💸 Dettes / Boutiques cachées</div><div className="text-[12px] mt-1">Freemium {tarifs.freemium_jours} j dépassé, sans paiement → cachée.</div></div>
             {boutiquesCachees.map((b) => (
@@ -1359,12 +1126,11 @@ export default function DashboardDG() {
         )}
       </div>
 
-      {/* ===== MODALES — FERMETURE DU FICHIER ===== */}
       {showTelegramModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-5 w-full max-w-[360px]">
             <h3 className="font-black text-[16px]">🔐 Vérification Telegram</h3>
-            <input value={codeTelegram} onChange={(e) => setCodeTelegram(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") validerCodeTelegram(); }} placeholder="Code 6 chiffres" className="w-full mt-3 p-3 border rounded-xl text-center font-black text-[18px]" />
+            <input value={codeTelegram} onChange={(e) => setCodeTelegram(e.target.value)} placeholder="Code 6 chiffres" className="w-full mt-3 p-3 border rounded-xl text-center font-black text-[18px]" />
             <button onClick={validerCodeTelegram} className="w-full mt-3 bg-black text-white font-black py-3 rounded-xl">VALIDER</button>
             <button onClick={() => setShowTelegramModal(false)} className="w-full mt-2 py-2 text-[12px] font-bold">Annuler</button>
           </div>
@@ -1375,35 +1141,7 @@ export default function DashboardDG() {
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl p-5 w-full max-w-[360px]">
             <h3 className="font-black text-[16px]">⛔ Suspendre — {showSuspendModal.titre || showSuspendModal.nom || ""}</h3>
-            <input value={motifSuspensionLibre} onChange={(e) => setMotifSuspensionLibre(e.target.value)} placeholder="Motif libre (optionnel)" className="w-full mt-3 p-3 border rounded-xl" />
-            <select value={motifSuspension} onChange={(e) => setMotifSuspension(e.target.value)} className="w-full mt-2 p-3 border rounded-xl"><option>Fausse annonce</option><option>Contenu immoral</option><option>Arnaque</option><option>Autre</option></select>
+            <select value={motifSuspension} onChange={(e) => setMotifSuspension(e.target.value)} className="w-full mt-3 p-3 border rounded-xl"><option>Fausse annonce</option><option>Contenu immoral</option><option>Arnaque</option><option>Autre</option></select>
+            <input value={motifSuspensionLibre} onChange={(e) => setMotifSuspensionLibre(e.target.value)} placeholder="Motif libre (optionnel)" className="w-full mt-2 p-3 border rounded-xl" />
             <select value={dureeSuspension} onChange={(e) => setDureeSuspension(e.target.value)} className="w-full mt-2 p-3 border rounded-xl"><option value="1">1 jour</option><option value="7">7 jours</option><option value="30">30 jours</option><option value="365">Définitif</option></select>
-            <button onClick={() => { if (showSuspendModal.titre || showSuspendModal.title) suspendreAnnonce(showSuspendModal.id); else changerStatutBoutique(showSuspendModal.id, "SUSPENDUE", motifSuspensionLibre.trim() || motifSuspension); }} className="w-full mt-3 bg-orange-500 text-white font-black py-3 rounded-xl">SUSPENDRE</button>
-            <button onClick={() => setShowSuspendModal(null)} className="w-full mt-2 py-2 text-[12px] font-bold">Annuler</button>
-          </div>
-        </div>
-      )}
-
-      {showPreuve && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-5 w-full max-w-[400px]">
-            <h3 className="font-black">🧾 Preuve paiement</h3>
-            <p className="text-[12px] mt-2 break-all">{showPreuve.preuve_url}</p>
-            <a href={showPreuve.preuve_url} target="_blank" rel="noreferrer" className="block mt-3 bg-black text-white text-center font-black py-3 rounded-xl">Ouvrir la preuve</a>
-            <button onClick={() => setShowPreuve(null)} className="w-full mt-2 py-2 text-[12px] font-bold">Fermer</button>
-          </div>
-        </div>
-      )}
-
-      {showTransfertZone && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl p-5 w-full max-w-[360px]">
-            <h3 className="font-black">⚠️ Zone déjà occupée</h3>
-            <p className="text-[12px] mt-2">{showTransfertZone.commune} est occupée par {showTransfertZone.occupant?.nom} ({showTransfertZone.occupant?.code_pro}).</p>
-            <button onClick={() => setShowTransfertZone(null)} className="w-full mt-3 bg-black text-white font-black py-3 rounded-xl">COMPRIS</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+            <button onClick={() => { if (showSuspen
