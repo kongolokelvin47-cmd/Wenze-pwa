@@ -841,8 +841,6 @@ export default function DashboardDG() {
       </div>
     );
   }
-  });
-};
 
 // Fermeture du composant avant le 2e return
 if (!ok) {
