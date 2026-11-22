@@ -13,13 +13,13 @@ const rawSha256 = (pin: string) => {
 };
 
 const timingSafeEqualHex = (a: string, b: string) => {
-  const bufA = Buffer.from(a, "utf8");
-  const bufB = Buffer.from(b, "utf8");
+  const bufA = Buffer.from(a.toLowerCase(), "utf8");
+  const bufB = Buffer.from(b.toLowerCase(), "utf8");
   if (bufA.length !== bufB.length) return false;
   return crypto.timingSafeEqual(bufA, bufB);
 };
 
-async function lireHashStocke(supabase: SupabaseClient): Promise<string | null> {
+async function lireHashSupabase(supabase: SupabaseClient): Promise<string | null> {
   // 1. Priorité à la table dédiée wenze_dg_pin (id = 1)
   const { data: dgPinRow, error: dgPinError } = await supabase
     .from("wenze_dg_pin")
@@ -31,7 +31,7 @@ async function lireHashStocke(supabase: SupabaseClient): Promise<string | null> 
     return String(dgPinRow.pin_hash).trim();
   }
 
-  // 2. Repli sur config_publique (id = 1) si wenze_dg_pin n'a pas encore de ligne
+  // 2. Repli sur config_publique (id = 1)
   const { data: configRow, error: configError } = await supabase
     .from("config_publique")
     .select("pin_hash")
@@ -43,6 +43,16 @@ async function lireHashStocke(supabase: SupabaseClient): Promise<string | null> 
   }
 
   return null;
+}
+
+function lireHashEnvVercel(): string | null {
+  const envPin = (process.env.DG_PIN || "").trim();
+  if (!envPin) return null;
+
+  // Si DG_PIN contient déjà un SHA-256 hexadécimal de 64 caractères, on le garde tel quel ;
+  // sinon (ex. "2026" ou "1234"), on calcule son SHA-256 côté serveur.
+  const estDejaSha256 = /^[0-9a-fA-F]{64}$/.test(envPin);
+  return estDejaSha256 ? envPin.toLowerCase() : rawSha256(envPin);
 }
 
 export async function POST(req: Request) {
@@ -60,32 +70,35 @@ export async function POST(req: Request) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-    if (!supabaseUrl || !serviceRoleKey) {
-      return NextResponse.json(
-        { ok: false, error: "Configuration serveur manquante" },
-        { status: 500 }
-      );
+    let storedHash: string | null = null;
+
+    if (supabaseUrl && serviceRoleKey) {
+      const supabase = createClient(supabaseUrl, serviceRoleKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      storedHash = await lireHashSupabase(supabase);
     }
 
-    const supabase = createClient(supabaseUrl, serviceRoleKey, {
-      auth: { persistSession: false, autoRefreshToken: false },
-    });
-
-    const storedHash = await lireHashStocke(supabase);
+    // Repli sur la variable d'environnement Vercel DG_PIN
+    if (!storedHash) {
+      storedHash = lireHashEnvVercel();
+    }
 
     if (!storedHash) {
       return NextResponse.json(
-        { ok: false, error: "PIN DG non configuré" },
+        { ok: false, error: "PIN DG non configuré (DG_PIN manquant)" },
         { status: 500 }
       );
     }
 
     const digestWithPepper = hashPin(pin);
     const digestRaw = rawSha256(pin);
+    const envHash = lireHashEnvVercel();
 
     const isValid =
       timingSafeEqualHex(digestWithPepper, storedHash) ||
-      timingSafeEqualHex(digestRaw, storedHash);
+      timingSafeEqualHex(digestRaw, storedHash) ||
+      (envHash !== null && timingSafeEqualHex(digestRaw, envHash));
 
     if (!isValid) {
       return NextResponse.json(
@@ -96,7 +109,11 @@ export async function POST(req: Request) {
 
     const res = NextResponse.json({ ok: true });
 
-    const secret = process.env.DG_SESSION_SECRET || serviceRoleKey;
+    const secret =
+      process.env.DG_SESSION_SECRET ||
+      serviceRoleKey ||
+      process.env.DG_PIN ||
+      "wenze-dg-fallback-secret";
     const exp = Date.now() + 1000 * 60 * 60 * 12; // 12 heures
     const payload = Buffer.from(
       JSON.stringify({ role: "DG", exp })
