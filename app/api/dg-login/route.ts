@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import crypto from "crypto";
 
 const hashPin = (pin: string) => {
-  const pepper = process.env.DG_PIN_PEPPER || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  const pepper =
+    process.env.DG_PIN_PEPPER || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
   return crypto.createHash("sha256").update(`${pepper}:${pin}`).digest("hex");
+};
+
+const rawSha256 = (pin: string) => {
+  return crypto.createHash("sha256").update(pin).digest("hex");
 };
 
 const timingSafeEqualHex = (a: string, b: string) => {
@@ -13,6 +18,32 @@ const timingSafeEqualHex = (a: string, b: string) => {
   if (bufA.length !== bufB.length) return false;
   return crypto.timingSafeEqual(bufA, bufB);
 };
+
+async function lireHashStocke(supabase: SupabaseClient): Promise<string | null> {
+  // 1. Priorité à la table dédiée wenze_dg_pin (id = 1)
+  const { data: dgPinRow, error: dgPinError } = await supabase
+    .from("wenze_dg_pin")
+    .select("pin_hash")
+    .eq("id", 1)
+    .maybeSingle();
+
+  if (!dgPinError && dgPinRow?.pin_hash) {
+    return String(dgPinRow.pin_hash).trim();
+  }
+
+  // 2. Repli sur config_publique (id = 1) si wenze_dg_pin n'a pas encore de ligne
+  const { data: configRow, error: configError } = await supabase
+    .from("config_publique")
+    .select("pin_hash")
+    .eq("id", 1)
+    .maybeSingle();
+
+  if (!configError && configRow?.pin_hash) {
+    return String(configRow.pin_hash).trim();
+  }
+
+  return null;
+}
 
 export async function POST(req: Request) {
   try {
@@ -40,27 +71,21 @@ export async function POST(req: Request) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const { data, error } = await supabase
-      .from("config_publique")
-      .select("pin_hash")
-      .eq("id", 1)
-      .single();
+    const storedHash = await lireHashStocke(supabase);
 
-    if (error || !data?.pin_hash) {
+    if (!storedHash) {
       return NextResponse.json(
         { ok: false, error: "PIN DG non configuré" },
         { status: 500 }
       );
     }
 
-    // Supporte un hash avec pepper ou un sha256 brut existant en base
     const digestWithPepper = hashPin(pin);
-    const rawSha256 = crypto.createHash("sha256").update(pin).digest("hex");
-    const storedHash = String(data.pin_hash).trim();
+    const digestRaw = rawSha256(pin);
 
     const isValid =
       timingSafeEqualHex(digestWithPepper, storedHash) ||
-      timingSafeEqualHex(rawSha256, storedHash);
+      timingSafeEqualHex(digestRaw, storedHash);
 
     if (!isValid) {
       return NextResponse.json(
@@ -71,29 +96,35 @@ export async function POST(req: Request) {
 
     const res = NextResponse.json({ ok: true });
 
-    // Cookie de session DG signé (HttpOnly, SameSite=Lax)
     const secret = process.env.DG_SESSION_SECRET || serviceRoleKey;
     const exp = Date.now() + 1000 * 60 * 60 * 12; // 12 heures
-    const payload = Buffer.from(JSON.stringify({ role: "DG", exp })).toString("base64url");
+    const payload = Buffer.from(
+      JSON.stringify({ role: "DG", exp })
+    ).toString("base64url");
     const sig = crypto
       .createHmac("sha256", secret)
       .update(payload)
       .digest("base64url");
 
+    const isHttps =
+      req.headers.get("x-forwarded-proto") === "https" ||
+      req.url.startsWith("https://");
+
     res.cookies.set("wenze_dg_session", `${payload}.${sig}`, {
       httpOnly: true,
       sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
+      secure: isHttps,
       path: "/",
       maxAge: 60 * 60 * 12,
     });
 
     return res;
-  } catch (err: any) {
-    console.error("Erreur /api/dg-login:", err?.message || err);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("Erreur /api/dg-login:", message);
     return NextResponse.json(
       { ok: false, error: "Erreur interne du serveur" },
       { status: 500 }
     );
   }
-  }
+}
