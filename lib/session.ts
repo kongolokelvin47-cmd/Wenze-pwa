@@ -1,42 +1,100 @@
 // lib/session.ts - Session WENZE 12h
-const DUREE = 12 * 60 * 60 * 1000; // 12h
+export const DUREE_SESSION_MS = 12 * 60 * 60 * 1000; // 12h
+export const CLE_SESSION = "wenze_session";
 
-export function demarrerSession(role: string, data: any) {
-  const session = {
+export type WenzeRole =
+  | "DG"
+  | "SUPERVISEUR"
+  | "AMBASSADEUR"
+  | "BOUTIQUE"
+  | "CLIENT"
+  | (string & {});
+
+export interface SessionPayload<T = Record<string, unknown>> {
+  role: WenzeRole;
+  data: T;
+  debut: number;
+  expire: number;
+}
+
+function estNavigateur(): boolean {
+  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
+export function demarrerSession<T = Record<string, unknown>>(
+  role: WenzeRole,
+  data: T
+): SessionPayload<T> {
+  const maintenant = Date.now();
+  const session: SessionPayload<T> = {
     role,
     data,
-    debut: Date.now(),
-    expire: Date.now() + DUREE,
+    debut: maintenant,
+    expire: maintenant + DUREE_SESSION_MS,
   };
-  localStorage.setItem('wenze_session', JSON.stringify(session));
+
+  if (estNavigateur()) {
+    try {
+      window.localStorage.setItem(CLE_SESSION, JSON.stringify(session));
+    } catch {
+      // Ignore si le stockage local est indisponible ou plein
+    }
+  }
+
   return session;
 }
 
-export function verifierSession() {
+export function verifierSession<T = Record<string, unknown>>(): SessionPayload<T> | null {
+  if (!estNavigateur()) return null;
+
   try {
-    const raw = localStorage.getItem('wenze_session');
+    const raw = window.localStorage.getItem(CLE_SESSION);
     if (!raw) return null;
-    const s = JSON.parse(raw);
-    if (Date.now() > s.expire) {
-      localStorage.removeItem('wenze_session');
+
+    const parsed = JSON.parse(raw) as Partial<SessionPayload<T>>;
+    if (
+      typeof parsed?.role !== "string" ||
+      typeof parsed?.expire !== "number" ||
+      Number.isNaN(parsed.expire)
+    ) {
+      window.localStorage.removeItem(CLE_SESSION);
       return null;
     }
-    return s;
+
+    if (Date.now() > parsed.expire) {
+      window.localStorage.removeItem(CLE_SESSION);
+      return null;
+    }
+
+    return parsed as SessionPayload<T>;
   } catch {
+    try {
+      window.localStorage.removeItem(CLE_SESSION);
+    } catch {
+      // Ignore
+    }
     return null;
   }
 }
 
-export function quitterSession() {
-  localStorage.removeItem('wenze_session');
-  window.location.href = '/';
+export function quitterSession(redirectTo = "/"): void {
+  if (estNavigateur()) {
+    try {
+      window.localStorage.removeItem(CLE_SESSION);
+    } catch {
+      // Ignore
+    }
+    window.location.href = redirectTo;
+  }
 }
 
-export function tempsRestant() {
-  const s = verifierSession();
-  if (!s) return 0;
-  const reste = s.expire - Date.now();
-  const h = Math.floor(reste / 3600000);
-  const m = Math.floor((reste % 3600000) / 60000);
+export function tempsRestant(): string | null {
+  const session = verifierSession();
+  if (!session) return null;
+
+  const reste = Math.max(0, session.expire - Date.now());
+  const h = Math.floor(reste / 3_600_000);
+  const m = Math.floor((reste % 3_600_000) / 60_000);
   return `${h}h ${m}m`;
 }
+  
