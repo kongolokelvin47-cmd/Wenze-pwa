@@ -6,9 +6,16 @@
 
 import { verifierAbonnement } from "./paiement";
 
-export type Role = "client" | "vendeur" | "prestataire" | "grossiste" | "ambassadeur" | "superviseur" | "dg";
+export type Role =
+  | "client"
+  | "vendeur"
+  | "prestataire"
+  | "grossiste"
+  | "ambassadeur"
+  | "superviseur"
+  | "dg";
 
-function cleanWa(n: any): string {
+function cleanWa(n: unknown): string {
   return (n || "").toString().replace(/[^0-9]/g, "");
 }
 
@@ -21,7 +28,7 @@ export const ROLES = {
     freemium: false, // le client n'a pas de freemium
     prix: 0,
     needsPayment: false,
-    badge: "👤 Client"
+    badge: "👤 Client",
   },
   vendeur: {
     canPublish: true,
@@ -32,7 +39,7 @@ export const ROLES = {
     freemiumMax: 3,
     freemiumDuree: 30,
     prix: 5, // valeur indicative de l'ancien système : la grille actuelle est dans PALIERS
-    badge: "🛍️ Vendeur"
+    badge: "🛍️ Vendeur",
   },
   prestataire: {
     canPublish: true,
@@ -43,7 +50,7 @@ export const ROLES = {
     freemiumMax: 3,
     prix: 5,
     badge: "🔧 Prestataire",
-    note: "Même tarif que le vendeur : on vend de la visibilité, pas un rôle"
+    note: "Même tarif que le vendeur : on vend de la visibilité, pas un rôle",
   },
   grossiste: {
     canPublish: true,
@@ -55,34 +62,94 @@ export const ROLES = {
     prix: 5,
     canHaveSubAccounts: true, // seule différence avec le vendeur
     badge: "🏭 Grossiste",
-    note: "Même tarif que le vendeur"
+    note: "Même tarif que le vendeur",
   },
   ambassadeur: {
     hasCodeParrainage: true,
     canPublish: false,
     canPublishOccasionnel: true,
     maxAnnonces: 50,
-    badge: "🎖️ Ambassadeur"
+    badge: "🎖️ Ambassadeur",
   },
   superviseur: {
     canCreateAmbassadeur: true,
     canPublish: true,
     maxAnnonces: 50,
-    badge: "👔 Superviseur"
+    badge: "👔 Superviseur",
   },
   dg: {
     allAccess: true,
     need2FA: true,
     canPublish: true,
     maxAnnonces: 50,
-    badge: "👑 DG"
-  }
+    badge: "👑 DG",
+  },
 } as const;
+
+function normaliserRole(r: unknown): Role | "" {
+  const val = String(r || "")
+    .trim()
+    .toLowerCase();
+  if (val in ROLES) return val as Role;
+  return "";
+}
+
+function currentUser(): any {
+  try {
+    if (typeof window === "undefined") return null;
+    const raw = localStorage.getItem("wenze_user");
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Vérifie si un utilisateur possède un rôle donné (ou l'un des rôles autorisés).
+ * Signatures supportées :
+ *  - hasRole("dg") ou hasRole(["dg", "superviseur"]) -> vérifie l'utilisateur connecté
+ *  - hasRole(user, "dg") ou hasRole(user, ["dg", "superviseur"]) -> vérifie l'objet user (ou rôle string)
+ */
+export function hasRole(
+  userOrRole: any,
+  expectedRoles?: Role | string | Array<Role | string>
+): boolean {
+  try {
+    let targetUser: any;
+    let allowedRaw: Role | string | Array<Role | string>;
+
+    if (expectedRoles === undefined) {
+      targetUser = currentUser();
+      allowedRaw = userOrRole;
+    } else {
+      targetUser = userOrRole;
+      allowedRaw = expectedRoles;
+    }
+
+    if (!targetUser || !allowedRaw) return false;
+
+    const userRole =
+      typeof targetUser === "string"
+        ? normaliserRole(targetUser)
+        : normaliserRole(targetUser.role || targetUser.type_compte);
+
+    if (!userRole) return false;
+
+    const list = Array.isArray(allowedRaw) ? allowedRaw : [allowedRaw];
+    const normalizedAllowed = list
+      .map((item) => normaliserRole(item))
+      .filter((item): item is Role => Boolean(item));
+
+    return normalizedAllowed.includes(userRole);
+  } catch {
+    return false;
+  }
+}
 
 // ========== PROPRIÉTAIRE D'UNE ANNONCE ==========
 
 /** Clé de comparaison d'un numéro : 9 derniers chiffres (ignore +243, 243 et le 0 initial). */
-function phoneKey(v: any): string {
+function phoneKey(v: unknown): string {
   const d = cleanWa(v);
   return d.length >= 7 ? d.slice(-9) : "";
 }
@@ -100,8 +167,11 @@ function identities(x: any): { phones: string[]; ids: string[] } {
     return { phones, ids };
   }
 
-  const isAnnonce = x.titre !== undefined || x.prix !== undefined || x.prixUSD !== undefined;
-  const fields = isAnnonce ? ["ownerWhatsapp", "whatsapp", "userId"] : ["ownerWhatsapp", "whatsapp", "id"];
+  const isAnnonce =
+    x.titre !== undefined || x.prix !== undefined || x.prixUSD !== undefined;
+  const fields = isAnnonce
+    ? ["ownerWhatsapp", "whatsapp", "telephone", "tel", "userId"]
+    : ["ownerWhatsapp", "whatsapp", "telephone", "tel", "id"];
   for (const f of fields) {
     const v = x[f];
     if (v === undefined || v === null || v === "") continue;
@@ -110,16 +180,6 @@ function identities(x: any): { phones: string[]; ids: string[] } {
     ids.push(String(v));
   }
   return { phones, ids };
-}
-
-function currentUser(): any {
-  try {
-    if (typeof window === "undefined") return null;
-    const raw = localStorage.getItem("wenze_user");
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -153,12 +213,13 @@ export const checkDowngrade = (user: any) => {
         ...user,
         role: "vendeur" as Role,
         type: "freemium_cache",
-        abonnement: "Compte caché - 30 jours gratuits expirés - achetez un abonnement pour réapparaître",
+        abonnement:
+          "Compte caché - 30 jours gratuits expirés - achetez un abonnement pour réapparaître",
         isCache: true,
         badge: "🔒",
         placesRestantes: 0,
         canPublish: false,
-        message: ab.message
+        message: ab.message,
       };
     }
 
@@ -168,14 +229,18 @@ export const checkDowngrade = (user: any) => {
         ...user,
         role: user.role || "vendeur",
         type: "paye",
-        abonnement: (ab.ticketsActifs?.length || 1) + " ticket(s) actif(s) - " + (ab.placesRestantes || 0) + " places libres",
+        abonnement:
+          (ab.ticketsActifs?.length || 1) +
+          " ticket(s) actif(s) - " +
+          (ab.placesRestantes || 0) +
+          " places libres",
         isCache: false,
         badge: ab.badge || "⭐",
         placesRestantes: ab.placesRestantes,
         ticketsActifs: ab.ticketsActifs,
         canPublish: !!ab.peutPublier,
         maxAnnonces: 50,
-        palierId: ab.palierId
+        palierId: ab.palierId,
       };
     }
 
@@ -185,20 +250,40 @@ export const checkDowngrade = (user: any) => {
         ...user,
         role: "vendeur" as Role,
         type: "freemium",
-        abonnement: "Gratuit " + (ab.count || 0) + "/3 - " + (ab.joursRestants || 0) + "j restants avant masquage",
+        abonnement:
+          "Gratuit " +
+          (ab.count || 0) +
+          "/3 - " +
+          (ab.joursRestants || 0) +
+          "j restants avant masquage",
         isCache: false,
         badge: "🆓",
         placesRestantes: ab.imagesRestantes || 0,
         canPublish: !!ab.peutPublier,
         maxAnnonces: 3,
-        joursRestants: ab.joursRestants
+        joursRestants: ab.joursRestants,
       };
     }
 
     // Compatibilité avec l'ancien système d'abonnement
-    const expire = localStorage.getItem("abonnement_expire") || localStorage.getItem("wenze_abonnement_expire");
-    if (expire && Date.now() > parseInt(expire) && ["vendeur", "prestataire", "grossiste"].includes(user.role)) {
-      return { ...user, role: "vendeur" as Role, type: "freemium", abonnement: "Gratuit - abonnement expiré", isCache: false, badge: "🆓", canPublish: true, maxAnnonces: 3 };
+    const expire =
+      localStorage.getItem("abonnement_expire") ||
+      localStorage.getItem("wenze_abonnement_expire");
+    if (
+      expire &&
+      Date.now() > parseInt(expire, 10) &&
+      ["vendeur", "prestataire", "grossiste"].includes(user.role)
+    ) {
+      return {
+        ...user,
+        role: "vendeur" as Role,
+        type: "freemium",
+        abonnement: "Gratuit - abonnement expiré",
+        isCache: false,
+        badge: "🆓",
+        canPublish: true,
+        maxAnnonces: 3,
+      };
     }
 
     return user;
@@ -210,29 +295,69 @@ export const checkDowngrade = (user: any) => {
 /** Peut-il publier ? Selon son rôle et son abonnement. */
 export function canPublishByRole(user: any) {
   if (!user) return { ok: false, msg: "Non connecté" };
-  const role = (user.role || "vendeur") as Role;
+  const role = normaliserRole(user.role) || "vendeur";
   const roleConfig = ROLES[role] || ROLES.vendeur;
 
   // Le DG et le superviseur ne sont pas limités
   if (role === "dg" || role === "superviseur") {
-    return { ok: true, msg: roleConfig.badge + " accès complet", role, config: roleConfig };
+    return {
+      ok: true,
+      msg: roleConfig.badge + " accès complet",
+      role,
+      config: roleConfig,
+    };
+  }
+
+  if (typeof window === "undefined") {
+    return {
+      ok: !!roleConfig.canPublish,
+      msg: roleConfig.badge + " peut publier - max " + roleConfig.maxAnnonces,
+      role,
+      config: roleConfig,
+    };
   }
 
   try {
     const ab: any = verifierAbonnement();
-    if (ab.isCache) return { ok: false, msg: ab.message, role, isCache: true, config: roleConfig };
+    if (ab.isCache)
+      return {
+        ok: false,
+        msg: ab.message,
+        role,
+        isCache: true,
+        config: roleConfig,
+      };
     if (!ab.peutPublier) {
-      return { ok: false, msg: ab.message || "Plus de places libres : achetez un abonnement (cumulable)", role, config: roleConfig, ab };
+      return {
+        ok: false,
+        msg:
+          ab.message ||
+          "Plus de places libres : achetez un abonnement (cumulable)",
+        role,
+        config: roleConfig,
+        ab,
+      };
     }
     return {
       ok: true,
-      msg: roleConfig.badge + " " + role + " - " + (ab.placesRestantes || ab.imagesRestantes || 0) + " places libres",
+      msg:
+        roleConfig.badge +
+        " " +
+        role +
+        " - " +
+        (ab.placesRestantes || ab.imagesRestantes || 0) +
+        " places libres",
       role,
       config: roleConfig,
-      ab
+      ab,
     };
   } catch {
-    return { ok: !!roleConfig.canPublish, msg: roleConfig.badge + " peut publier - max " + roleConfig.maxAnnonces, role, config: roleConfig };
+    return {
+      ok: !!roleConfig.canPublish,
+      msg: roleConfig.badge + " peut publier - max " + roleConfig.maxAnnonces,
+      role,
+      config: roleConfig,
+    };
   }
 }
 
@@ -243,4 +368,4 @@ export function getMaxAnnoncesForRole(_role?: Role): number {
 export function isSamePriceForAllRoles(): boolean {
   return true;
     }
-  
+           
