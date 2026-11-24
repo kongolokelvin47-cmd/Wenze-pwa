@@ -63,6 +63,35 @@ export interface ResultatTransaction {
   message: string;
   erreur?: string;
 }
+export const TYPES_OCC: {
+  id: TypeOcc;
+  prefix: string;
+  label: string;
+  usage: string;
+  badge: string;
+}[] = [
+  {
+    id: "image",
+    prefix: "1img",
+    label: "1 image seule",
+    usage: "1 image en #1 pendant la durée",
+    badge: "🖼️",
+  },
+  {
+    id: "pack3",
+    prefix: "3img",
+    label: "3 images",
+    usage: "Pack 3 images",
+    badge: "🗂️",
+  },
+  {
+    id: "video",
+    prefix: "video",
+    label: "1 vidéo 15s",
+    usage: "Vidéo 15s en story haut d'app",
+    badge: "🎬",
+  },
+];
 
 function nombreSur(val: unknown, fallback = 0): number {
   const n = Number(val);
