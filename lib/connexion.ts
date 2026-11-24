@@ -104,6 +104,36 @@ export interface PublicationStatus {
   ticket?: any;
   count?: number;
 }
+export type CategorieServiceWenze =
+  | "CLIENT"
+  | "BOUTIQUE"
+  | "PRESTATAIRE"
+  | "AMBASSADEUR"
+  | "SUPERVISEUR"
+  | "DG";
+
+export function determinerCategorieService(compte: any): CategorieServiceWenze {
+  if (!compte) return "CLIENT";
+  const roleAdmin = String(compte.roleAdmin || "").toLowerCase();
+  const role = String(compte.role || compte.user_type || "").toLowerCase();
+
+  if (role === "dg" || roleAdmin === "dg") return "DG";
+  if (role === "superviseur" || roleAdmin === "superviseur") return "SUPERVISEUR";
+  if (role === "ambassadeur" || roleAdmin === "ambassadeur") return "AMBASSADEUR";
+  if (role === "prestataire") return "PRESTATAIRE";
+  if (role === "vendeur" || role === "grossiste" || compte.estVendeur) return "BOUTIQUE";
+  return "CLIENT";
+}
+
+export function peutPublierAnnonce(compte: any): boolean {
+  const cat = determinerCategorieService(compte);
+  return cat === "BOUTIQUE" || cat === "PRESTATAIRE" || cat === "DG";
+}
+
+export function peutOuvrirBoutique(compte: any): boolean {
+  const cat = determinerCategorieService(compte);
+  return cat !== "AMBASSADEUR" && cat !== "SUPERVISEUR";
+}
 
 const BADGES: Record<TypeCompte, string> = {
   client: "🛒",
