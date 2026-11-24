@@ -1483,3 +1483,212 @@ export const listInvitations = getAllInvitations;
 export const listAllInvitations = getAllInvitations;
 export const getInvitations = getAllInvitations;
           
+// ============================================================================
+// 6. MATRICE DES RÔLES, ÉTAT D'ABONNEMENT & CAPACITÉ PAR RÔLE
+// ============================================================================
+
+export const ROLES = {
+  client: {
+    canPublish: true,
+    canPublishOccasionnel: true,
+    canPublishBoutique: false,
+    maxAnnonces: MAX_ANNONCES_ACTIVES,
+    freemium: false,
+    prix: 0,
+    needsPayment: false,
+    badge: "👤 Client",
+  },
+  vendeur: {
+    canPublish: true,
+    canPublishOccasionnel: true,
+    canPublishBoutique: true,
+    maxAnnonces: MAX_ANNONCES_ACTIVES,
+    freemium: true,
+    freemiumMax: 3,
+    freemiumDuree: 30,
+    badge: "🛍️ Vendeur",
+  },
+  prestataire: {
+    canPublish: true,
+    canPublishOccasionnel: true,
+    canPublishBoutique: true,
+    maxAnnonces: MAX_ANNONCES_ACTIVES,
+    freemium: true,
+    freemiumMax: 3,
+    badge: "🔧 Prestataire",
+  },
+  grossiste: {
+    canPublish: true,
+    canPublishOccasionnel: true,
+    canPublishBoutique: true,
+    maxAnnonces: MAX_ANNONCES_ACTIVES,
+    freemium: true,
+    freemiumMax: 3,
+    canHaveSubAccounts: true,
+    badge: "🏭 Grossiste",
+  },
+  ambassadeur: {
+    hasCodeParrainage: true,
+    canPublish: false,
+    canPublishOccasionnel: true,
+    maxAnnonces: MAX_ANNONCES_ACTIVES,
+    badge: "🎖️ Ambassadeur",
+  },
+  superviseur: {
+    canCreateAmbassadeur: true,
+    canPublish: true,
+    maxAnnonces: MAX_ANNONCES_ACTIVES,
+    badge: "👔 Superviseur",
+  },
+  dg: {
+    allAccess: true,
+    need2FA: true,
+    canPublish: true,
+    maxAnnonces: MAX_ANNONCES_ACTIVES,
+    badge: "👑 DG",
+  },
+} as const;
+
+export function getMaxAnnoncesForRole(_role?: Role): number {
+  return MAX_ANNONCES_ACTIVES;
+}
+
+export function isSamePriceForAllRoles(): boolean {
+  return true;
+}
+
+export const checkDowngrade = (user: any) => {
+  if (!user || !estNavigateur()) return user;
+  try {
+    const ab: any = verifierAbonnement();
+
+    if (ab?.isCache) {
+      return {
+        ...user,
+        role: (user.role || "vendeur") as Role,
+        type: "freemium_cache",
+        abonnement:
+          ab.message ||
+          "Compte masqué (is_visible = false) — 30 jours freemium expirés ou ticket expiré",
+        isCache: true,
+        badge: "🔒",
+        placesRestantes: 0,
+        canPublish: false,
+        message: ab.message,
+      };
+    }
+
+    if (ab?.isPaye) {
+      return {
+        ...user,
+        role: user.role || "vendeur",
+        type: "paye",
+        abonnement:
+          (ab.ticketsActifs?.length || 1) +
+          " ticket(s) actif(s) - " +
+          (ab.placesRestantes || 0) +
+          " places libres",
+        isCache: false,
+        badge: ab.badge || "⭐",
+        placesRestantes: ab.placesRestantes,
+        ticketsActifs: ab.ticketsActifs,
+        canPublish: !!ab.peutPublier,
+        maxAnnonces: MAX_ANNONCES_ACTIVES,
+        palierId: ab.palierId,
+      };
+    }
+
+    if (ab?.isFreemium) {
+      return {
+        ...user,
+        role: (user.role || "vendeur") as Role,
+        type: "freemium",
+        abonnement:
+          "Gratuit " +
+          (ab.count || 0) +
+          "/3 - " +
+          (ab.joursRestants || 0) +
+          "j restants avant masquage",
+        isCache: false,
+        badge: "🆓",
+        placesRestantes: ab.imagesRestantes || 0,
+        canPublish: !!ab.peutPublier,
+        maxAnnonces: 3,
+        joursRestants: ab.joursRestants,
+      };
+    }
+
+    return user;
+  } catch {
+    return user;
+  }
+};
+
+export function canPublishByRole(user: any) {
+  if (!user) return { ok: false, msg: "Non connecté" };
+  const rawRole = String(user.role || "vendeur").trim().toLowerCase();
+  const role: Role = rawRole in ROLES ? (rawRole as Role) : "vendeur";
+  const roleConfig = ROLES[role] || ROLES.vendeur;
+
+  if (role === "dg" || role === "superviseur") {
+    return {
+      ok: true,
+      msg: roleConfig.badge + " accès complet",
+      role,
+      config: roleConfig,
+    };
+  }
+
+  if (!estNavigateur()) {
+    return {
+      ok: !!roleConfig.canPublish,
+      msg: roleConfig.badge + " peut publier - max " + roleConfig.maxAnnonces,
+      role,
+      config: roleConfig,
+    };
+  }
+
+  try {
+    const ab: any = verifierAbonnement();
+    if (ab?.isCache) {
+      return {
+        ok: false,
+        msg: ab.message,
+        role,
+        isCache: true,
+        config: roleConfig,
+      };
+    }
+    if (ab && ab.peutPublier === false) {
+      return {
+        ok: false,
+        msg:
+          ab.message ||
+          "Plus de places libres : achetez un abonnement (0 % commission)",
+        role,
+        config: roleConfig,
+        ab,
+      };
+    }
+    return {
+      ok: true,
+      msg:
+        roleConfig.badge +
+        " " +
+        role +
+        " - " +
+        (ab?.placesRestantes || ab?.imagesRestantes || 0) +
+        " places libres",
+      role,
+      config: roleConfig,
+      ab,
+    };
+  } catch {
+    return {
+      ok: !!roleConfig.canPublish,
+      msg: roleConfig.badge + " peut publier - max " + roleConfig.maxAnnonces,
+      role,
+      config: roleConfig,
+    };
+  }
+  }
