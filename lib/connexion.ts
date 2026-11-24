@@ -1184,3 +1184,272 @@ export function getKeepDates(annonce: any) {
     isV6Ticket: Boolean(annonce.ticketId),
   };
 }
+// ============================================================================
+// 5. INVITATIONS (CLIENT, BOUTIQUE / VENDEUR / GROSSISTE & PRESTATAIRE UNIQUEMENT)
+// ============================================================================
+
+const DOMAINE_INVITATION = "https://wenze.cd";
+const ROLES_INVITATION_AUTORISES = new Set<string>([
+  "client",
+  "vendeur",
+  "prestataire",
+  "grossiste",
+]);
+const ROLES_INVITATION_INTERDITS = new Set<string>(["ambassadeur", "superviseur"]);
+
+export interface StatsInvitations {
+  total: number;
+  enAttente: number;
+  inscrits: number;
+  valides: number;
+  expirees: number;
+  annulees: number;
+}
+
+export type StatutLienWenze = "ACTIF" | "EN_ATTENTE_DG";
+
+export type LienWenze = {
+  codeSuperviseur: string;
+  nomSuperviseur: string;
+  quartier: string;
+  codeAmbassadeur: string;
+  nomAmbassadeur: string;
+  creePar: string;
+  dateLien: string;
+  statut: StatutLienWenze;
+};
+
+export function peutInviterCompte(compte: any): boolean {
+  if (!compte) return false;
+  const roleAdmin = String(compte.roleAdmin || "").toLowerCase();
+  const role = String(compte.role || compte.user_type || "").toLowerCase();
+  if (
+    ROLES_INVITATION_INTERDITS.has(role) ||
+    ROLES_INVITATION_INTERDITS.has(roleAdmin) ||
+    role === "dg" ||
+    roleAdmin === "dg"
+  ) {
+    return false;
+  }
+  return ROLES_INVITATION_AUTORISES.has(role);
+}
+
+async function pushInvitationToSupabase(inv: any, s: any) {
+  try {
+    const supabase = createClient();
+    const code = inv.codeParrainage || inv.id;
+    await supabase.from("invitations").upsert(
+      {
+        id: String(code),
+        code: String(code),
+        code_parrainage: String(code),
+        parrain_code: cleanWa(s.ownerWhatsapp || s.whatsapp || ""),
+        parrain_wa: cleanWa(s.ownerWhatsapp || s.whatsapp || ""),
+        parrain_nom: s.nomEtablissement || s.nom || "Wenze",
+        invite_nom: inv.nom || inv.inviteNom || "",
+        invite_telephone: cleanWa(inv.whatsapp || inv.inviteWa || ""),
+        role: inv.type || inv.typeCompteInvite || "client",
+        type: inv.type || inv.typeCompteInvite || "client",
+        statut: "EN_ATTENTE",
+        status: "invité",
+        lien: inv.lien || `${DOMAINE_INVITATION}/invitation/${code}`,
+        reserved_until: inv.reservedUntil
+          ? new Date(inv.reservedUntil).toISOString()
+          : new Date(Date.now() + RESERVATION_MS).toISOString(),
+        data: inv,
+      },
+      { onConflict: "id" }
+    );
+  } catch {
+    // Mode local si Supabase indisponible
+  }
+}
+
+export async function getInvitationsSupabase(telephone?: string) {
+  const supabase = createClient();
+  let q = supabase.from("invitations").select("*").order("created_at", { ascending: false });
+  if (telephone) q = q.eq("parrain_wa", cleanWa(telephone));
+  const { data } = await q.limit(100);
+  return (data || []).map((r: any) => ({
+    id: r.id,
+    codeParrainage: r.code_parrainage || r.code,
+    parrainWa: r.parrain_wa,
+    nom: r.invite_nom,
+    whatsapp: r.invite_telephone,
+    type: r.type,
+    status: r.status || "invité",
+    lien: r.lien,
+    reservedUntil: r.reserved_until,
+    createdAt: r.created_at,
+  }));
+}
+
+export function cleanupExpired(): number {
+  const l = safeParseList<any>(CLE_INVITES);
+  let n = 0;
+  l.forEach((i: any) => {
+    if (
+      i.status === "invité" &&
+      i.reservedUntil &&
+      new Date(i.reservedUntil).getTime() < Date.now()
+    ) {
+      i.status = "expiré";
+      n++;
+    }
+  });
+  if (n > 0) ecrire(CLE_INVITES, l);
+  return n;
+}
+
+export function getAllInvitations(): any[] {
+  cleanupExpired();
+  const s: any = lireSession();
+  if (s && (s.role === "dg" || s.roleAdmin === "dg" || s.roleAdmin === "superviseur")) {
+    return safeParseList<any>(CLE_INVITES);
+  }
+  return getMyInvitations();
+}
+
+export function getMyInvitations(): any[] {
+  const s: any = lireSession();
+  if (!s) return [];
+  return listerInvitations(cleanWa(s.ownerWhatsapp || s.whatsapp));
+}
+
+export function inviterPair(
+  compte: any,
+  d: { nom: string; whatsapp: string; type: "client" | "vendeur" | "prestataire" | "grossiste" }
+): Resultat {
+  if (!compte) return echec("Non connecté", "SESSION");
+  if (!peutInviterCompte(compte)) {
+    return echec(
+      "Les invitations sont réservées aux clients, boutiques et prestataires (hors ambassadeurs et superviseurs)",
+      "ROLE_INTERDIT"
+    );
+  }
+  const typeCible: TypeCompte = ROLES_INVITATION_AUTORISES.has(d.type) ? d.type : "client";
+  return inviter(compte, {
+    nom: d.nom,
+    whatsapp: d.whatsapp,
+    type: typeCible === "client" ? "client" : "vendeur",
+  });
+}
+
+export function createInvitation(
+  whatsapp: string,
+  nom: string,
+  type: "client" | "vendeur" | "prestataire" = "client"
+): { inv: any; link: string; waLink: string; message: string } {
+  const s: any = lireSession();
+  if (!s) throw new Error("Tu dois être connecté pour inviter.");
+  if (!peutInviterCompte(s)) {
+    throw new Error(
+      "Les invitations sont réservées aux clients, boutiques et prestataires."
+    );
+  }
+
+  const numeroPropre = cleanWa(whatsapp);
+  if (numeroPropre === cleanWa(s.ownerWhatsapp || s.whatsapp)) {
+    throw new Error("Tu ne peux pas t'inviter toi-même.");
+  }
+  if (numeroPropre.length !== 12 || !numeroPropre.startsWith("243")) {
+    throw new Error(
+      "Numéro invalide. Utilise le format 243XXXXXXXXX (ex: 243825888889)."
+    );
+  }
+
+  const typeCible: TypeCompte = ROLES_INVITATION_AUTORISES.has(type) ? type : "client";
+  const r: Resultat = inviter(s, {
+    nom: nom.trim(),
+    whatsapp: numeroPropre,
+    type: typeCible === "client" ? "client" : "vendeur",
+  });
+  if (!r.ok) throw new Error(r.erreur || "Invitation impossible");
+
+  const inv = r.invitation || {};
+  const code = inv.codeParrainage || inv.id;
+  const origine = estNavigateur() ? window.location.origin : DOMAINE_INVITATION;
+  const link = `${origine}/invitation/${code}`;
+  const message = `Salut ${nom} 👋, ${
+    s.nomEtablissement || s.nom || "Wenze"
+  } t'invite sur WENZE Business.\nInscris-toi ici, c'est gratuit : ${link}\nCode : ${code}`;
+  const waLink = `https://wa.me/${numeroPropre}?text=${encodeURIComponent(message)}`;
+
+  void pushInvitationToSupabase({ ...inv, nom: nom.trim(), type: typeCible, lien: link }, s);
+
+  return {
+    inv: { ...inv, token: code, whatsapp: numeroPropre, link },
+    link,
+    waLink,
+    message,
+  };
+}
+
+export function getInvitationStats(): StatsInvitations {
+  const l = getAllInvitations();
+  const compte = (statut: string) => l.filter((i: any) => i.status === statut).length;
+  return {
+    total: l.length,
+    enAttente: compte("invité"),
+    inscrits: compte("inscrit"),
+    valides: compte("validé"),
+    expirees: compte("expiré"),
+    annulees: compte("annulé"),
+  };
+}
+
+export function revokeInvitation(id: string): boolean {
+  const s: any = lireSession();
+  if (!s) return false;
+  const monWa = cleanWa(s.ownerWhatsapp || s.whatsapp);
+  const estDG = s.role === "dg" || s.roleAdmin === "dg" || s.roleAdmin === "superviseur";
+
+  const l = safeParseList<any>(CLE_INVITES);
+  const i = l.findIndex((x: any) => {
+    const memeId = String(x.id) === String(id) || String(x.codeParrainage) === String(id);
+    const cestMoi = cle9(x.parrainWa) === cle9(monWa);
+    return memeId && (estDG || cestMoi);
+  });
+  if (i < 0 || l[i].status !== "invité") return false;
+  l[i] = {
+    ...l[i],
+    status: "annulé",
+    annuleLe: new Date().toISOString(),
+    annulePar: monWa,
+  };
+  ecrire(CLE_INVITES, l);
+
+  try {
+    void createClient()
+      .from("invitations")
+      .update({
+        status: "annulé",
+        statut: "ANNULE",
+        annule_le: new Date().toISOString(),
+        annule_par: monWa,
+      })
+      .eq("id", String(id));
+  } catch {}
+  return true;
+}
+
+export function getAmbassadeursDuSuperviseur(
+  codeSup: string,
+  liens: LienWenze[] = []
+): LienWenze[] {
+  const cible = (codeSup || "").trim().toUpperCase();
+  return liens.filter((l) => (l.codeSuperviseur || "").trim().toUpperCase() === cible);
+}
+
+export function getSuperviseurDeAmbassadeur(
+  codeAmb: string,
+  liens: LienWenze[] = []
+): LienWenze | undefined {
+  const cible = (codeAmb || "").trim().toUpperCase();
+  return liens.find((l) => (l.codeAmbassadeur || "").trim().toUpperCase() === cible);
+}
+
+export const listInvitations = getAllInvitations;
+export const listAllInvitations = getAllInvitations;
+export const getInvitations = getAllInvitations;
+          
