@@ -1,39 +1,58 @@
 "use client";
+
 import Link from "next/link";
 import { PALIERS, toCDFString, usd } from "@/lib/paiement";
-import { DAY_MS, MAX_PHOTOS, compressImage } from "./helpers";
+import { DAY_MS, MAX_PHOTOS, MAX_PHOTOS_FREEMIUM, compressImage } from "./helpers";
 
 /* ---------- Bannières d'état ---------- */
-export function StatusBanners({ ab, isEditMode, role }: { ab: any; isEditMode: boolean; role?: string }) {
+export function StatusBanners({
+  ab,
+  isEditMode,
+  role,
+}: {
+  ab: any;
+  isEditMode: boolean;
+  role?: string;
+}) {
   if (isEditMode || !ab) return null;
   const estGrossiste = role === "grossiste";
 
   if (ab.isCache) {
     return (
       <div className="bg-red-600 text-white rounded-2xl p-4 border-2 border-black shadow">
-        <p className="font-black text-[13px]">🔒 Compte caché : les 30 jours gratuits sont expirés</p>
+        <p className="font-black text-[13px]">
+          🔒 Compte caché (is_visible = false) : les 30 jours gratuits sont expirés
+        </p>
         <p className="text-[11px] mt-1.5 opacity-90">
           {estGrossiste
-            ? "Vos produits gros ne sont plus visibles. Les Grossistes ne peuvent plus voir vos prix gros. Achetez un ticket pour réapparaître."
-            : "Vos annonces ne sont plus visibles dans le marché. Achetez un ticket pour réapparaître immédiatement."}
+            ? "Vos produits gros sont masqués. Achetez un ticket pour réapparaître (0 % de commission sur vos ventes)."
+            : "Vos annonces sont masquées dans le marché. Achetez un ticket pour réapparaître immédiatement (0 % de commission sur vos ventes)."}
         </p>
-        <Link href="/abonnement" className="mt-3 block w-full bg-white text-black text-center py-3 rounded-full font-black text-[12px]">
-          🎫 Voir les abonnements (dès {usd(1)})
+        <Link
+          href="/abonnement"
+          className="mt-3 block w-full bg-white text-black text-center py-3 rounded-full font-black text-[12px]"
+        >
+          🎫 Voir les abonnements (dès {usd(1)} / {toCDFString(1)})
         </Link>
       </div>
     );
   }
 
-  if (ab.isFreemium && ab.imagesRestantes === 0) {
+  if (ab.isFreemium && Number(ab.imagesRestantes ?? 0) === 0) {
     return (
       <div className="bg-yellow-100 border-2 border-yellow-400 rounded-2xl p-4">
-        <p className="font-black text-[12px]">🆓 Limite gratuite atteinte</p>
+        <p className="font-black text-[12px]">
+          🆓 Limite gratuite atteinte ({MAX_PHOTOS_FREEMIUM} images max / 30 jours)
+        </p>
         <p className="text-[10px] mt-1">
           {estGrossiste
             ? `Dès ${usd(1)} (${toCDFString(1)}), un abonnement ouvre jusqu'à ${PALIERS.STANDARD.imagesMax} produits gros. Les achats sont cumulables.`
             : `Dès ${usd(1)} (${toCDFString(1)}), un abonnement ouvre jusqu'à ${PALIERS.STANDARD.imagesMax} images et plus. Les achats sont cumulables.`}
         </p>
-        <Link href="/abonnement" className="mt-3 block w-full bg-black text-white text-center py-2.5 rounded-full font-black text-[11px]">
+        <Link
+          href="/abonnement"
+          className="mt-3 block w-full bg-black text-white text-center py-2.5 rounded-full font-black text-[11px]"
+        >
           Voir les abonnements
         </Link>
       </div>
@@ -49,7 +68,10 @@ export function StatusBanners({ ab, isEditMode, role }: { ab: any; isEditMode: b
             ? "Supprimez un produit gros vendu pour libérer une place, ou achetez un nouveau ticket."
             : "Supprimez une annonce vendue pour libérer une place, ou achetez un nouveau ticket."}
         </p>
-        <Link href="/abonnement" className="mt-3 block w-full bg-black text-white text-center py-2.5 rounded-full font-black text-[11px]">
+        <Link
+          href="/abonnement"
+          className="mt-3 block w-full bg-black text-white text-center py-2.5 rounded-full font-black text-[11px]"
+        >
           Acheter un ticket
         </Link>
       </div>
@@ -60,14 +82,26 @@ export function StatusBanners({ ab, isEditMode, role }: { ab: any; isEditMode: b
 }
 
 /* ---------- Choix du ticket ---------- */
-export function TicketPicker({ tickets, selectedId, onSelect, role }: { tickets: any[]; selectedId: string; onSelect: (id: string) => void; role?: string }) {
+export function TicketPicker({
+  tickets,
+  selectedId,
+  onSelect,
+  role,
+}: {
+  tickets: any[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+  role?: string;
+}) {
   if (!tickets || tickets.length === 0) return null;
   const selected = tickets.find((t: any) => t.ticketId === selectedId);
   const estGrossiste = role === "grossiste";
 
   return (
     <div className="bg-white border-2 border-black rounded-2xl p-4 shadow-sm">
-      <p className="font-black text-[13px]">{estGrossiste ? "🏭 Choisissez le ticket gros" : "🎫 Choisissez le ticket"}</p>
+      <p className="font-black text-[13px]">
+        {estGrossiste ? "🏭 Choisissez le ticket gros" : "🎫 Choisissez le ticket"}
+      </p>
       <p className="text-[9px] text-gray-600 mt-1">
         {estGrossiste
           ? "Chaque produit gros utilise 1 place du ticket. Supprimer un produit libère sa place."
@@ -76,24 +110,47 @@ export function TicketPicker({ tickets, selectedId, onSelect, role }: { tickets:
       <div className="mt-3 space-y-2 max-h-[220px] overflow-y-auto">
         {tickets.map((t: any) => {
           const isSel = selectedId === t.ticketId;
-          const jours = Math.max(0, Math.ceil((new Date(t.expireAt).getTime() - Date.now()) / DAY_MS));
-          const pct = t.imagesMax ? Math.min(100, (t.imagesUsed / t.imagesMax) * 100) : 0;
+          const expMs = t.expireAt ? new Date(t.expireAt).getTime() : NaN;
+          const jours = Number.isNaN(expMs)
+            ? 0
+            : Math.max(0, Math.ceil((expMs - Date.now()) / DAY_MS));
+          const used = Number(t.imagesUsed || 0);
+          const max = Number(t.imagesMax || 0);
+          const pct = max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0;
+
           return (
             <button
               key={t.ticketId}
               type="button"
               onClick={() => onSelect(t.ticketId)}
-              className={"w-full border-2 rounded-xl p-3 text-left " + (isSel ? "border-black bg-black text-white" : "border-gray-200 bg-white")}
+              className={
+                "w-full border-2 rounded-xl p-3 text-left " +
+                (isSel ? "border-black bg-black text-white" : "border-gray-200 bg-white")
+              }
             >
               <div className="flex justify-between items-center">
                 <div>
-                  <p className="font-black text-[11px]">{(PALIERS as any)[t.palierId]?.badge || "🎫"} {t.palierId} - {t.imagesUsed}/{t.imagesMax} {estGrossiste ? "produits" : "places"}</p>
-                  <p className="text-[9px] opacity-80 mt-0.5">Expire le {new Date(t.expireAt).toLocaleDateString("fr-FR")} - {jours}j restants</p>
+                  <p className="font-black text-[11px]">
+                    {(PALIERS as any)[t.palierId]?.badge || "🎫"} {t.palierId} -{" "}
+                    {used}/{max} {estGrossiste ? "produits" : "places"}
+                  </p>
+                  <p className="text-[9px] opacity-80 mt-0.5">
+                    {!Number.isNaN(expMs)
+                      ? `Expire le ${new Date(expMs).toLocaleDateString("fr-FR")} - ${jours}j restants`
+                      : "Validité active"}
+                  </p>
                 </div>
-                <p className={"font-black text-[11px] px-2.5 py-1 rounded-full " + (isSel ? "bg-white text-black" : "bg-black text-white")}>{t.imagesMax - t.imagesUsed} libres</p>
+                <p
+                  className={
+                    "font-black text-[11px] px-2.5 py-1 rounded-full " +
+                    (isSel ? "bg-white text-black" : "bg-black text-white")
+                  }
+                >
+                  {Math.max(0, max - used)} libres
+                </p>
               </div>
               <div className="mt-2 w-full bg-gray-300 h-1.5 rounded-full overflow-hidden">
-                <div className="bg-[#25D366] h-full" style={{ width: pct + "%" }}></div>
+                <div className="bg-[#25D366] h-full" style={{ width: pct + "%" }} />
               </div>
             </button>
           );
@@ -101,7 +158,9 @@ export function TicketPicker({ tickets, selectedId, onSelect, role }: { tickets:
       </div>
       {selected ? (
         <p className="text-[10px] mt-3 font-bold bg-[#FFFBF0] border rounded-xl p-2.5">
-          ✅ Ticket {selected.palierId} : il reste {selected.imagesMax - selected.imagesUsed} place(s)
+          ✅ Ticket {selected.palierId} : il reste{" "}
+          {Math.max(0, Number(selected.imagesMax || 0) - Number(selected.imagesUsed || 0))}{" "}
+          place(s)
         </p>
       ) : null}
     </div>
@@ -115,22 +174,32 @@ export function PhotoPicker({
   disabled,
   notify,
   role,
+  isFreemium,
 }: {
   photos: string[];
   setPhotos: (fn: (prev: string[]) => string[]) => void;
   disabled: boolean;
   notify: (msg: string, type?: string) => void;
   role?: string;
+  isFreemium?: boolean;
 }) {
   const estGrossiste = role === "grossiste";
+  const limitePhotos = isFreemium
+    ? Math.min(MAX_PHOTOS, MAX_PHOTOS_FREEMIUM)
+    : MAX_PHOTOS;
 
   async function handleFiles(e: any) {
     const files = Array.from(e.target.files || []) as File[];
     e.target.value = "";
     if (!files.length) return;
-    const place = MAX_PHOTOS - photos.length;
+    const place = limitePhotos - photos.length;
     if (place <= 0) {
-      notify("Maximum " + MAX_PHOTOS + " photos par annonce", "error");
+      notify(
+        isFreemium
+          ? `Offre gratuite : ${limitePhotos} images maximum par annonce (30 jours)`
+          : `Maximum ${limitePhotos} photos par annonce`,
+        "error"
+      );
       return;
     }
     for (const file of files.slice(0, place)) {
@@ -140,7 +209,7 @@ export function PhotoPicker({
       }
       try {
         const data = await compressImage(file);
-        setPhotos((prev: string[]) => [...prev, data].slice(0, MAX_PHOTOS));
+        setPhotos((prev: string[]) => [...prev, data].slice(0, limitePhotos));
       } catch (err: any) {
         notify(err?.message || "Photo illisible", "error");
       }
@@ -150,11 +219,24 @@ export function PhotoPicker({
   return (
     <div className="bg-white border rounded-2xl p-4 shadow-sm">
       <div className="flex justify-between items-center">
-        <p className="font-black text-[12px]">{estGrossiste ? "Photos du produit gros" : `Photos (${MAX_PHOTOS} max)`}</p>
-        <p className="text-[10px] bg-black text-white px-2.5 py-1 rounded-full font-bold">{photos.length} / {MAX_PHOTOS}</p>
+        <p className="font-black text-[12px]">
+          {estGrossiste
+            ? `Photos du produit gros (${limitePhotos} max)`
+            : `Photos (${limitePhotos} max)`}
+        </p>
+        <p className="text-[10px] bg-black text-white px-2.5 py-1 rounded-full font-bold">
+          {photos.length} / {limitePhotos}
+        </p>
       </div>
+      {isFreemium ? (
+        <p className="text-[10px] text-orange-700 mt-1.5">
+          Freemium : jusqu&apos;à {limitePhotos} images pendant 30 jours, puis masquage automatique si non renouvelé.
+        </p>
+      ) : null}
       {estGrossiste ? (
-        <p className="text-[10px] text-gray-500 mt-2">Conseil : photo du carton fermé + photo du carton ouvert + photo du produit seul. Les Grossistes achètent sur photo.</p>
+        <p className="text-[10px] text-gray-500 mt-1.5">
+          Conseil : photo du carton fermé + photo du carton ouvert + photo du produit seul. Les Grossistes achètent sur photo.
+        </p>
       ) : null}
       <input
         type="file"
@@ -168,11 +250,21 @@ export function PhotoPicker({
         <div className="mt-4 grid grid-cols-2 gap-3">
           {photos.map((p: string, i: number) => (
             <div key={i} className="relative">
-              <img src={p} alt={"Photo " + (i + 1)} className="w-full h-28 object-cover rounded-xl border-2" />
-              {i === 0 ? <span className="absolute top-1.5 left-1.5 bg-black text-white text-[8px] px-2 py-0.5 rounded-full font-black">PHOTO PRINCIPALE</span> : null}
+              <img
+                src={p}
+                alt={"Photo " + (i + 1)}
+                className="w-full h-28 object-cover rounded-xl border-2"
+              />
+              {i === 0 ? (
+                <span className="absolute top-1.5 left-1.5 bg-black text-white text-[8px] px-2 py-0.5 rounded-full font-black">
+                  PHOTO PRINCIPALE
+                </span>
+              ) : null}
               <button
                 type="button"
-                onClick={() => setPhotos((prev: string[]) => prev.filter((_: any, idx: number) => idx !== i))}
+                onClick={() =>
+                  setPhotos((prev: string[]) => prev.filter((_: any, idx: number) => idx !== i))
+                }
                 className="absolute top-1.5 right-1.5 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center text-[12px] font-bold"
               >
                 ✕
@@ -183,4 +275,4 @@ export function PhotoPicker({
       ) : null}
     </div>
   );
-          }
+}
