@@ -1,234 +1,451 @@
-'use client'
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { createClient } from '@/utils/supabase/client'
-import { ROLES, type Role } from '@/lib/roles'
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import { lireSession, cle9 } from "@/lib/connexion";
+import { verifierPinDG } from "@/lib/dg-prive";
+import {
+  TAUX_CDF,
+  FREEMIUM,
+  MAX_ANNONCES_ACTIVES,
+  verifierAbonnement,
+  toCDFString,
+  usd,
+} from "@/lib/paiement";
+
+export const dynamic = "force-dynamic";
+
+const PLAFOND_ACTIVES = Math.min(50, Number(MAX_ANNONCES_ACTIVES || 50));
+const MAX_FREE_IMAGES = Math.min(3, Number(FREEMIUM?.maxImages || 3));
+const FREE_DAYS = Number(FREEMIUM?.dureeJours || 30);
+
+type RoleUtilisateur = "client" | "vendeur" | "prestataire" | "grossiste" | "dg";
+
+function normaliserRole(rawRole: any): RoleUtilisateur {
+  const r = String(rawRole || "vendeur").toLowerCase().trim();
+  if (r === "dg") return "dg";
+  if (r === "client") return "client";
+  if (r === "prestataire") return "prestataire";
+  if (r === "grossiste") return "grossiste";
+  return "vendeur";
+}
+
+function tracerAuthJournal(
+  action: "AUTH_CONNEXION_OK" | "AUTH_INSCRIPTION_OK" | "AUTH_ECHEC",
+  role: string,
+  waDigits: string,
+  detail?: string
+) {
+  try {
+    if (typeof window === "undefined") return;
+    const raw = localStorage.getItem("wenze_journal");
+    const list = raw ? JSON.parse(raw) : [];
+    const arr = Array.isArray(list) ? list : [];
+    arr.push({
+      id: "jrn_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+      action,
+      role,
+      acteurWhatsapp: waDigits,
+      detail: detail || "",
+      createdAt: new Date().toISOString(),
+    });
+    localStorage.setItem("wenze_journal", JSON.stringify(arr.slice(-500)));
+  } catch {}
+}
 
 export default function AuthPage() {
-  const [isLogin, setIsLogin] = useState(true)
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [whatsapp, setWhatsapp] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [show2FA, setShow2FA] = useState(false)
-  const [code2FA, setCode2FA] = useState('')
-  const [userRole, setUserRole] = useState<Role | null>(null)
-  const router = useRouter()
-  const supabase = createClient()
+  const router = useRouter();
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(()=>{
-    // Si déjà connecté, vérifie suivi compte V6
-    try{
-      const raw = localStorage.getItem("wenze_user");
-      if(raw){
-        const u = JSON.parse(raw);
-        if(u.role){
-          const { checkDowngrade } = require("@/lib/roles");
-          const updated = checkDowngrade(u);
-          if(updated.isCache){
-            router.push("/abonnement?reason=cache");
-            return;
-          }
-        }
+  const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [erreur, setErreur] = useState("");
+  const [infoMsg, setInfoMsg] = useState("");
+  const [showDgPin, setShowDgPin] = useState(false);
+  const [dgPinInput, setDgPinInput] = useState("");
+  const [userRole, setUserRole] = useState<RoleUtilisateur | null>(null);
+
+  useEffect(() => {
+    try {
+      const session: any = lireSession();
+      if (session?.dgSessionActive) {
+        router.replace("/dg-prive");
+        return;
       }
-    }catch{}
-  },[])
+      const ab: any = verifierAbonnement();
+      if (ab?.isCache) {
+        router.replace("/abonnement?reason=cache");
+      }
+    } catch {}
 
-  const syncWenzeUser = async (supaUserId:string, email:string, roleFromProfile?:string, waFromProfile?:string) => {
-    try{
+    return () => {
+      if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
+    };
+  }, [router]);
+
+  const syncWenzeUser = async (
+    supaUserId: string,
+    userEmail: string,
+    roleFromProfile?: string,
+    waFromProfile?: string
+  ) => {
+    try {
       const now = new Date().toISOString();
-      const existingRaw = localStorage.getItem("wenze_user");
+      const existingRaw =
+        typeof window !== "undefined"
+          ? localStorage.getItem("wenze_user")
+          : null;
       const existing = existingRaw ? JSON.parse(existingRaw) : null;
 
-      // Récupère profil complet
-      const { data: profile } = await supabase.from('profiles').select('*').eq('id', supaUserId).single();
+      let profile: any = null;
+      try {
+        const { data } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", supaUserId)
+          .single();
+        profile = data;
+      } catch {}
 
-      const wa = cleanWa(waFromProfile || profile?.whatsapp || profile?.ownerWhatsapp || whatsapp || existing?.ownerWhatsapp || existing?.whatsapp || "");
-      const role = (roleFromProfile || profile?.user_type || profile?.role || existing?.role || "vendeur") as Role;
+      const wa = cle9(
+        waFromProfile ||
+          profile?.whatsapp ||
+          profile?.ownerWhatsapp ||
+          whatsapp ||
+          existing?.ownerWhatsapp ||
+          existing?.whatsapp ||
+          ""
+      );
+      const role = normaliserRole(
+        roleFromProfile ||
+          profile?.user_type ||
+          profile?.role ||
+          existing?.role ||
+          "vendeur"
+      );
 
       const wenzeUser = {
         id: supaUserId,
         ownerWhatsapp: wa,
         whatsapp: wa,
         telephone: wa,
-        email,
-        role,
-        user_type: role,
+        email: userEmail,
+        role: role === "dg" ? "vendeur" : role,
+        user_type: role === "dg" ? "vendeur" : role,
         createdAt: profile?.created_at || existing?.createdAt || now,
         updatedAt: now,
-        badge: (ROLES[role] as any)?.badge || "🛍️",
         isCache: false,
+        is_visible: true,
         ownerId: supaUserId,
-        // V6 sync pour paiement.ts
         palierId: existing?.palierId || null,
         palierExpireAt: existing?.palierExpireAt || null,
       };
 
-      localStorage.setItem("wenze_user", JSON.stringify(wenzeUser));
-
-      // Sync all_users pour recherche
-      try{
-        const allRaw = localStorage.getItem("wenze_all_users");
-        const all = allRaw ? JSON.parse(allRaw) : [];
-        const idx = all.findIndex((u:any)=> cleanWa(u.ownerWhatsapp||u.whatsapp)===wa || u.id===supaUserId);
-        if(idx>=0) all[idx]= { ...all[idx], ...wenzeUser };
-        else all.push(wenzeUser);
-        localStorage.setItem("wenze_all_users", JSON.stringify(all.slice(0,500)));
-      }catch{}
+      if (typeof window !== "undefined") {
+        localStorage.setItem("wenze_user", JSON.stringify(wenzeUser));
+        try {
+          const allRaw = localStorage.getItem("wenze_all_users");
+          const all = allRaw ? JSON.parse(allRaw) : [];
+          const arr = Array.isArray(all) ? all : [];
+          const idx = arr.findIndex(
+            (u: any) =>
+              cle9(u.ownerWhatsapp || u.whatsapp) === wa || u.id === supaUserId
+          );
+          if (idx >= 0) arr[idx] = { ...arr[idx], ...wenzeUser };
+          else arr.push(wenzeUser);
+          localStorage.setItem("wenze_all_users", JSON.stringify(arr.slice(0, 500)));
+        } catch {}
+      }
 
       return wenzeUser;
-    }catch(e){
-      console.error("syncWenzeUser error", e);
+    } catch {
       return null;
     }
-  }
+  };
 
   const handleAuth = async () => {
-    if (!email || !password) { 
-      alert('❌ Remplis email et mot de passe'); 
-      return; 
-    }
-    if(!isLogin && !whatsapp){
-      alert('❌ Remplis WhatsApp (ex: 243970000000) - Obligatoire pour suivi compte V6 ownerWhatsapp');
+    if (loading) return;
+    setErreur("");
+    setInfoMsg("");
+
+    const emailPropre = email.trim();
+    const waDigits = cle9(whatsapp);
+
+    if (!emailPropre || !password) {
+      setErreur("Veuillez renseigner votre e-mail et votre mot de passe.");
       return;
     }
-    setLoading(true)
-    
+    if (!isLogin && waDigits.length < 9) {
+      setErreur(
+        "Numéro WhatsApp requis (ex. : 243970000000 ou 0825000000)."
+      );
+      return;
+    }
+
+    setLoading(true);
+
     try {
       if (isLogin) {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-        if (error) throw error
-        
-        // V6: Récup profil complet avec role + whatsapp + 2FA
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', data.user.id).single()
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: emailPropre,
+          password,
+        });
+        if (error) throw error;
+        if (!data.user) throw new Error("Utilisateur introuvable.");
 
-        const role = (profile?.user_type || profile?.role || "vendeur") as Role;
+        let profile: any = null;
+        try {
+          const { data: p } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", data.user.id)
+            .single();
+          profile = p;
+        } catch {}
+
+        const role = normaliserRole(profile?.user_type || profile?.role || "vendeur");
         setUserRole(role);
 
-        // DG 2FA check V6
-        if(role==="dg" || (ROLES[role] as any)?.need2FA){
-          // Si 2FA pas encore vérifié, demande code
-          if(!show2FA){
-            setShow2FA(true);
+        if (role === "dg") {
+          if (!showDgPin) {
+            setShowDgPin(true);
             setLoading(false);
-            return; // attend code
-          }
-          // Vérifie code (simple: 6 chiffres = date du jour JJMM + 2 derniers whatsapp, ou 123456 en dev)
-          if(code2FA!=="123456" && code2FA!==new Date().toISOString().slice(8,10)+new Date().toISOString().slice(5,7)+"00"){
-            // En prod: vérifie via table 2fa_codes
-            // Pour demo, accepte 123456
-            if(code2FA.length<6){
-              alert("Code 2FA DG requis - 6 chiffres");
-              setLoading(false);
-              return;
-            }
-          }
-        }
-
-        const wenzeUser = await syncWenzeUser(data.user.id, email, role, profile?.whatsapp);
-
-        // V6: Check suivi compte caché
-        try{
-          const { verifierAbonnement } = require("@/lib/paiement");
-          const ab = verifierAbonnement();
-          if(ab.isCache){
-            alert(`🔒 Compte caché - Freemium 30j expiré - ${ab.message} - Redirigé vers abonnement`);
-            router.push('/abonnement?reason=cache&wa='+cleanWa(wenzeUser?.ownerWhatsapp||""));
             return;
           }
-        }catch{}
-
-        // Vérifie si onboarding fait
-        if (!profile?.user_type) {
-          router.push('/onboarding')
-        } else {
-          // V6: redirige selon rôle + état paiement
-          if(role==="dg"){
-            router.push('/dg');
-          }else if(role==="superviseur"){
-            router.push('/superviseur');
-          }else{
-            router.push('/')
+          const pinOk =
+            typeof verifierPinDG === "function"
+              ? Boolean(verifierPinDG(dgPinInput.trim()))
+              : false;
+          if (!pinOk) {
+            tracerAuthJournal("AUTH_ECHEC", "dg", waDigits || cle9(profile?.whatsapp), "PIN DG invalide");
+            setErreur("Code PIN Bureau DG invalide.");
+            setLoading(false);
+            return;
           }
+          try {
+            sessionStorage.setItem(
+              "wenze_dg_auth",
+              JSON.stringify({
+                role: "dg",
+                roleAdmin: "dg",
+                dgSessionActive: true,
+                whatsapp: cle9(profile?.whatsapp || waDigits),
+                at: Date.now(),
+              })
+            );
+          } catch {}
+          tracerAuthJournal("AUTH_CONNEXION_OK", "dg", cle9(profile?.whatsapp || waDigits));
+          router.push("/dg-prive");
+          return;
+        }
+
+        const wenzeUser = await syncWenzeUser(
+          data.user.id,
+          emailPropre,
+          role,
+          profile?.whatsapp
+        );
+        tracerAuthJournal(
+          "AUTH_CONNEXION_OK",
+          role,
+          cle9(wenzeUser?.ownerWhatsapp || profile?.whatsapp || "")
+        );
+
+        try {
+          const ab: any = verifierAbonnement();
+          if (ab?.isCache) {
+            setInfoMsg(
+              `Offre gratuite expirée (${FREE_DAYS} jours) : compte masqué (is_visible = false). Redirection vers l'abonnement...`
+            );
+            redirectTimerRef.current = setTimeout(() => {
+              router.push(
+                "/abonnement?reason=cache&wa=" +
+                  encodeURIComponent(wenzeUser?.ownerWhatsapp || "")
+              );
+            }, 900);
+            return;
+          }
+        } catch {}
+
+        if (!profile?.user_type) {
+          router.push("/onboarding");
+        } else {
+          router.push("/");
         }
       } else {
-        // SIGNUP
-        const { data, error } = await supabase.auth.signUp({ email, password })
-        if (error) throw error
-        if(!data.user) throw new Error("Erreur création compte");
-
-        // Crée profil avec whatsapp + role vendeur par défaut V6
-        await supabase.from('profiles').insert({
-          id: data.user.id,
-          email,
-          whatsapp: cleanWa(whatsapp),
-          ownerWhatsapp: cleanWa(whatsapp),
-          user_type: "vendeur",
-          role: "vendeur",
-          created_at: new Date().toISOString(),
-          badge: "🛍️",
+        const { data, error } = await supabase.auth.signUp({
+          email: emailPropre,
+          password,
         });
+        if (error) throw error;
+        if (!data.user) throw new Error("Erreur lors de la création du compte.");
 
-        await syncWenzeUser(data.user.id, email, "vendeur", whatsapp);
+        const now = new Date().toISOString();
+        try {
+          await supabase.from("profiles").insert({
+            id: data.user.id,
+            email: emailPropre,
+            whatsapp: waDigits,
+            ownerWhatsapp: waDigits,
+            user_type: "vendeur",
+            role: "vendeur",
+            is_visible: true,
+            created_at: now,
+          });
+        } catch {}
 
-        alert("✅ Compte créé - Freemium 3 images à vie strictes 30j puis caché - Vérifie email");
-        router.push('/onboarding')
+        await syncWenzeUser(data.user.id, emailPropre, "vendeur", waDigits);
+        tracerAuthJournal("AUTH_INSCRIPTION_OK", "vendeur", waDigits);
+
+        setInfoMsg(
+          `Compte créé • Freemium : ${MAX_FREE_IMAGES} images max / ${FREE_DAYS} jours puis is_visible = false • 0 % commission.`
+        );
+        redirectTimerRef.current = setTimeout(() => {
+          router.push("/onboarding");
+        }, 900);
       }
-    } catch (e:any) {
-      console.error(e);
-      alert('❌ Erreur auth V6: '+(e.message||'Inconnue')+' - Vérifie email/mdp + Supabase profiles RLS');
+    } catch (e: any) {
+      tracerAuthJournal("AUTH_ECHEC", isLogin ? "connexion" : "inscription", waDigits);
+      setErreur(e?.message || "Erreur d'authentification.");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-white flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-orange-100 p-6">
+    <div className="min-h-screen bg-gradient-to-br from-[#FFFBF0] to-white flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-gray-200 p-6">
         <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold">TonMarché.cd</h1>
-          <p className="text-xs text-gray-500 mt-1">V6.1 STRICT MULTI-TICKETS - Même prix pour tous - Taux 2300 - 0% comm - Max 50 - Suppression libère place</p>
-          <div className="mt-2 text-[11px] bg-orange-50 p-2 rounded">
-            🆓 Freemium 3 images à vie 30j puis caché | ⭐ STANDARD 5$/30j 4 places strictes | 🚀 PRO 10$ 10 places | 👑 PREMIUM 20$ 30 places | 🎟️ OCC 0.2$/j
+          <h1 className="text-2xl font-black">
+            WENZE WENZE<span className="text-[#FF6B00]">.</span>
+          </h1>
+          <p className="text-xs text-gray-500 mt-1">
+            Kinshasa • 0 % commission • Taux {TAUX_CDF} CDF/$ • Max{" "}
+            {PLAFOND_ACTIVES} annonces actives
+          </p>
+          <div className="mt-2 text-[11px] bg-[#FFFBF0] border p-2.5 rounded-xl text-gray-700">
+            Freemium : <b>{MAX_FREE_IMAGES} images max / {FREE_DAYS} jours</b>{" "}
+            puis masquage (<b>is_visible = false</b>) • Tarif minimum{" "}
+            <b>{usd(1)}</b> ({toCDFString(1)})
           </div>
         </div>
 
         <div className="flex bg-gray-100 rounded-full p-1 mb-6">
-          <button onClick={()=>{setIsLogin(true); setShow2FA(false);}} className={`flex-1 py-2 rounded-full text-sm font-medium ${isLogin?'bg-white shadow':''}`}>Connexion</button>
-          <button onClick={()=>{setIsLogin(false); setShow2FA(false);}} className={`flex-1 py-2 rounded-full text-sm font-medium ${!isLogin?'bg-white shadow':''}`}>Inscription</button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsLogin(true);
+              setShowDgPin(false);
+              setErreur("");
+            }}
+            className={`flex-1 py-2 rounded-full text-sm font-bold ${
+              isLogin ? "bg-white shadow" : "text-gray-600"
+            }`}
+          >
+            Connexion
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsLogin(false);
+              setShowDgPin(false);
+              setErreur("");
+            }}
+            className={`flex-1 py-2 rounded-full text-sm font-bold ${
+              !isLogin ? "bg-white shadow" : "text-gray-600"
+            }`}
+          >
+            Inscription
+          </button>
         </div>
 
         <div className="space-y-3">
-          <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="Email" type="email" className="w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-400 outline-none" />
-          {!isLogin && (
-            <input value={whatsapp} onChange={e=>setWhatsapp(e.target.value)} placeholder="WhatsApp 243970000000 (ownerWhatsapp V6)" type="tel" className="w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-400 outline-none" />
-          )}
-          <input value={password} onChange={e=>setPassword(e.target.value)} placeholder="Mot de passe" type="password" className="w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-orange-400 outline-none" />
-          
-          {show2FA && (
-            <div className="bg-red-50 border border-red-200 rounded-xl p-3">
-              <p className="text-xs font-bold text-red-700 mb-2">🔐 2FA DG requis - Code 6 chiffres (demo: 123456)</p>
-              <input value={code2FA} onChange={e=>setCode2FA(e.target.value)} placeholder="Code 2FA DG" className="w-full border rounded-xl px-4 py-2 text-sm" />
-              <p className="text-[10px] text-gray-500 mt-1">V6 Sécurité: dg.need2FA=true - En prod vérifie table supabase 2fa_codes</p>
-            </div>
-          )}
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Adresse e-mail"
+            type="email"
+            className="w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black outline-none"
+          />
+          {!isLogin ? (
+            <input
+              value={whatsapp}
+              onChange={(e) => setWhatsapp(e.target.value)}
+              placeholder="WhatsApp (ex. : 243970000000 ou 0825000000)"
+              type="tel"
+              className="w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black outline-none"
+            />
+          ) : null}
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Mot de passe"
+            type="password"
+            onKeyDown={(e) => e.key === "Enter" && handleAuth()}
+            className="w-full border rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-black outline-none"
+          />
 
-          <button onClick={handleAuth} disabled={loading} className="w-full bg-black text-white rounded-xl py-3 text-sm font-bold disabled:opacity-50">
-            {loading ? 'Chargement V6...' : isLogin ? (show2FA ? 'Vérifier 2FA + Connexion' : 'Se connecter') : 'Créer compte Freemium 3 images'}
+          {showDgPin ? (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3">
+              <p className="text-xs font-bold text-red-700 mb-2">
+                🔐 Vérification isolée Bureau DG (PIN requis)
+              </p>
+              <input
+                value={dgPinInput}
+                onChange={(e) => setDgPinInput(e.target.value)}
+                type="password"
+                placeholder="Code PIN Bureau DG"
+                className="w-full border rounded-xl px-4 py-2 text-sm bg-white"
+              />
+            </div>
+          ) : null}
+
+          {erreur ? (
+            <div
+              role="alert"
+              className="bg-red-50 border border-red-200 text-red-700 text-xs font-bold p-3 rounded-xl"
+            >
+              {erreur}
+            </div>
+          ) : null}
+
+          {infoMsg ? (
+            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold p-3 rounded-xl">
+              {infoMsg}
+            </div>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={handleAuth}
+            disabled={loading}
+            className="w-full bg-black text-white rounded-xl py-3 text-sm font-bold disabled:opacity-50"
+          >
+            {loading
+              ? "Vérification..."
+              : isLogin
+              ? showDgPin
+                ? "Valider PIN & ouvrir Bureau DG"
+                : "Se connecter"
+              : "Créer mon compte"}
           </button>
 
-          {userRole && (
-            <p className="text-[11px] text-center text-gray-600">Rôle détecté: {(ROLES[userRole] as any)?.badge} {userRole} - {userRole==="dg"?"AllAccess + 2FA":"Même prix pour tous"}</p>
-          )}
+          {userRole ? (
+            <p className="text-[11px] text-center text-gray-600">
+              Rôle : <b>{userRole}</b> • 0 % commission
+            </p>
+          ) : null}
         </div>
 
-        <div className="mt-6 text-[10px] text-gray-400 text-center">
-          V6 Sécurité: ownerWhatsapp sync + isOwner + compte caché filtré + max 50 + suppression libère place + tickets stricts cumulables<br/>
-          DG: need2FA + allAccess - Superviseur: canCreateAmbassadeur - Ambassadeur: hasCodeParrainage
+        <div className="mt-6 text-[10px] text-gray-400 text-center leading-relaxed">
+          Wenze Wenze • 0 % commission • Max {PLAFOND_ACTIVES} annonces actives
+          • Invitations réservées aux clients, boutiques et prestataires.
         </div>
       </div>
     </div>
-  )
-}
-
-function cleanWa(n:any){ return (n||"").toString().replace(/[^0-9]/g,""); }
+  );
+ }
