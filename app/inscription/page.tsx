@@ -17,6 +17,76 @@ export const dynamic = "force-dynamic";
 
 type TypeComptePublic = "client" | "vendeur" | "grossiste" | "prestataire";
 
+const PAYS_LISTE = [
+  "République Démocratique du Congo (RDC)",
+  "République du Congo (Brazzaville)",
+  "Angola",
+  "Rwanda",
+  "Burundi",
+  "Ouganda",
+  "Zambie",
+  "Tanzanie",
+  "Kenya",
+  "Afrique du Sud",
+  "Autre pays",
+];
+
+const PROVINCES_RDC_26 = [
+  "Kinshasa",
+  "Bas-Uele",
+  "Équateur",
+  "Haut-Katanga",
+  "Haut-Lomami",
+  "Haut-Uele",
+  "Ituri",
+  "Kasaï",
+  "Kasaï-Central",
+  "Kasaï-Oriental",
+  "Kongo-Central",
+  "Kwango",
+  "Kwilu",
+  "Lomami",
+  "Lualaba",
+  "Mai-Ndombe",
+  "Maniema",
+  "Mongala",
+  "Nord-Kivu",
+  "Nord-Ubangi",
+  "Sankuru",
+  "Sud-Kivu",
+  "Sud-Ubangi",
+  "Tanganyika",
+  "Tshopo",
+  "Tshuapa",
+];
+
+const COMMUNES_KINSHASA_24 = [
+  "Bandalungwa",
+  "Barumbu",
+  "Bumbu",
+  "Gombe",
+  "Kalamu",
+  "Kasa-Vubu",
+  "Kimbanseke",
+  "Kinshasa",
+  "Kintambo",
+  "Kisenso",
+  "Lemba",
+  "Limete",
+  "Lingwala",
+  "Makala",
+  "Maluku",
+  "Masina",
+  "Matete",
+  "Mont-Ngafula",
+  "Ndjili",
+  "Ngaba",
+  "Ngaliema",
+  "Ngiri-Ngiri",
+  "Nsele",
+  "Selembao",
+];
+
 const ACTIVITES_PAR_TYPE: Record<
   Exclude<TypeComptePublic, "client">,
   string[]
@@ -64,7 +134,10 @@ async function hashOtp(code: string, wa: string): Promise<string> {
 }
 
 function journaliserInscription(
-  action: "INSCRIPTION_OTP_ENVOYE" | "INSCRIPTION_OTP_VALIDE" | "INSCRIPTION_TERMINEE",
+  action:
+    | "INSCRIPTION_OTP_ENVOYE"
+    | "INSCRIPTION_OTP_VALIDE"
+    | "INSCRIPTION_TERMINEE",
   wa: string,
   detail?: string
 ) {
@@ -98,11 +171,18 @@ function InscriptionContent() {
   const [nomPrenom, setNomPrenom] = useState("");
   const [nomProfilPublic, setNomProfilPublic] = useState("");
   const [activite, setActivite] = useState("");
+
+  // Localisation détaillée
+  const [pays, setPays] = useState("République Démocratique du Congo (RDC)");
+  const [province, setProvince] = useState("Kinshasa");
+  const [communeKin, setCommuneKin] = useState("Gombe");
+  const [communeOuVillage, setCommuneOuVillage] = useState("");
+  const [quartier, setQuartier] = useState("");
+
   const [gmail, setGmail] = useState(sp.get("email") || "");
   const [codeAmbassadeur, setCodeAmbassadeur] = useState(
     sp.get("amb") || sp.get("invite") || ""
   );
-  const [commune, setCommune] = useState("Gombe");
 
   const [toast, setToast] = useState("");
   const [erreur, setErreur] = useState("");
@@ -113,6 +193,9 @@ function InscriptionContent() {
   const plafondActives = Math.min(50, Number(MAX_ANNONCES_ACTIVES || 50));
   const maxFreeImages = Math.min(3, Number(FREEMIUM?.maxImages || 3));
   const freeDays = Number(FREEMIUM?.dureeJours || 30);
+
+  const estRDC = pays === "République Démocratique du Congo (RDC)";
+  const estKinshasa = estRDC && province === "Kinshasa";
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -136,7 +219,6 @@ function InscriptionContent() {
     }, 1000);
   };
 
-  // ÉTAPE 1 -> ÉTAPE 2 : Envoi code authentification
   const handleEnvoyerCode = async () => {
     setErreur("");
     const telClean = cle9(telephone);
@@ -169,7 +251,6 @@ function InscriptionContent() {
     showToast(`Code d'authentification envoyé au 0${telClean.slice(-9)}.`);
   };
 
-  // ÉTAPE 2 -> ÉTAPE 3 : Vérification code puis ouverture fenêtre activité
   const handleValiderOtp = async () => {
     setErreur("");
     const stored = JSON.parse(localStorage.getItem("wenze_reg_otp") || "{}");
@@ -202,7 +283,6 @@ function InscriptionContent() {
     setEtape("activite");
   };
 
-  // Sélection du type de compte dans la fenêtre activité
   const choisirTypeCompte = (nouveauType: TypeComptePublic) => {
     setTypeCompte(nouveauType);
     setErreur("");
@@ -214,7 +294,6 @@ function InscriptionContent() {
     }
   };
 
-  // ÉTAPE 3 : Finalisation du compte
   const handleFinaliserInscription = async (e: React.FormEvent) => {
     e.preventDefault();
     setErreur("");
@@ -246,6 +325,24 @@ function InscriptionContent() {
       return;
     }
 
+    const communeFinale = estKinshasa
+      ? communeKin
+      : communeOuVillage.trim();
+
+    if (!communeFinale) {
+      setErreur(
+        estKinshasa
+          ? "Sélectionne ta commune à Kinshasa."
+          : "Indique ta commune, ville, territoire ou village."
+      );
+      return;
+    }
+
+    if (!quartier.trim()) {
+      setErreur("Indique ton quartier.");
+      return;
+    }
+
     const emailPropre = gmail.trim().toLowerCase();
     if (emailPropre && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailPropre)) {
       setErreur("L'adresse Gmail facultative n'est pas valide.");
@@ -258,6 +355,7 @@ function InscriptionContent() {
       const nomAfficheProfil =
         typeCompte === "client" ? nomPrenom.trim() : nomProfilPublic.trim();
       const codeAmbPropre = codeAmbassadeur.trim().toUpperCase();
+      const provinceFinale = estRDC ? province : pays;
 
       const nouveauMembre = {
         id: `usr_${telClean}_${Date.now()}`,
@@ -272,7 +370,10 @@ function InscriptionContent() {
         ownerWhatsapp: telClean,
         email: emailPropre || undefined,
         code_amb: codeAmbPropre || undefined,
-        commune,
+        pays,
+        province: provinceFinale,
+        commune: communeFinale,
+        quartier: quartier.trim(),
         whatsappVerified: true,
         is_visible: true,
         createdAt: nowIso,
@@ -303,7 +404,10 @@ function InscriptionContent() {
           ownerWhatsapp: telClean,
           role: typeCompte,
           activite: activite.trim(),
-          commune,
+          pays,
+          province: provinceFinale,
+          commune: communeFinale,
+          quartier: quartier.trim(),
           code_amb: codeAmbPropre || undefined,
           statut: "ACTIF",
           is_visible: true,
@@ -314,7 +418,7 @@ function InscriptionContent() {
       journaliserInscription(
         "INSCRIPTION_TERMINEE",
         telClean,
-        `role:${typeCompte};activite:${activite || "client"}`
+        `role:${typeCompte};prov:${provinceFinale};commune:${communeFinale};quartier:${quartier.trim()}`
       );
 
       showToast(`Compte ${nomAfficheProfil} créé avec succès !`);
@@ -356,7 +460,7 @@ function InscriptionContent() {
             ? "Ton numéro de téléphone"
             : etape === "auth"
             ? "Authentification du numéro"
-            : "Choisis ton activité"}
+            : "Ton activité & localisation"}
         </h1>
         <p className="mt-1 text-[11px] text-white/75">
           0 % commission • {maxFreeImages} images max / {freeDays}j puis{" "}
@@ -454,15 +558,16 @@ function InscriptionContent() {
         </div>
       )}
 
-      {/* ÉTAPE 3 : FENÊTRE CHOIX D'ACTIVITÉ ET COORDONNÉES */}
+      {/* ÉTAPE 3 : FENÊTRE CHOIX D'ACTIVITÉ, LOCALISATION ET COORDONNÉES */}
       {etape === "activite" && (
         <form
           onSubmit={handleFinaliserInscription}
           className="mt-4 rounded-3xl border border-gray-200 bg-white p-5 space-y-4"
         >
+          {/* TYPE DE COMPTE */}
           <div>
             <p className="text-[11px] font-bold uppercase text-gray-600">
-              Précise ton activité
+              Précise ton activité *
             </p>
             <div className="mt-2 grid grid-cols-2 gap-2">
               <button
@@ -539,6 +644,27 @@ function InscriptionContent() {
                     typeCompte === "prestataire"
                       ? "text-white/75"
                       : "text-gray-500"
+          }`}
+                >
+                  Vente & prix gros
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => choisirTypeCompte("prestataire")}
+                className={`rounded-2xl border p-3 text-left transition ${
+                  typeCompte === "prestataire"
+                    ? "border-black bg-black text-white"
+                    : "border-gray-200 bg-[#FAFAFA] text-black"
+                }`}
+              >
+                <div className="text-xs font-black">🛠️ Prestataire</div>
+                <div
+                  className={`text-[10px] ${
+                    typeCompte === "prestataire"
+                      ? "text-white/75"
+                      : "text-gray-500"
                   }`}
                 >
                   Proposer un service
@@ -547,7 +673,7 @@ function InscriptionContent() {
             </div>
           </div>
 
-          {/* CHAMPS COMMUNS : NOM & PRÉNOM */}
+          {/* NOM & PRÉNOM */}
           <div>
             <label
               htmlFor="nom-prenom"
@@ -588,7 +714,7 @@ function InscriptionContent() {
                     typeCompte === "vendeur"
                       ? "Ex: Boutique Bilamba Gombe"
                       : typeCompte === "grossiste"
-                ? "Ex: Dépôt Central Kinshasa"
+                      ? "Ex: Dépôt Central Kinshasa"
                       : "Ex: Salon Éclat Lemba"
                   }
                   className="mt-1.5 w-full rounded-2xl border border-gray-200 bg-[#FAFAFA] px-3.5 py-2.5 text-sm text-black outline-none focus:border-black"
@@ -600,7 +726,7 @@ function InscriptionContent() {
                   htmlFor="activite-select"
                   className="block text-[11px] font-bold uppercase text-gray-600"
                 >
-                  Activité *
+                  Domaine d&apos;activité *
                 </label>
                 <select
                   id="activite-select"
@@ -618,30 +744,122 @@ function InscriptionContent() {
             </>
           )}
 
-          {/* COMMUNE KINSHASA */}
-          <div>
-            <label
-              htmlFor="commune-select"
-              className="block text-[11px] font-bold uppercase text-gray-600"
-            >
-              Commune (Kinshasa)
-            </label>
-            <select
-              id="commune-select"
-              value={commune}
-              onChange={(e) => setCommune(e.target.value)}
-              className="mt-1.5 w-full rounded-2xl border border-gray-200 bg-[#FAFAFA] px-3.5 py-2.5 text-sm text-black outline-none focus:border-black"
-            >
-              <option value="Gombe">Gombe</option>
-              <option value="Ngaliema">Ngaliema</option>
-              <option value="Lemba">Lemba</option>
-              <option value="Kalamu">Kalamu</option>
-              <option value="Matete">Matete</option>
-              <option value="Masina">Masina</option>
-              <option value="Limete">Limete</option>
-              <option value="Bandalungwa">Bandalungwa</option>
-              <option value="Kasa-Vubu">Kasa-Vubu</option>
-            </select>
+          {/* BLOC LOCALISATION PRÉCISE */}
+          <div className="rounded-2xl border border-gray-200 bg-[#FFFBF0] p-3.5 space-y-3">
+            <p className="text-[11px] font-black uppercase text-black">
+              📍 Localisation précise
+            </p>
+
+            {/* 1. PAYS */}
+            <div>
+              <label
+                htmlFor="pays-select"
+                className="block text-[11px] font-bold uppercase text-gray-600"
+              >
+                Pays *
+              </label>
+              <select
+                id="pays-select"
+                value={pays}
+                onChange={(e) => {
+                  setPays(e.target.value);
+                  setErreur("");
+                }}
+                className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-black"
+              >
+                {PAYS_LISTE.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* 2. PROVINCE (26 PROVINCES RDC) */}
+            {estRDC && (
+              <div>
+                <label
+                  htmlFor="province-select"
+                  className="block text-[11px] font-bold uppercase text-gray-600"
+                >
+                  Province (26 provinces RDC) *
+                </label>
+                <select
+                  id="province-select"
+                  value={province}
+                  onChange={(e) => {
+                    setProvince(e.target.value);
+                    setErreur("");
+                  }}
+                  className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-black"
+                >
+                  {PROVINCES_RDC_26.map((prov) => (
+                    <option key={prov} value={prov}>
+                      {prov}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* 3. COMMUNE (24 COMMUNES DE KINSHASA) OU VILLAGE/VILLE */}
+            {estKinshasa ? (
+              <div>
+                <label
+                  htmlFor="commune-kin-24"
+                  className="block text-[11px] font-bold uppercase text-gray-600"
+                >
+                  Commune de Kinshasa (24 communes) *
+                </label>
+                <select
+                  id="commune-kin-24"
+                  value={communeKin}
+                  onChange={(e) => setCommuneKin(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-black"
+                >
+                  {COMMUNES_KINSHASA_24.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div>
+                <label
+                  htmlFor="commune-village-input"
+                  className="block text-[11px] font-bold uppercase text-gray-600"
+                >
+                  Commune, ville, territoire ou village *
+                </label>
+                <input
+                  id="commune-village-input"
+                  type="text"
+                  value={communeOuVillage}
+                  onChange={(e) => setCommuneOuVillage(e.target.value)}
+                  placeholder="Ex: Matadi, Lubumbashi, Mbanza-Ngungu, village..."
+                  className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-black"
+                />
+              </div>
+            )}
+
+            {/* 4. QUARTIER */}
+            <div>
+              <label
+                htmlFor="quartier-input"
+                className="block text-[11px] font-bold uppercase text-gray-600"
+              >
+                Quartier *
+              </label>
+              <input
+                id="quartier-input"
+                type="text"
+                value={quartier}
+                onChange={(e) => setQuartier(e.target.value)}
+                placeholder="Ex: Quartier Salongo, Matonge, GB, Binza..."
+                className="mt-1 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-black outline-none focus:border-black"
+              />
+            </div>
           </div>
 
           {/* GMAIL FACULTATIF */}
