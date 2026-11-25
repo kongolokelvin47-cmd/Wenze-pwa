@@ -1,464 +1,700 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, Suspense, useRef } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { cle9 } from "@/lib/connexion";
-import { COMMUNES_KINSHASA } from "@/lib/zones";
 import {
   TAUX_CDF,
   FREEMIUM,
   MAX_ANNONCES_ACTIVES,
   toCDFString,
   usd,
-} from "@/lib/paiement";
+} from "@/lib/paiement-base";
+import { enregistrerBoutiqueEtNotifierDG } from "@/lib/boutiques-dg";
 
 export const dynamic = "force-dynamic";
 
-const PLAFOND_ACTIVES = Math.min(50, Number(MAX_ANNONCES_ACTIVES || 50));
-const MAX_FREE_IMAGES = Math.min(3, Number(FREEMIUM?.maxImages || 3));
-const FREE_DAYS = Number(FREEMIUM?.dureeJours || 30);
+type TypeComptePublic = "client" | "vendeur" | "grossiste" | "prestataire";
 
-const safeGet = (k: string) => {
-  try {
-    return typeof window !== "undefined" ? localStorage.getItem(k) : null;
-  } catch {
-    return null;
-  }
+const ACTIVITES_PAR_TYPE: Record<
+  Exclude<TypeComptePublic, "client">,
+  string[]
+> = {
+  vendeur: [
+    "Habillement & Mode",
+    "Alimentation générale",
+    "Téléphones & Électronique",
+    "Beauté & Cosmétique",
+    "Maison & Décoration",
+    "Quincaillerie",
+    "Autre commerce",
+  ],
+  grossiste: [
+    "Alimentation en gros",
+    "Habillement & Friperie en gros",
+    "Boissons & Vivres frais",
+    "Cosmétiques en gros",
+    "Matériaux & Quincaillerie en gros",
+    "Électronique en gros",
+    "Autre gros",
+  ],
+  prestataire: [
+    "Coiffure & Esthétique",
+    "Couture & Retouches",
+    "Réparation & Dépannage",
+    "Transport & Livraison",
+    "Restauration & Traiteur",
+    "Informatique & Graphisme",
+    "Autre prestation",
+  ],
 };
 
-const safeSet = (k: string, v: string) => {
+async function hashOtp(code: string, wa: string): Promise<string> {
   try {
-    if (typeof window !== "undefined") localStorage.setItem(k, v);
+    if (typeof window !== "undefined" && window.crypto?.subtle) {
+      const data = new TextEncoder().encode(`${wa}:${code}`);
+      const buf = await window.crypto.subtle.digest("SHA-256", data);
+      return Array.from(new Uint8Array(buf))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    }
   } catch {}
-};
+  return `${wa}:${code}`;
+}
 
-const readList = (k: string): any[] => {
-  try {
-    const raw = safeGet(k);
-    if (!raw) return [];
-    const v = JSON.parse(raw);
-    return Array.isArray(v) ? v : [];
-  } catch {
-    return [];
-  }
-};
-
-function tracerInscriptionJournal(
-  action: "INSCRIPTION_CREEE" | "INVITATION_VALIDEE",
-  role: string,
-  waDigits: string,
+function journaliserInscription(
+  action: "INSCRIPTION_OTP_ENVOYE" | "INSCRIPTION_OTP_VALIDE" | "INSCRIPTION_TERMINEE",
+  wa: string,
   detail?: string
 ) {
   try {
-    const arr = readList("wenze_journal");
+    if (typeof window === "undefined") return;
+    const raw = localStorage.getItem("wenze_journal");
+    const list = raw ? JSON.parse(raw) : [];
+    const arr = Array.isArray(list) ? list : [];
     arr.push({
       id: "jrn_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
       action,
-      role,
-      acteurWhatsapp: waDigits,
+      acteurWhatsapp: cle9(wa),
       detail: detail || "",
       createdAt: new Date().toISOString(),
     });
-    safeSet("wenze_journal", JSON.stringify(arr.slice(-500)));
+    localStorage.setItem("wenze_journal", JSON.stringify(arr.slice(-500)));
   } catch {}
 }
 
 function InscriptionContent() {
-  const sp = useSearchParams();
   const router = useRouter();
+  const sp = useSearchParams();
 
-  const inviteParam = sp.get("invite") || "";
-  const parrainParam = sp.get("parrain") || "";
-  const codeParam = sp.get("code") || "";
-  const typeParamRaw = (sp.get("type") || "boutique").toLowerCase();
-  const typeParam: "boutique" | "client" | "prestataire" =
-    typeParamRaw === "client"
-      ? "client"
-      : typeParamRaw === "prestataire"
-      ? "prestataire"
-      : "boutique";
+  const [etape, setEtape] = useState<"numero" | "auth" | "activite">("numero");
+  const [telephone, setTelephone] = useState(sp.get("tel") || "");
+  const [otp, setOtp] = useState("");
+  const [essais, setEssais] = useState(0);
+  const [tempsRestant, setTempsRestant] = useState(120);
 
-  const [typeCompte, setTypeCompte] = useState<
-    "boutique" | "client" | "prestataire"
-  >(typeParam);
-  const [nom, setNom] = useState("");
-  const [marque, setMarque] = useState("");
-  const [whatsapp, setWhatsapp] = useState(inviteParam || "");
+  const [typeCompte, setTypeCompte] = useState<TypeComptePublic>("client");
+  const [nomPrenom, setNomPrenom] = useState("");
+  const [nomProfilPublic, setNomProfilPublic] = useState("");
+  const [activite, setActivite] = useState("");
+  const [gmail, setGmail] = useState(sp.get("email") || "");
+  const [codeAmbassadeur, setCodeAmbassadeur] = useState(
+    sp.get("amb") || sp.get("invite") || ""
+  );
   const [commune, setCommune] = useState("Gombe");
-  const [email, setEmail] = useState("");
-  const [codeInvitation, setCodeInvitation] = useState(codeParam || "");
+
   const [toast, setToast] = useState("");
   const [erreur, setErreur] = useState("");
-  const [parrainInfo, setParrainInfo] = useState<any>(null);
+  const [chargement, setChargement] = useState(false);
 
-  useEffect(() => {
-    const pWa = cle9(parrainParam);
-    const cInv = codeParam.trim().toUpperCase();
-    if (!pWa && !cInv) return;
+  const timerRef = useRef<any>(null);
 
-    try {
-      const all = readList("wenze_all_users");
-      const parrain = all.find((u: any) => {
-        const uRole = String(u?.role || u?.user_type || "").toLowerCase();
-        if (uRole === "ambassadeur" || uRole === "superviseur" || uRole === "dg") {
-          return false;
-        }
-        const uWa = cle9(u?.ownerWhatsapp || u?.whatsapp);
-        return (
-          (pWa && uWa === pWa) ||
-          (cInv && String(u?.myInviteCode || "").toUpperCase() === cInv)
-        );
-      });
+  const plafondActives = Math.min(50, Number(MAX_ANNONCES_ACTIVES || 50));
+  const maxFreeImages = Math.min(3, Number(FREEMIUM?.maxImages || 3));
+  const freeDays = Number(FREEMIUM?.dureeJours || 30);
 
-      if (parrain) {
-        const nomP =
-          parrain.nomEtablissement ||
-          parrain.boutiqueName ||
-          parrain.name ||
-          `Membre ${cle9(parrain.ownerWhatsapp || parrain.whatsapp).slice(-4)}`;
-        setParrainInfo({
-          ...parrain,
-          nomAffiche: nomP,
-          wa: cle9(parrain.ownerWhatsapp || parrain.whatsapp),
-        });
-      } else if (pWa) {
-        setParrainInfo({
-          nomAffiche: `Membre ${pWa.slice(-4)}`,
-          wa: pWa,
-          code: cInv || pWa,
-        });
-      }
-    } catch {}
-  }, [parrainParam, codeParam]);
-
-  const getBoutiqueIdentite = (n: string, m: string) => {
-    const base = n.replace(/^Boutiques\s*/i, "").trim() || "Boutique";
-    const marq = m.trim() || "Commerce général";
-    return `Boutiques ${base} (${marq})`;
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(""), 4000);
   };
 
-  const handleCreate = () => {
+  const startTimer = () => {
+    setTempsRestant(120);
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setTempsRestant((t) => {
+        if (t <= 1) {
+          clearInterval(timerRef.current);
+          localStorage.removeItem("wenze_reg_otp");
+          setErreur("Code expiré. Redemande un nouveau code.");
+          setEtape("numero");
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+  };
+
+  // ÉTAPE 1 -> ÉTAPE 2 : Envoi code authentification
+  const handleEnvoyerCode = async () => {
     setErreur("");
-    setToast("");
-
-    const wa = cle9(whatsapp);
-    if (wa.length < 9) {
-      setErreur("Numéro WhatsApp invalide (ex. : 0825000000 ou 243825000000).");
+    const telClean = cle9(telephone);
+    if (telClean.length < 9) {
+      setErreur("Saisis un numéro de téléphone valide (ex: 0825000000).");
       return;
     }
-    if (!nom.trim()) {
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const codeHash = await hashOtp(code, telClean);
+
+    localStorage.setItem(
+      "wenze_reg_otp",
+      JSON.stringify({
+        wa: telClean,
+        codeHash,
+        expires: Date.now() + 120 * 1000,
+      })
+    );
+
+    if (process.env.NODE_ENV !== "production") {
+      console.log("🔐 CODE INSCRIPTION WENZE pour", telClean, ":", code);
+    }
+
+    journaliserInscription("INSCRIPTION_OTP_ENVOYE", telClean);
+    setEssais(0);
+    setOtp("");
+    setEtape("auth");
+    startTimer();
+    showToast(`Code d'authentification envoyé au 0${telClean.slice(-9)}.`);
+  };
+
+  // ÉTAPE 2 -> ÉTAPE 3 : Vérification code puis ouverture fenêtre activité
+  const handleValiderOtp = async () => {
+    setErreur("");
+    const stored = JSON.parse(localStorage.getItem("wenze_reg_otp") || "{}");
+    if (!stored.codeHash || Date.now() > Number(stored.expires || 0)) {
+      localStorage.removeItem("wenze_reg_otp");
+      setErreur("Code expiré. Recommence avec ton numéro.");
+      setEtape("numero");
+      return;
+    }
+
+    const hashSaisi = await hashOtp(otp.trim(), stored.wa);
+    if (hashSaisi !== stored.codeHash) {
+      const nextEssais = essais + 1;
+      setEssais(nextEssais);
+      if (nextEssais >= 3) {
+        localStorage.removeItem("wenze_reg_otp");
+        setErreur("3 essais échoués. Redemande un code.");
+        setEtape("numero");
+        return;
+      }
+      setErreur(`Code incorrect (${3 - nextEssais} essai(s) restant(s)).`);
+      return;
+    }
+
+    if (timerRef.current) clearInterval(timerRef.current);
+    localStorage.removeItem("wenze_reg_otp");
+    journaliserInscription("INSCRIPTION_OTP_VALIDE", stored.wa);
+
+    setTypeCompte("client");
+    setEtape("activite");
+  };
+
+  // Sélection du type de compte dans la fenêtre activité
+  const choisirTypeCompte = (nouveauType: TypeComptePublic) => {
+    setTypeCompte(nouveauType);
+    setErreur("");
+    if (nouveauType !== "client") {
+      const liste = ACTIVITES_PAR_TYPE[nouveauType];
+      setActivite(liste[0] || "");
+    } else {
+      setActivite("");
+    }
+  };
+
+  // ÉTAPE 3 : Finalisation du compte
+  const handleFinaliserInscription = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErreur("");
+
+    const telClean = cle9(telephone);
+    if (telClean.length < 9) {
+      setErreur("Numéro de téléphone invalide.");
+      return;
+    }
+
+    if (!nomPrenom.trim()) {
+      setErreur("Indique ton nom et prénom.");
+      return;
+    }
+
+    if (typeCompte !== "client" && !nomProfilPublic.trim()) {
       setErreur(
-        typeCompte === "boutique"
-          ? "Le nom de la boutique est obligatoire."
-          : typeCompte === "prestataire"
-          ? "Le nom du prestataire ou service est obligatoire."
-          : "Le nom du client est obligatoire."
+        typeCompte === "vendeur"
+          ? "Indique le nom de ta boutique."
+          : typeCompte === "grossiste"
+          ? "Indique le nom de ton établissement grossiste."
+          : "Indique le nom de ton service / enseigne."
       );
       return;
     }
 
-    const hasEmail = Boolean(email && email.includes("@"));
-    const now = new Date().toISOString();
-    const expireFreemiumAt = new Date(
-      Date.now() + FREE_DAYS * 24 * 60 * 60 * 1000
-    ).toISOString();
+    if (typeCompte !== "client" && !activite.trim()) {
+      setErreur("Choisis ton domaine d'activité.");
+      return;
+    }
 
-    const roleFinal =
-      typeCompte === "client"
-        ? "client"
-        : typeCompte === "prestataire"
-        ? "prestataire"
-        : "vendeur";
+    const emailPropre = gmail.trim().toLowerCase();
+    if (emailPropre && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailPropre)) {
+      setErreur("L'adresse Gmail facultative n'est pas valide.");
+      return;
+    }
 
-    const parrainWaClean = cle9(parrainParam || parrainInfo?.wa || "");
-    const myInviteCode = `WENZE-${wa.slice(-4)}`;
+    setChargement(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const nomAfficheProfil =
+        typeCompte === "client" ? nomPrenom.trim() : nomProfilPublic.trim();
+      const codeAmbPropre = codeAmbassadeur.trim().toUpperCase();
 
-    const newUser = {
-      id: wa,
-      ownerWhatsapp: wa,
-      whatsapp: wa,
-      telephone: wa,
-      role: roleFinal,
-      user_type: roleFinal,
-      name: nom.trim(),
-      nom: nom.trim(),
-      nomBoutique: typeCompte === "boutique" ? nom.trim() : "",
-      marque: typeCompte === "boutique" ? marque.trim() : "",
-      nomEtablissement:
-        typeCompte === "boutique"
-          ? getBoutiqueIdentite(nom.trim(), marque.trim())
-          : nom.trim(),
-      boutiqueName:
-        typeCompte === "boutique"
-          ? getBoutiqueIdentite(nom.trim(), marque.trim())
-          : "",
-      commune,
-      ville: "Kinshasa",
-      email: hasEmail ? email.trim() : "",
-      emailVerified: false,
-      whatsappVerified: false,
-      hasGmail: hasEmail,
-      freemiumMaxImages: MAX_FREE_IMAGES,
-      freemiumDureeJours: FREE_DAYS,
-      freemiumExpireAt: expireFreemiumAt,
-      maxAnnoncesActives: PLAFOND_ACTIVES,
-      is_visible: true,
-      commissionPct: 0,
-      myInviteCode,
-      parrainWa: parrainWaClean || null,
-      codeInvitationUtilise: codeInvitation.trim().toUpperCase() || null,
-      inviteWaOrigine: cle9(inviteParam) || null,
-      createdAt: now,
-      updatedAt: now,
-    };
+      const nouveauMembre = {
+        id: `usr_${telClean}_${Date.now()}`,
+        role: typeCompte,
+        nom: nomPrenom.trim(),
+        nomPrenom: nomPrenom.trim(),
+        nomEtablissement:
+          typeCompte !== "client" ? nomProfilPublic.trim() : undefined,
+        activite: typeCompte !== "client" ? activite.trim() : undefined,
+        telephone: telClean,
+        whatsapp: telClean,
+        ownerWhatsapp: telClean,
+        email: emailPropre || undefined,
+        code_amb: codeAmbPropre || undefined,
+        commune,
+        whatsappVerified: true,
+        is_visible: true,
+        createdAt: nowIso,
+      };
 
-    safeSet("wenze_user", JSON.stringify(newUser));
+      localStorage.setItem("wenze_user", JSON.stringify(nouveauMembre));
 
-    const all = readList("wenze_all_users");
-    const idx = all.findIndex(
-      (u: any) => cle9(u?.ownerWhatsapp || u?.whatsapp) === wa
-    );
-    if (idx >= 0) all[idx] = { ...all[idx], ...newUser };
-    else all.push(newUser);
-    safeSet("wenze_all_users", JSON.stringify(all.slice(0, 500)));
+      const rawAll = localStorage.getItem("wenze_all_users");
+      const allUsers = rawAll ? JSON.parse(rawAll) : [];
+      const nextUsers = [
+        nouveauMembre,
+        ...(Array.isArray(allUsers) ? allUsers : []).filter(
+          (u: any) =>
+            cle9(u?.ownerWhatsapp || u?.whatsapp || u?.telephone || "") !==
+            telClean
+        ),
+      ].slice(0, 500);
+      localStorage.setItem("wenze_all_users", JSON.stringify(nextUsers));
 
-    tracerInscriptionJournal(
-      "INSCRIPTION_CREEE",
-      roleFinal,
-      wa,
-      `${newUser.nomEtablissement} (${commune})`
-    );
-
-    if (parrainWaClean) {
-      const invList = readList("wenze_invitations");
-      const invIdx = invList.findIndex(
-        (i: any) =>
-          cle9(i?.parrainWa) === parrainWaClean && cle9(i?.inviteWa) === wa
-      );
-      if (invIdx >= 0) {
-        invList[invIdx] = {
-          ...invList[invIdx],
-          status: "validé",
-          dateValidation: now,
-          inviteNom: newUser.nomEtablissement || newUser.name,
-        };
-      } else {
-        invList.push({
-          id: "inv_" + Date.now() + "_" + Math.random().toString(36).slice(2, 6),
-          parrainWa: parrainWaClean,
-          parrainNom:
-            parrainInfo?.nomAffiche || `Membre ${parrainWaClean.slice(-4)}`,
-          parrainType: parrainInfo?.role || "client",
-          codeInvitation:
-            codeInvitation.trim().toUpperCase() || parrainWaClean,
-          inviteWa: wa,
-          inviteNom: newUser.nomEtablissement || newUser.name,
-          typeCompteInvite: typeCompte,
-          status: "validé",
-          date: now,
-          dateValidation: now,
+      if (typeCompte !== "client") {
+        await enregistrerBoutiqueEtNotifierDG({
+          id: `B-${telClean}`,
+          nom: nomAfficheProfil,
+          nomEtablissement: nomAfficheProfil,
+          proprietaire: nomPrenom.trim(),
+          telephone: telClean,
+          whatsapp: telClean,
+          ownerWhatsapp: telClean,
+          role: typeCompte,
+          activite: activite.trim(),
+          commune,
+          code_amb: codeAmbPropre || undefined,
+          statut: "ACTIF",
+          is_visible: true,
+          createdAt: nowIso,
         });
       }
-      safeSet("wenze_invitations", JSON.stringify(invList.slice(-500)));
-      tracerInscriptionJournal(
-        "INVITATION_VALIDEE",
-        roleFinal,
-        wa,
-        `Parrain ${parrainWaClean}`
+
+      journaliserInscription(
+        "INSCRIPTION_TERMINEE",
+        telClean,
+        `role:${typeCompte};activite:${activite || "client"}`
       );
+
+      showToast(`Compte ${nomAfficheProfil} créé avec succès !`);
+      setTimeout(() => {
+        router.push(typeCompte === "client" ? "/" : "/profil");
+      }, 700);
+    } catch {
+      setErreur("Erreur lors de l'enregistrement du compte.");
+    } finally {
+      setChargement(false);
     }
-
-    setToast(
-      `Compte créé • ${MAX_FREE_IMAGES} images max / ${FREE_DAYS} jours puis is_visible = false • 0 % commission.`
-    );
-
-    const dest =
-      typeCompte === "boutique"
-        ? "/boutiques"
-        : typeCompte === "prestataire"
-        ? "/publier-service"
-        : "/";
-    setTimeout(() => router.push(dest), 1200);
   };
 
   return (
-    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-24">
-      <header className="sticky top-0 bg-white/95 backdrop-blur z-20 p-4 border-b flex items-center gap-3">
-        <Link
-          href="/"
-          className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center"
-        >
-          ←
+    <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-4 pb-24">
+      {toast && (
+        <div className="bg-black text-white p-3 rounded-xl text-[12px] font-bold text-center fixed top-4 left-4 right-4 z-50 max-w-[400px] mx-auto shadow-lg">
+          {toast}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between text-xs mb-3">
+        <Link href="/connexion" className="font-bold text-[#6C3CE0]">
+          ← Retour connexion
         </Link>
-        <div className="flex-1 min-w-0">
-          <h1 className="font-black text-[15px] truncate">
-            Inscription WENZE WENZE • Kinshasa
-          </h1>
-          <p className="text-[10px] text-gray-500 truncate">
-            0 % commission • Taux {TAUX_CDF} CDF/$ • Max {PLAFOND_ACTIVES}{" "}
-            annonces actives
-          </p>
-        </div>
-      </header>
+        <span className="text-[11px] font-semibold text-gray-600">
+          {usd(1)} = {toCDFString(1)} • Taux {TAUX_CDF}
+        </span>
+      </div>
 
-      <div className="p-4 space-y-4">
-        {toast ? (
-          <div className="bg-black text-white p-3 rounded-xl text-[11px] font-bold text-center">
-            {toast}
-          </div>
-        ) : null}
-
-        {erreur ? (
-          <div
-            role="alert"
-            className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl text-[12px] font-bold"
-          >
-            {erreur}
-          </div>
-        ) : null}
-
-        {parrainParam || codeParam ? (
-          <div className="bg-black text-white rounded-2xl p-4">
-            <p className="font-black text-[12px]">Invitation reçue</p>
-            <p className="text-[10px] text-white/80 mt-1">
-              Invitation par{" "}
-              <b>{parrainInfo?.nomAffiche || parrainParam || codeParam}</b>{" "}
-              (réservée aux clients, boutiques et prestataires).
-              <br />
-              Code : <b>{codeParam || parrainParam}</b> • 0 % commission.
-            </p>
-          </div>
-        ) : null}
-
-        <div className="bg-[#FFF2CC] border-2 border-black rounded-2xl p-4">
-          <p className="font-black text-[11px]">
-            Règles d&apos;accès &amp; freemium
-          </p>
-          <p className="text-[10px] mt-1">
-            Offre gratuite : <b>{MAX_FREE_IMAGES} images max</b> pendant{" "}
-            <b>{FREE_DAYS} jours</b>, puis masquage automatique (
-            <b>is_visible = false</b>). Tarif minimum : <b>{usd(1)}</b> (
-            {toCDFString(1)}).
-          </p>
-        </div>
-
-        <div className="bg-white border rounded-2xl p-4">
-          <p className="font-black text-[12px]">Type de compte</p>
-          <div className="grid grid-cols-3 gap-2 mt-3">
-            {(
-              [
-                { id: "boutique", label: "Boutique" },
-                { id: "client", label: "Client" },
-                { id: "prestataire", label: "Prestataire" },
-              ] as const
-            ).map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTypeCompte(t.id)}
-                className={`py-2.5 px-2 rounded-full text-[11px] font-black border-2 ${
-                  typeCompte === t.id
-                    ? "bg-black text-white border-black"
-                    : "bg-white text-black border-gray-200"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <p className="text-[9px] text-gray-500 mt-2">
-            Les invitations réseau sont réservées exclusivement aux clients,
-            boutiques et prestataires.
-          </p>
-        </div>
-
-        <div className="bg-white border rounded-2xl p-4 space-y-3">
-          <p className="font-black text-[12px]">Coordonnées</p>
-          <input
-            value={whatsapp}
-            onChange={(e) => setWhatsapp(e.target.value)}
-            placeholder="Numéro WhatsApp (obligatoire) Ex. : 0825000000"
-            inputMode="tel"
-            className="w-full p-3 rounded-xl border text-[13px] font-bold"
-          />
-          <input
-            value={nom}
-            onChange={(e) => setNom(e.target.value)}
-            placeholder={
-              typeCompte === "boutique"
-                ? "Nom de la boutique Ex. : Bilamba"
-                : typeCompte === "prestataire"
-                ? "Nom du prestataire / service"
-                : "Votre nom"
-            }
-            className="w-full p-3 rounded-xl border text-[13px]"
-          />
-          {typeCompte === "boutique" ? (
-            <input
-              value={marque}
-              onChange={(e) => setMarque(e.target.value)}
-              placeholder="Marque / spécialité Ex. : Maison d'habillement"
-              className="w-full p-3 rounded-xl border text-[13px]"
-            />
-          ) : null}
-
-          <select
-            value={commune}
-            onChange={(e) => setCommune(e.target.value)}
-            className="w-full p-3 rounded-xl border text-[13px] bg-white"
-          >
-            {COMMUNES_KINSHASA.map((c: string) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Adresse e-mail / Gmail (facultatif)"
-            type="email"
-            className="w-full p-3 rounded-xl border text-[12px]"
-          />
-        </div>
-
-        <div className="bg-white border-2 border-dashed rounded-2xl p-4">
-          <label
-            htmlFor="inv-code-input"
-            className="font-black text-[11px] block"
-          >
-            Code d&apos;invitation (facultatif)
-          </label>
-          <input
-            id="inv-code-input"
-            value={codeInvitation}
-            onChange={(e) => setCodeInvitation(e.target.value.toUpperCase())}
-            placeholder="WENZE-XXXX (client, boutique ou prestataire)"
-            className="w-full mt-2 p-3 rounded-xl border text-[11px] uppercase font-bold"
-          />
-          {parrainInfo ? (
-            <p className="text-[10px] font-bold mt-2 text-emerald-700">
-              Invitation associée à : {parrainInfo.nomAffiche} • 0 % commission
-            </p>
-          ) : null}
-        </div>
-
-        <button
-          type="button"
-          onClick={handleCreate}
-          className="w-full bg-black text-white py-4 rounded-full font-black text-[13px]"
-        >
-          Créer mon compte • {usd(0)} ({toCDFString(0)})
-        </button>
-
-        <p className="text-[9px] text-center text-gray-500">
-          0 % commission • {MAX_FREE_IMAGES} images max / {FREE_DAYS} jours puis
-          is_visible = false • Max {PLAFOND_ACTIVES} annonces actives • Taux{" "}
-          {TAUX_CDF} CDF/$
+      {/* INDICATEUR DES 3 ÉTAPES */}
+      <div className="rounded-3xl bg-black p-5 text-white">
+        <span className="text-[10px] font-black uppercase tracking-wider text-orange-300">
+          Inscription Wenze Wenze Business • Étape{" "}
+          {etape === "numero" ? "1/3" : etape === "auth" ? "2/3" : "3/3"}
+        </span>
+        <h1 className="mt-1 text-xl font-black">
+          {etape === "numero"
+            ? "Ton numéro de téléphone"
+            : etape === "auth"
+            ? "Authentification du numéro"
+            : "Choisis ton activité"}
+        </h1>
+        <p className="mt-1 text-[11px] text-white/75">
+          0 % commission • {maxFreeImages} images max / {freeDays}j puis{" "}
+          <code>is_visible = false</code> • Max {plafondActives} actives
         </p>
       </div>
+
+      {/* ÉTAPE 1 : SAISIE DU NUMÉRO */}
+      {etape === "numero" && (
+        <div className="mt-4 rounded-3xl border border-gray-200 bg-white p-5 space-y-4">
+          <p className="text-xs text-gray-600">
+            Entre ton numéro de téléphone pour passer à la page
+            d&apos;authentification.
+          </p>
+
+          <div>
+            <label
+              htmlFor="reg-tel"
+              className="block text-[11px] font-bold uppercase text-gray-600"
+            >
+              Numéro de téléphone
+            </label>
+            <input
+              id="reg-tel"
+              type="tel"
+              value={telephone}
+              onChange={(e) => setTelephone(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleEnvoyerCode()}
+              placeholder="Ex: 0825000000"
+              className="mt-1.5 w-full rounded-2xl border-2 border-black bg-[#FAFAFA] px-4 py-3.5 text-center text-base font-black text-black outline-none"
+            />
+          </div>
+
+          {erreur ? (
+            <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+              {erreur}
+            </p>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={handleEnvoyerCode}
+            className="w-full rounded-full bg-black py-3.5 text-[13px] font-black text-white"
+          >
+            Continuer vers l&apos;authentification →
+          </button>
+        </div>
+      )}
+
+      {/* ÉTAPE 2 : AUTHENTIFICATION OTP */}
+      {etape === "auth" && (
+        <div className="mt-4 rounded-3xl border border-gray-200 bg-white p-5 space-y-4">
+          <p className="text-xs text-gray-600">
+            Entre le code à 6 chiffres envoyé au{" "}
+            <b>0{cle9(telephone).slice(-9)}</b>. Expire dans{" "}
+            <b className="text-red-600">
+              {Math.floor(tempsRestant / 60)}:
+              {(tempsRestant % 60).toString().padStart(2, "0")}
+            </b>
+          </p>
+
+          <input
+            type="text"
+            inputMode="numeric"
+            value={otp}
+            onChange={(e) =>
+              setOtp(e.target.value.replace(/[^0-9]/g, "").slice(0, 6))
+            }
+            onKeyDown={(e) => e.key === "Enter" && handleValiderOtp()}
+            placeholder="Code à 6 chiffres"
+            className="w-full rounded-2xl border-2 border-black bg-[#FAFAFA] py-3.5 text-center text-[22px] font-black tracking-[8px] text-black outline-none"
+          />
+
+          {erreur ? (
+            <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+              {erreur}
+            </p>
+          ) : null}
+
+          <button
+            type="button"
+            onClick={handleValiderOtp}
+            className="w-full rounded-full bg-black py-3.5 text-[13px] font-black text-white"
+          >
+            Valider mon numéro
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setEtape("numero")}
+            className="w-full text-[11px] text-gray-500 underline"
+          >
+            Modifier le numéro
+          </button>
+        </div>
+      )}
+
+      {/* ÉTAPE 3 : FENÊTRE CHOIX D'ACTIVITÉ ET COORDONNÉES */}
+      {etape === "activite" && (
+        <form
+          onSubmit={handleFinaliserInscription}
+          className="mt-4 rounded-3xl border border-gray-200 bg-white p-5 space-y-4"
+        >
+          <div>
+            <p className="text-[11px] font-bold uppercase text-gray-600">
+              Précise ton activité
+            </p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => choisirTypeCompte("client")}
+                className={`rounded-2xl border p-3 text-left transition ${
+                  typeCompte === "client"
+                    ? "border-black bg-black text-white"
+                    : "border-gray-200 bg-[#FAFAFA] text-black"
+                }`}
+              >
+                <div className="text-xs font-black">🛍️ Compte Client</div>
+                <div
+                  className={`text-[10px] ${
+                    typeCompte === "client" ? "text-white/75" : "text-gray-500"
+                  }`}
+                >
+                  Acheter sur Wenze
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => choisirTypeCompte("vendeur")}
+                className={`rounded-2xl border p-3 text-left transition ${
+                  typeCompte === "vendeur"
+                    ? "border-black bg-black text-white"
+                    : "border-gray-200 bg-[#FAFAFA] text-black"
+                }`}
+              >
+                <div className="text-xs font-black">🏪 Boutique</div>
+                <div
+                  className={`text-[10px] ${
+                    typeCompte === "vendeur" ? "text-white/75" : "text-gray-500"
+                  }`}
+                >
+                  Vendre mes produits
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => choisirTypeCompte("grossiste")}
+                className={`rounded-2xl border p-3 text-left transition ${
+                  typeCompte === "grossiste"
+                    ? "border-black bg-black text-white"
+                    : "border-gray-200 bg-[#FAFAFA] text-black"
+                }`}
+              >
+                <div className="text-xs font-black">📦 Grossiste</div>
+                <div
+                  className={`text-[10px] ${
+                    typeCompte === "grossiste"
+                      ? "text-white/75"
+                      : "text-gray-500"
+                  }`}
+                >
+                  Vente & prix gros
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => choisirTypeCompte("prestataire")}
+                className={`rounded-2xl border p-3 text-left transition ${
+                  typeCompte === "prestataire"
+                    ? "border-black bg-black text-white"
+                    : "border-gray-200 bg-[#FAFAFA] text-black"
+                }`}
+              >
+                <div className="text-xs font-black">🛠️ Prestataire</div>
+                <div
+                  className={`text-[10px] ${
+                    typeCompte === "prestataire"
+                      ? "text-white/75"
+                      : "text-gray-500"
+                  }`}
+                >
+                  Proposer un service
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* CHAMPS COMMUNS : NOM & PRÉNOM */}
+          <div>
+            <label
+              htmlFor="nom-prenom"
+              className="block text-[11px] font-bold uppercase text-gray-600"
+            >
+              Nom et prénom {typeCompte !== "client" ? "personnel" : ""} *
+            </label>
+            <input
+              id="nom-prenom"
+              type="text"
+              value={nomPrenom}
+              onChange={(e) => setNomPrenom(e.target.value)}
+              placeholder="Ex: Kelvin Kongolo"
+              className="mt-1.5 w-full rounded-2xl border border-gray-200 bg-[#FAFAFA] px-3.5 py-2.5 text-sm text-black outline-none focus:border-black"
+            />
+          </div>
+
+          {/* CHAMPS SPÉCIFIQUES BOUTIQUE / GROSSISTE / PRESTATAIRE */}
+          {typeCompte !== "client" && (
+            <>
+              <div>
+                <label
+                  htmlFor="nom-profil-public"
+                  className="block text-[11px] font-bold uppercase text-gray-600"
+                >
+                  {typeCompte === "vendeur"
+                    ? "Nom de la boutique (affiché sur ton profil) *"
+                    : typeCompte === "grossiste"
+                    ? "Nom de l'établissement grossiste (affiché sur ton profil) *"
+                    : "Nom du service / enseigne (affiché sur ton profil) *"}
+                </label>
+                <input
+                  id="nom-profil-public"
+                  type="text"
+                  value={nomProfilPublic}
+                  onChange={(e) => setNomProfilPublic(e.target.value)}
+                  placeholder={
+                    typeCompte === "vendeur"
+                      ? "Ex: Boutique Bilamba Gombe"
+                      : typeCompte === "grossiste"
+                ? "Ex: Dépôt Central Kinshasa"
+                      : "Ex: Salon Éclat Lemba"
+                  }
+                  className="mt-1.5 w-full rounded-2xl border border-gray-200 bg-[#FAFAFA] px-3.5 py-2.5 text-sm text-black outline-none focus:border-black"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="activite-select"
+                  className="block text-[11px] font-bold uppercase text-gray-600"
+                >
+                  Activité *
+                </label>
+                <select
+                  id="activite-select"
+                  value={activite}
+                  onChange={(e) => setActivite(e.target.value)}
+                  className="mt-1.5 w-full rounded-2xl border border-gray-200 bg-[#FAFAFA] px-3.5 py-2.5 text-sm text-black outline-none focus:border-black"
+                >
+                  {ACTIVITES_PAR_TYPE[typeCompte].map((act) => (
+                    <option key={act} value={act}>
+                      {act}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
+
+          {/* COMMUNE KINSHASA */}
+          <div>
+            <label
+              htmlFor="commune-select"
+              className="block text-[11px] font-bold uppercase text-gray-600"
+            >
+              Commune (Kinshasa)
+            </label>
+            <select
+              id="commune-select"
+              value={commune}
+              onChange={(e) => setCommune(e.target.value)}
+              className="mt-1.5 w-full rounded-2xl border border-gray-200 bg-[#FAFAFA] px-3.5 py-2.5 text-sm text-black outline-none focus:border-black"
+            >
+              <option value="Gombe">Gombe</option>
+              <option value="Ngaliema">Ngaliema</option>
+              <option value="Lemba">Lemba</option>
+              <option value="Kalamu">Kalamu</option>
+              <option value="Matete">Matete</option>
+              <option value="Masina">Masina</option>
+              <option value="Limete">Limete</option>
+              <option value="Bandalungwa">Bandalungwa</option>
+              <option value="Kasa-Vubu">Kasa-Vubu</option>
+            </select>
+          </div>
+
+          {/* GMAIL FACULTATIF */}
+          <div>
+            <label
+              htmlFor="gmail-opt"
+              className="block text-[11px] font-bold uppercase text-gray-600"
+            >
+              Compte Gmail (facultatif)
+            </label>
+            <input
+              id="gmail-opt"
+              type="email"
+              value={gmail}
+              onChange={(e) => setGmail(e.target.value)}
+              placeholder="exemple@gmail.com"
+              className="mt-1.5 w-full rounded-2xl border border-gray-200 bg-[#FAFAFA] px-3.5 py-2.5 text-sm text-black outline-none focus:border-black"
+            />
+          </div>
+
+          {/* CODE AMBASSADEUR FACULTATIF */}
+          <div>
+            <label
+              htmlFor="code-amb-opt"
+              className="block text-[11px] font-bold uppercase text-gray-600"
+            >
+              Code d&apos;ambassadeur (facultatif)
+            </label>
+            <input
+              id="code-amb-opt"
+              type="text"
+              value={codeAmbassadeur}
+              onChange={(e) => setCodeAmbassadeur(e.target.value.toUpperCase())}
+              placeholder="Ex: AMB-KIN-01"
+              className="mt-1.5 w-full rounded-2xl border border-gray-200 bg-[#FAFAFA] px-3.5 py-2.5 text-sm text-black outline-none focus:border-black"
+            />
+          </div>
+
+          {erreur ? (
+            <p className="rounded-xl bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+              {erreur}
+            </p>
+          ) : null}
+
+          <button
+            type="submit"
+            disabled={chargement}
+            className="w-full rounded-full bg-black py-3.5 text-[13px] font-black text-white disabled:opacity-50"
+          >
+            {chargement ? "Création du compte..." : "Créer mon compte Wenze"}
+          </button>
+        </form>
+      )}
     </div>
   );
 }
@@ -466,14 +702,9 @@ function InscriptionContent() {
 export default function InscriptionPage() {
   return (
     <Suspense
-      fallback={
-        <div className="max-w-[430px] mx-auto p-6">
-          Chargement de l&apos;inscription...
-        </div>
-      }
+      fallback={<div className="max-w-[430px] mx-auto p-6">Chargement...</div>}
     >
       <InscriptionContent />
     </Suspense>
   );
 }
-      
