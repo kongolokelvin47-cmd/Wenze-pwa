@@ -1,0 +1,15 @@
+{
+  "commun": {
+    "appName": "Wenze Wenze",
+    "voirCarte": "Voir sur la carte",
+    "tauxLabel": "1 $ = 2 300 CDF • 0 % commission",
+    "maxActives": "Max 50 annonces actives"
+  },
+  "langue": {
+    "titre": "Langue de l'interface",
+    "fr": "Français",
+    "ln": "Lingala",
+    "sw": "Swahili",
+    "en": "English"
+  }
+}
