@@ -43,9 +43,14 @@ function estCompteInterneOuAdmin(compte: any): boolean {
   );
 }
 
-function tracerModificationProfil(compte: any, champs: Record<string, any>) {
+function tracerModificationProfil(
+  compte: any,
+  champs: Record<string, any>,
+  resumeHumain?: string
+) {
   try {
     if (typeof window === "undefined") return;
+    const roleActuel = getRole(compte);
     const raw = localStorage.getItem("wenze_journal");
     const list = raw ? JSON.parse(raw) : [];
     const arr = Array.isArray(list) ? list : [];
@@ -53,11 +58,35 @@ function tracerModificationProfil(compte: any, champs: Record<string, any>) {
       id: "jrn_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
       action: "PROFIL_MODIFIE",
       acteurWhatsapp: compte?.ownerWhatsapp || compte?.whatsapp || "",
-      role: getRole(compte),
+      role: roleActuel,
       champsModifies: Object.keys(champs),
       createdAt: new Date().toISOString(),
     });
     localStorage.setItem("wenze_journal", JSON.stringify(arr.slice(-500)));
+
+    const rawAct = localStorage.getItem("wenze_journal_activite");
+    const listAct = rawAct ? JSON.parse(rawAct) : [];
+    const arrAct = Array.isArray(listAct) ? listAct : [];
+    arrAct.unshift({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      ts: Date.now(),
+      date: new Date().toLocaleString("fr-FR", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      role: roleActuel,
+      type: "compte",
+      message:
+        resumeHumain ||
+        `Mise à jour profil (${Object.keys(champs).join(", ")})`,
+    });
+    localStorage.setItem(
+      "wenze_journal_activite",
+      JSON.stringify(arrAct.slice(0, 60))
+    );
+    window.dispatchEvent(new Event("wenze-update"));
   } catch {}
 }
 
@@ -149,7 +178,11 @@ export function EditForm({
     if (!r?.ok) {
       return setErreur(r?.erreur || "Enregistrement impossible");
     }
-    tracerModificationProfil(compte, champs);
+    tracerModificationProfil(
+      compte,
+      champs,
+      `Profil mis à jour (${nom.trim()} • ${commune})`
+    );
     onSaved(r.compte);
   };
 
@@ -551,7 +584,11 @@ export function InvitationsCard({
       };
       arr.push(inv);
       localStorage.setItem("wenze_invitations_list", JSON.stringify(arr));
-      tracerModificationProfil(compte, { invitationCreee: type });
+      tracerModificationProfil(
+        compte,
+        { invitationCreee: type },
+        `Invitation envoyée à ${nom.trim()} (${LABEL_TYPE[type]})`
+      );
 
       const texte = encodeURIComponent(
         `Bonjour ${nom.trim()}, rejoins Wenze Wenze (${LABEL_TYPE[type]}) : https://wenze.cd`
@@ -606,7 +643,7 @@ export function InvitationsCard({
             type="button"
             onClick={() => setType(t)}
             className={
-                   "px-3 py-2 rounded-full text-[11px] font-black border-2 " +
+              "px-3 py-2 rounded-full text-[11px] font-black border-2 " +
               (type === t
                 ? "bg-black text-white border-black"
                 : "bg-white")
@@ -665,4 +702,4 @@ export function InvitationsCard({
       ) : null}
     </div>
   );
-}
+ }
