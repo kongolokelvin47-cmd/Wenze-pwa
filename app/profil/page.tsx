@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -31,6 +31,15 @@ const BADGE_ROLE: Record<string, string> = {
   prestataire: "🔧 PRESTATAIRE",
 };
 
+interface EntreeJournal {
+  id: string;
+  ts?: number;
+  date: string;
+  role: string;
+  type: "navigation" | "panier" | "annonce" | "contact" | "compte";
+  message: string;
+}
+
 function lireListe(cle: string): any[] {
   try {
     if (typeof window === "undefined") return [];
@@ -38,6 +47,16 @@ function lireListe(cle: string): any[] {
     return Array.isArray(v) ? v : [];
   } catch {
     return [];
+  }
+}
+
+function ecrireListe(cle: string, val: any[]): boolean {
+  try {
+    if (typeof window === "undefined") return false;
+    localStorage.setItem(cle, JSON.stringify(val));
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -66,6 +85,9 @@ export default function ProfilPage() {
   const [annonces, setAnnonces] = useState<any[]>([]);
   const [demandes, setDemandes] = useState<any[]>([]);
   const [mesServices, setMesServices] = useState<any[]>([]);
+  const [panierCount, setPanierCount] = useState(0);
+  const [journal, setJournal] = useState<EntreeJournal[]>([]);
+  const [filtreJournal, setFiltreJournal] = useState<string>("tous");
   const [edition, setEdition] = useState(false);
   const [toast, setToast] = useState("");
 
@@ -75,46 +97,95 @@ export default function ProfilPage() {
     };
   }, []);
 
+  const afficher = useCallback((m: string) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast(m);
+    toastTimerRef.current = setTimeout(() => setToast(""), 3000);
+  }, []);
+
+  const enregistrerJournal = useCallback(
+    (
+      type: EntreeJournal["type"],
+      message: string,
+      roleActuel?: string
+    ) => {
+      const prev = lireListe("wenze_journal_activite") as EntreeJournal[];
+      const entry: EntreeJournal = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        ts: Date.now(),
+        date: new Date().toLocaleString("fr-FR", {
+          day: "2-digit",
+          month: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        role: roleActuel || String(compte?.role || "client"),
+        type,
+        message,
+      };
+      const next = [entry, ...prev].slice(0, 60);
+      ecrireListe("wenze_journal_activite", next);
+      setJournal(next);
+    },
+    [compte?.role]
+  );
+
+  const chargerTout = useCallback(
+    (sessionCourante?: any) => {
+      const s: any = sessionCourante || lireSession();
+      if (!s) return null;
+      setCompte(s);
+      try {
+        setAb(verifierAbonnement());
+      } catch {}
+
+      const k = cle9(s.ownerWhatsapp || s.whatsapp);
+      setAnnonces(
+        lireListe("wenze_annonces_list")
+          .filter(
+            (a: any) => cle9(a.ownerWhatsapp || a.whatsapp || a.userId) === k
+          )
+          .sort((a: any, b: any) => temps(b) - temps(a))
+      );
+      setDemandes(
+        lireListe("wenze_demandes_list")
+          .filter(
+            (d: any) => cle9(d.prestataireWa || d.prestataireWhatsapp) === k
+          )
+          .sort((a: any, b: any) => temps(b) - temps(a))
+      );
+      setMesServices(
+        lireListe("wenze_services_list")
+          .filter(
+            (sv: any) =>
+              cle9(sv.ownerWhatsapp || sv.whatsapp || sv.userId) === k
+          )
+          .sort((a: any, b: any) => temps(b) - temps(a))
+      );
+      setPanierCount(lireListe("wenze_panier").length);
+      setJournal(lireListe("wenze_journal_activite") as EntreeJournal[]);
+      return s;
+    },
+    []
+  );
+
   useEffect(() => {
-    const s: any = lireSession();
+    const s = chargerTout();
     if (!s) {
       router.replace("/connexion?raison=action&next=%2Fprofil");
       return;
     }
-    setCompte(s);
-    try {
-      setAb(verifierAbonnement());
-    } catch {}
 
-    const k = cle9(s.ownerWhatsapp || s.whatsapp);
-    setAnnonces(
-      lireListe("wenze_annonces_list")
-        .filter(
-          (a: any) => cle9(a.ownerWhatsapp || a.whatsapp || a.userId) === k
-        )
-        .sort((a: any, b: any) => temps(b) - temps(a))
-    );
-    setDemandes(
-      lireListe("wenze_demandes_list")
-        .filter(
-          (d: any) => cle9(d.prestataireWa || d.prestataireWhatsapp) === k
-        )
-        .sort((a: any, b: any) => temps(b) - temps(a))
-    );
-    setMesServices(
-      lireListe("wenze_services_list")
-        .filter(
-          (sv: any) => cle9(sv.ownerWhatsapp || sv.whatsapp || sv.userId) === k
-        )
-        .sort((a: any, b: any) => temps(b) - temps(a))
-    );
-  }, [router]);
-
-  const afficher = (m: string) => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setToast(m);
-    toastTimerRef.current = setTimeout(() => setToast(""), 3000);
-  };
+    const sync = () => {
+      chargerTout();
+    };
+    window.addEventListener("storage", sync);
+    window.addEventListener("wenze-update", sync);
+    return () => {
+      window.removeEventListener("storage", sync);
+      window.removeEventListener("wenze-update", sync);
+    };
+  }, [chargerTout, router]);
 
   const changerPhoto = async (e: any) => {
     const f = e.target.files && e.target.files[0];
@@ -125,6 +196,11 @@ export default function ProfilPage() {
       const r: any = majCompte({ photo: data, avatar: data });
       if (r?.ok) {
         setCompte(r.compte);
+        enregistrerJournal(
+          "compte",
+          "Photo de profil mise à jour",
+          r.compte?.role
+        );
         afficher("Photo mise à jour");
       } else {
         afficher(r?.erreur || "Photo non enregistrée");
@@ -139,6 +215,7 @@ export default function ProfilPage() {
       return;
     }
     try {
+      const cible = annonces.find((a: any) => String(a.id) === String(id));
       const reste = lireListe("wenze_annonces_list").filter(
         (a: any) => String(a.id) !== String(id)
       );
@@ -152,6 +229,10 @@ export default function ProfilPage() {
       try {
         setAb(verifierAbonnement());
       } catch {}
+      enregistrerJournal(
+        "annonce",
+        `Annonce supprimée : "${cible?.titre || `#${id}`}"`
+      );
       afficher("Annonce supprimée, place libérée");
     } catch {
       afficher("Suppression impossible");
@@ -161,6 +242,7 @@ export default function ProfilPage() {
   const supprimerService = (id: string) => {
     if (!window.confirm("Supprimer ce service ?")) return;
     try {
+      const cible = mesServices.find((s: any) => String(s.id) === String(id));
       const reste = lireListe("wenze_services_list").filter(
         (s: any) => String(s.id) !== String(id)
       );
@@ -168,16 +250,51 @@ export default function ProfilPage() {
       setMesServices((prev: any[]) =>
         prev.filter((s: any) => String(s.id) !== String(id))
       );
+      enregistrerJournal(
+        "annonce",
+        `Service supprimé : "${cible?.titre || cible?.activite || `#${id}`}"`
+      );
       afficher("Service supprimé");
     } catch {
       afficher("Suppression impossible");
     }
   };
 
+  const viderJournal = () => {
+    ecrireListe("wenze_journal_activite", []);
+    setJournal([]);
+    afficher("Journal d'activité effacé");
+  };
+
   const sortir = () => {
     deconnecter();
     router.push("/connexion");
   };
+
+  const statsActivite = useMemo(() => {
+    const valeurCatalogueUsd = annonces.reduce(
+      (sum: number, a: any) => sum + Number(a.prixUSD || a.prix || 0),
+      0
+    );
+    const recommandeesCount = annonces.filter(
+      (a: any) => a.recommandeParDG === true
+    ).length;
+    const evenementsJournal = journal.length;
+
+    return {
+      valeurCatalogueUsd,
+      recommandeesCount,
+      evenementsJournal,
+      servicesCount: mesServices.length,
+      demandesCount: demandes.length,
+      panierCount,
+    };
+  }, [annonces, mesServices.length, demandes.length, panierCount, journal.length]);
+
+  const journalFiltre = useMemo(() => {
+    if (filtreJournal === "tous") return journal;
+    return journal.filter((e) => e.type === filtreJournal);
+  }, [journal, filtreJournal]);
 
   if (!compte) {
     return (
@@ -323,7 +440,10 @@ export default function ProfilPage() {
           </div>
 
           <p className="text-[10px] text-gray-400 mt-3">
+            {compte.province ? `${compte.province} • ` : ""}
             {compte.commune || "Kinshasa"}
+            {compte.quartier ? ` • Q/ ${compte.quartier}` : ""}
+            {compte.avenue ? ` • Av/ ${compte.avenue}` : ""}
             {depuis ? " • membre depuis " + depuis : ""}
           </p>
 
@@ -441,10 +561,56 @@ export default function ProfilPage() {
               onSaved={(c: any) => {
                 setCompte(c);
                 setEdition(false);
+                enregistrerJournal(
+                  "compte",
+                  "Informations du profil enregistrées",
+                  c?.role
+                );
                 afficher("Profil enregistré");
               }}
             />
           ) : null}
+        </div>
+
+        {/* ===== STATISTIQUES SUR LE DÉROULEMENT DES ACTIVITÉS ===== */}
+        <div className="bg-white border rounded-2xl p-4 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <p className="font-black text-[13px]">
+              📊 Statistiques d&apos;activité
+            </p>
+            <span className="text-[10px] font-bold text-gray-500">
+              {statsActivite.evenementsJournal} trace(s)
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="bg-[#FFFBF0] border rounded-xl p-3">
+              <p className="text-[9px] font-bold text-gray-500">
+                {estClient
+                  ? "Articles au panier"
+                  : estPrestataire
+                  ? "Services & demandes"
+                  : "Annonces recommandées"}
+              </p>
+              <p className="font-black text-[16px] mt-0.5">
+                  {estClient
+                  ? statsActivite.panierCount
+                  : estPrestataire
+                  ? `${statsActivite.servicesCount} / ${statsActivite.demandesCount}`
+                  : `${statsActivite.recommandeesCount} / ${annonces.length}`}
+              </p>
+            </div>
+
+            <div className="bg-[#FFFBF0] border rounded-xl p-3">
+              <p className="text-[9px] font-bold text-gray-500">
+                Valeur catalogue
+              </p>
+              <p className="font-black text-[13px] mt-1">
+                {usd(statsActivite.valeurCatalogueUsd)} /{" "}
+                {toCDFString(statsActivite.valeurCatalogueUsd)}
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* ===== DG : ACCÈS RAPIDE ===== */}
@@ -562,7 +728,7 @@ export default function ProfilPage() {
                 {annonces.map((a: any) => {
                   const pUsd = Number(a.prixUSD || a.prix || 0);
                   const gUsd = Number(a.prixGrosUSD || a.prixGros || 0);
-              return (
+                  return (
                     <div key={a.id} className="p-3 flex gap-3 items-center">
                       <div className="w-14 h-14 bg-[#FFFBF0] rounded-xl overflow-hidden flex items-center justify-center shrink-0 border">
                         {a.photo ? (
@@ -720,6 +886,77 @@ export default function ProfilPage() {
           </>
         ) : null}
 
+        {/* ===== JOURNAL D'ACTIVITÉ ===== */}
+        <div className="bg-white border rounded-2xl p-4 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <p className="font-black text-[13px]">
+              📓 Journal d&apos;activité ({journalFiltre.length})
+            </p>
+            {journal.length > 0 ? (
+              <button
+                type="button"
+                onClick={viderJournal}
+                className="text-[10px] font-black text-red-600 underline"
+              >
+                Effacer
+              </button>
+            ) : null}
+          </div>
+
+          <div className="flex gap-1.5 overflow-x-auto pb-1">
+            {(
+              [
+                ["tous", "Tout"],
+                ["panier", "Panier"],
+                ["contact", "WhatsApp"],
+                ["annonce", "Annonces"],
+                ["navigation", "Navigation"],
+                ["compte", "Compte"],
+              ] as const
+            ).map(([cle, libelle]) => (
+              <button
+                key={cle}
+                type="button"
+                onClick={() => setFiltreJournal(cle)}
+                className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black border ${
+                  filtreJournal === cle
+                    ? "bg-black text-white border-black"
+                    : "bg-[#FFFBF0] text-gray-700 border-gray-200"
+                }`}
+              >
+                {libelle}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-1.5 max-h-60 overflow-y-auto">
+            {journalFiltre.length === 0 ? (
+              <p className="text-[11px] text-gray-500 py-4 text-center">
+                Aucune activité enregistrée pour ce filtre.
+              </p>
+            ) : (
+              journalFiltre.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-xl bg-[#FFFBF0] border border-gray-100 px-3 py-2 flex items-start justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-bold text-gray-900 leading-snug">
+                      {item.message}
+                    </p>
+                    <p className="text-[9px] text-gray-500 mt-0.5">
+                      {item.date} • Rôle : {item.role}
+                    </p>
+                  </div>
+                  <span className="shrink-0 text-[9px] font-black uppercase bg-white border px-2 py-0.5 rounded-full text-gray-700">
+                    {item.type}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
         <button
           type="button"
           onClick={sortir}
@@ -730,4 +967,4 @@ export default function ProfilPage() {
       </div>
     </div>
   );
-}
+  }
