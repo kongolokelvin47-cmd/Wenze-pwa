@@ -159,6 +159,13 @@ export function AnnonceCard(props: any) {
     ? `${fmtUSD(grosUsd)} • ${toCDFString(grosUsd)} / ${item.uniteGros || "Carton"}`
     : `${fmtUSD(item.prix)} • ${item.prixCDF || toCDFString(Number(item.prix || 0))}`;
 
+  const lieuAffiche =
+    item.commune || item.quartier || item.province || "Kinshasa";
+  const distLabel =
+    typeof item._distanceKm === "number"
+      ? ` • ${item._distanceKm.toFixed(1)} km`
+      : "";
+
   return (
     <div className="bg-white border rounded-2xl overflow-hidden flex flex-col shadow-sm relative">
       {jeSuisDG && handleToggleRecommande && (
@@ -236,7 +243,7 @@ export function AnnonceCard(props: any) {
           {item.titre}
         </p>
         <p className="text-[10px] text-gray-500 mt-1 line-clamp-1">
-          {item.description || item.commune || "Kinshasa"}
+          {item.description || lieuAffiche}
         </p>
         <p
           className="font-black text-[12px] mt-2 leading-snug"
@@ -246,7 +253,8 @@ export function AnnonceCard(props: any) {
         </p>
         <p className="text-[10px] text-gray-500 mt-0.5">
           {item.vendeurBadge || "🆓"} {item.vendeurPalier || "Freemium"} •{" "}
-          {item.commune || "Kinshasa"}
+          {lieuAffiche}
+          {distLabel}
           {estGros && item.minimumCommande
             ? ` • Min: ${item.minimumCommande}`
             : ""}
