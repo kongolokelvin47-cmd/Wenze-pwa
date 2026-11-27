@@ -28,16 +28,15 @@ export function HomeHeader({
   ab,
   payantCount,
   boostedCount,
-  notifCount,
-  cartCount,
   search,
   onSearch,
   tabs,
   selectedCat,
   onSelectCat,
   totalCount,
+  onToggleFiltre,
+  filtreOuvert,
 }: any) {
-  const router = useRouter();
   const [couleur, setCouleur] = useState("#FF6B00");
 
   useEffect(() => {
@@ -48,45 +47,34 @@ export function HomeHeader({
   return (
     <div className="sticky top-0 z-30 bg-[#FFFBF0]/95 backdrop-blur pb-2 pt-2">
       <div className="px-4 flex gap-2 items-center">
-        <div className="flex-1 flex items-center bg-white border rounded-full px-3 py-2.5">
+        <div className="flex-1 flex items-center bg-white border rounded-full px-3 py-2">
           <span className="text-[14px]">🔍</span>
           <input
             value={search}
             onChange={(e) => onSearch(e.target.value)}
-            placeholder="Chercher : robe, téléphone, Gombe..."
-            className="flex-1 outline-none text-[13px] font-bold px-2 bg-transparent"
+            placeholder="Rechercher produit, commune, avenue..."
+            className="flex-1 outline-none text-[12px] font-bold px-2 bg-transparent"
           />
           {search && (
             <button
+              type="button"
               onClick={() => onSearch("")}
-              className="text-[14px] font-black px-1"
+              className="text-[13px] font-black px-1"
             >
               ✕
             </button>
           )}
         </div>
-        <button
-          onClick={() => router.push("/panier")}
-          className="relative w-11 h-11 bg-white border rounded-full flex items-center justify-center text-[18px]"
-        >
-          🛒
-          {cartCount > 0 && (
-            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black w-5 h-5 rounded-full flex items-center justify-center">
-              {cartCount}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => router.push("/notifications")}
-          className="relative w-11 h-11 bg-white border rounded-full flex items-center justify-center text-[18px]"
-        >
-          🔔
-          {notifCount > 0 && (
-            <span className="absolute -top-1 -right-1 bg-black text-white text-[9px] font-black w-5 h-5 rounded-full flex items-center justify-center">
-              {notifCount}
-            </span>
-          )}
-        </button>
+        {onToggleFiltre && (
+          <button
+            type="button"
+            aria-expanded={Boolean(filtreOuvert)}
+            onClick={onToggleFiltre}
+            className="shrink-0 bg-black text-white px-3.5 py-2 rounded-full font-black text-[11px]"
+          >
+            Filtre
+          </button>
+        )}
       </div>
 
       <div className="px-4 mt-2 flex gap-2 items-center flex-wrap">
@@ -111,18 +99,13 @@ export function HomeHeader({
             {ab.palierId}
           </span>
         )}
-        <button
-          onClick={() => router.push("/recherche")}
-          className="ml-auto text-[10px] font-black underline"
-        >
-          Filtres →
-        </button>
       </div>
 
-      <div className="flex gap-2 overflow-x-auto px-4 mt-3 pb-1 scrollbar-hide">
+      <div className="flex gap-2 overflow-x-auto px-4 mt-2.5 pb-1 scrollbar-hide">
         <button
+          type="button"
           onClick={() => onSelectCat("all")}
-          className={`shrink-0 px-4 py-2 rounded-full font-black text-[11px] border-2 ${
+          className={`shrink-0 px-3.5 py-1.5 rounded-full font-black text-[11px] border-2 ${
             selectedCat === "all"
               ? "bg-black text-white border-black"
               : "bg-white border-gray-200"
@@ -132,9 +115,10 @@ export function HomeHeader({
         </button>
         {tabs?.map((t: any) => (
           <button
+            type="button"
             key={t.id}
             onClick={() => onSelectCat(t.id)}
-            className={`shrink-0 px-4 py-2 rounded-full font-black text-[11px] border-2 ${
+            className={`shrink-0 px-3.5 py-1.5 rounded-full font-black text-[11px] border-2 ${
               selectedCat === t.id
                 ? "bg-black text-white border-black"
                 : "bg-white border-gray-200"
@@ -326,7 +310,6 @@ export function ImageViewer(props: any) {
           <video
             src={photo}
             controls
-            autoPlay
             playsInline
             className="max-w-full max-h-full rounded-2xl"
           />
@@ -385,31 +368,8 @@ export function ImageViewer(props: any) {
   );
 }
 
-// ================= BANDEAU VISITEUR =================
-export function BandeauVisiteur() {
-  const router = useRouter();
-  return (
-    <div className="mx-4 mt-3 bg-black text-white rounded-2xl p-4 flex items-center gap-3">
-      <span className="text-[28px]">👋</span>
-      <div className="flex-1">
-        <p className="font-black text-[13px]">Bienvenue sur {APP_NAME} !</p>
-        <p className="text-[11px] text-white/70">
-          Connecte-toi pour acheter, contacter et publier.
-        </p>
-      </div>
-      <button
-        type="button"
-        onClick={() => router.push("/connexion")}
-        className="bg-white text-black px-4 py-2.5 rounded-full font-black text-[11px] shrink-0"
-      >
-        Se connecter →
-      </button>
-    </div>
-  );
-}
-
 // ================= BOTTOM NAV =================
-export function BottomNav({ cartCount }: any) {
+export function BottomNav({ cartCount, onOpenCategories }: any) {
   const router = useRouter();
   const pathname = usePathname() || "/";
 
@@ -418,21 +378,23 @@ export function BottomNav({ cartCount }: any) {
     emoji: string,
     label: string,
     badge?: number,
-    center?: boolean
+    center?: boolean,
+    onClickOverride?: () => void
   ) => {
     const isActive =
-      path === "/" ? pathname === "/" : pathname.startsWith(path);
+      !onClickOverride &&
+      (path === "/" ? pathname === "/" : pathname.startsWith(path));
     return (
       <button
         type="button"
-        onClick={() => router.push(path)}
+        onClick={() => (onClickOverride ? onClickOverride() : router.push(path))}
         className={`flex-1 flex flex-col items-center py-2 relative ${
           isActive ? "text-black" : "text-gray-400"
         } ${center ? "-mt-5" : ""}`}
       >
         {center ? (
-          <span className="w-12 h-12 bg-black text-white rounded-full flex items-center justify-center text-[22px] shadow-lg border-4 border-[#FFFBF0]">
-            ➕
+          <span className="w-12 h-12 bg-black text-white rounded-full flex items-center justify-center text-[20px] shadow-lg border-4 border-[#FFFBF0]">
+            {emoji}
           </span>
         ) : (
           <span className="text-[20px] relative">
@@ -455,12 +417,19 @@ export function BottomNav({ cartCount }: any) {
   return (
     <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white border-t shadow-[0_-4px_20px_rgba(0,0,0,0.08)] flex px-2 z-40">
       {btn("/", "🏠", "Accueil")}
-      {btn("/video", "🎬", "Vidéo")}
-      {btn("/publier", "➕", "Publier", undefined, true)}
-      {btn("/boutiques", "🏪", "Boutique")}
+      {btn(
+        "/categories",
+        "🗂️",
+        "Catégories",
+        undefined,
+        false,
+        onOpenCategories
+      )}
+      {btn("/videos", "🎬", "Vidéo", undefined, true)}
+      {btn("/boutique", "🏪", "Boutique")}
       {btn("/panier", "🛒", "Panier", cartCount)}
       {btn("/profil", "👤", "Profil")}
     </div>
   );
-        }
+ }
           
