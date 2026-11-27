@@ -136,6 +136,42 @@ function safeWriteStorage(key: string, value: string): boolean {
   }
 }
 
+function logActivite(
+  type: "navigation" | "panier" | "annonce" | "contact" | "compte",
+  message: string,
+  role?: string
+) {
+  try {
+    if (typeof window === "undefined") return;
+    const prev = readList("wenze_journal_activite");
+    const last = prev[0];
+    if (
+      last &&
+      last.type === type &&
+      last.message === message &&
+      Date.now() - Number(last.ts || 0) < 4000
+    ) {
+      return;
+    }
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      ts: Date.now(),
+      date: new Date().toLocaleString("fr-FR", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      role: role || "client",
+      type,
+      message,
+    };
+    const next = [entry, ...prev].slice(0, 60);
+    safeWriteStorage("wenze_journal_activite", JSON.stringify(next));
+    window.dispatchEvent(new Event("wenze-update"));
+  } catch {}
+}
+
 const DEFAULT_DESIGN = {
   titre: "Bienvenue chez WENZE",
   slogan: "Là où les opportunités deviennent une réalité.",
@@ -265,6 +301,13 @@ export default function WenzeBusiness() {
   const [moi, setMoi] = useState<any>(null);
   const [design, setDesign] = useState<any>(DEFAULT_DESIGN);
 
+  const monRole = moi?.role || (moi?.estVendeur ? "vendeur" : "client");
+  const jeSuisDG =
+    moi?.roleAdmin === "dg" || moi?.role === "dg" || moi?.role === "DG";
+  const jeSuisGrossiste = monRole === "grossiste" || jeSuisDG;
+  const voirTout = monRole !== "client" || jeSuisDG;
+  const maCommune = moi?.commune || "Kinshasa";
+
   useEffect(() => {
     const loadDesign = () => setDesign({ ...DEFAULT_DESIGN, ...readDesign() });
     loadDesign();
@@ -280,6 +323,25 @@ export default function WenzeBusiness() {
     const t = setTimeout(() => setDebounced(search.trim()), 300);
     return () => clearTimeout(t);
   }, [search]);
+
+  useEffect(() => {
+    const parts: string[] = [];
+    if (selectedProvince !== "toutes") parts.push(`Province: ${selectedProvince}`);
+    if (selectedCommune !== "toutes") parts.push(`Commune: ${selectedCommune}`);
+    if (filtreQuartier.trim()) parts.push(`Quartier: ${filtreQuartier.trim()}`);
+    if (filtreAvenue.trim()) parts.push(`Avenue: ${filtreAvenue.trim()}`);
+    if (parts.length === 0) return;
+
+    const timer = setTimeout(() => {
+      logActivite(
+        "navigation",
+        `Filtre zone appliqué (${parts.join(" • ")})`,
+        monRole
+      );
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [selectedProvince, selectedCommune, filtreQuartier, filtreAvenue, monRole]);
 
   const showToast = (m: string) => {
     setToast(m);
@@ -300,6 +362,11 @@ export default function WenzeBusiness() {
         });
         setTri("proximite");
         setGeoLoading(false);
+        logActivite(
+          "navigation",
+          "Géolocalisation GPS activée et tri par proximité appliqué",
+          monRole
+        );
         showToast("📍 Position GPS activée — tri par proximité");
       },
       () => {
@@ -309,8 +376,7 @@ export default function WenzeBusiness() {
       { enableHighAccuracy: true, timeout: 10000 }
     );
   };
-
-  const loadAnnonces = useCallback(() => {
+    const loadAnnonces = useCallback(() => {
     try {
       const usersMap = new Map<string, any>();
       for (const u of readList("wenze_all_users")) {
@@ -440,13 +506,6 @@ export default function WenzeBusiness() {
       window.removeEventListener("wenze-update", onChange);
     };
   }, [loadAnnonces]);
-
-  const monRole = moi?.role || (moi?.estVendeur ? "vendeur" : "client");
-  const jeSuisDG =
-    moi?.roleAdmin === "dg" || moi?.role === "dg" || moi?.role === "DG";
-  const jeSuisGrossiste = monRole === "grossiste" || jeSuisDG;
-  const voirTout = monRole !== "client" || jeSuisDG;
-  const maCommune = moi?.commune || "Kinshasa";
 
   const filtered = useMemo(() => {
     let list = [...annonces];
@@ -647,7 +706,11 @@ export default function WenzeBusiness() {
         : a
     );
     if (safeWriteStorage("wenze_annonces_list", JSON.stringify(list))) {
-      window.dispatchEvent(new Event("wenze-update"));
+      logActivite(
+        "annonce",
+        `Recommandation basculée pour l'annonce #${id}`,
+        monRole
+      );
       showToast("Recommandation mise à jour ★");
     }
   };
@@ -697,7 +760,13 @@ export default function WenzeBusiness() {
         return;
       }
       setCartCount(panier.length);
-      window.dispatchEvent(new Event("wenze-update"));
+      logActivite(
+        "panier",
+        `Ajout au panier : "${a.titre}" (${fmtUSD(
+          estGros ? Number(a.prixGros || a.prix || 0) : a.prix
+        )})`,
+        monRole
+      );
       if (estGros) {
         const grosUsd = Number(a.prixGros || a.prix || 0);
         showToast(
@@ -732,7 +801,14 @@ export default function WenzeBusiness() {
         " sur " +
         APP_NAME
     );
-    if (lien) window.open(lien, "_blank", "noopener");
+    if (lien) {
+      logActivite(
+        "contact",
+        `Contact WhatsApp initié pour "${a.titre}"`,
+        monRole
+      );
+      window.open(lien, "_blank", "noopener");
+    }
   };
 
   const keepCurrent = (a: any) => {
@@ -740,10 +816,16 @@ export default function WenzeBusiness() {
   };
   const openProduit = (a: any) => {
     keepCurrent(a);
+    logActivite(
+      "navigation",
+      `Ouverture de la fiche produit "${a.titre}"`,
+      monRole
+    );
     router.push("/produit/" + a.id);
   };
   const openVideoPage = (a: any) => {
     keepCurrent(a);
+    logActivite("navigation", `Ouverture vidéo "${a.titre}"`, monRole);
     router.push("/video?id=" + a.id);
   };
 
@@ -894,8 +976,7 @@ export default function WenzeBusiness() {
             Filtre
           </button>
         </div>
-
-        {/* Couverture RDC : 26 provinces / 24 communes Kinshasa */}
+         {/* Couverture RDC : 26 provinces / 24 communes Kinshasa */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-[10px] font-bold">
           <select
             aria-label="Province de la RDC"
@@ -1105,7 +1186,7 @@ export default function WenzeBusiness() {
               Tu vois tout, y compris les prix gros • 0 % commission.
             </p>
           </div>
-      ) : jeSuisDG ? (
+        ) : jeSuisDG ? (
           <div className="bg-black text-white rounded-2xl p-3.5">
             <p className="font-black text-[13px]">
               👑 Mode DG — {filtered.length}/{MAX_ANNONCES_ACTIVES} annonces
@@ -1235,5 +1316,4 @@ export default function WenzeBusiness() {
       />
     </div>
   );
-}
-    
+  }
