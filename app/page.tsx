@@ -139,7 +139,8 @@ function safeWriteStorage(key: string, value: string): boolean {
 const DEFAULT_DESIGN = {
   titre: "Bienvenue chez WENZE",
   slogan: "Là où les opportunités deviennent une réalité.",
-  apropos: "WENZE - Ensemble on va plus loin. Boutiques vérifiées à Kinshasa et dans les 26 provinces de la RDC.",
+  apropos:
+    "WENZE - Ensemble on va plus loin. Boutiques vérifiées à Kinshasa et dans les 26 provinces de la RDC.",
   whatsapp: "+243810000000",
   logo: "",
   couleur: "#FF6B00",
@@ -242,6 +243,7 @@ export default function WenzeBusiness() {
   const [debounced, setDebounced] = useState("");
   const [annonces, setAnnonces] = useState<any[]>([]);
   const [selectedCat, setSelectedCat] = useState<string>("all");
+  const [modalCategoriesOuvert, setModalCategoriesOuvert] = useState(false);
   const [tri, setTri] = useState<"recent" | "moins_cher" | "plus_cher" | "proximite">("recent");
   const [videoSeulement, setVideoSeulement] = useState(false);
   const [filtreOuvert, setFiltreOuvert] = useState(false);
@@ -456,12 +458,15 @@ export default function WenzeBusiness() {
     }
     if (selectedProvince !== "toutes") {
       list = list.filter(
-        (a) => (a.province || "Kinshasa").toLowerCase() === selectedProvince.toLowerCase()
+        (a) =>
+          (a.province || "Kinshasa").toLowerCase() ===
+          selectedProvince.toLowerCase()
       );
     }
     if (selectedCommune !== "toutes") {
       list = list.filter(
-        (a) => (a.commune || "").toLowerCase() === selectedCommune.toLowerCase()
+        (a) =>
+          (a.commune || "").toLowerCase() === selectedCommune.toLowerCase()
       );
     }
     if (filtreQuartier.trim()) {
@@ -508,8 +513,14 @@ export default function WenzeBusiness() {
     return withDist
       .sort((a, b) => {
         if (tri === "proximite") {
-          const da = typeof a._distanceKm === "number" ? a._distanceKm : Number.POSITIVE_INFINITY;
-          const db = typeof b._distanceKm === "number" ? b._distanceKm : Number.POSITIVE_INFINITY;
+          const da =
+            typeof a._distanceKm === "number"
+              ? a._distanceKm
+              : Number.POSITIVE_INFINITY;
+          const db =
+            typeof b._distanceKm === "number"
+              ? b._distanceKm
+              : Number.POSITIVE_INFINITY;
           if (da !== db) return da - db;
         }
         if (tri === "moins_cher") {
@@ -550,6 +561,64 @@ export default function WenzeBusiness() {
       })),
     [filtered]
   );
+
+  // Résolution des 4 choix principaux demandés dans la modale Catégories :
+  // Tout le service, Boutique, Grossiste, Prestataires
+  const optionsModalCategories = useMemo(() => {
+    const findTabId = (keywords: string[], fallback: string) => {
+      const found = tabs.find((t: any) => {
+        const low = `${t.id} ${t.label}`.toLowerCase();
+        return keywords.some((k) => low.includes(k));
+      });
+      return found ? found.id : fallback;
+    };
+
+    const boutiqueId = findTabId(["boutique"], "boutique");
+    const grossisteId = findTabId(["grossiste", "gros"], "grossiste");
+    const prestataireId = findTabId(
+      ["prestataire", "service"],
+      "prestataires"
+    );
+
+    return [
+      {
+        id: "all",
+        emoji: "🌐",
+        titre: "Tout le service",
+        description: "Toutes les annonces et services disponibles",
+        count: filtered.length,
+      },
+      {
+        id: boutiqueId,
+        emoji: "🏪",
+        titre: "Boutique",
+        description: "Produits et articles au détail",
+        count: filtered.filter((a) => a.categorieId === boutiqueId).length,
+      },
+      {
+        id: grossisteId,
+        emoji: "📦",
+        titre: "Grossiste",
+        description: "Achat en gros et commandes minimum",
+        count: filtered.filter((a) => a.categorieId === grossisteId).length,
+      },
+      {
+        id: prestataireId,
+        emoji: "🛠️",
+        titre: "Prestataires",
+        description: "Prestataires et services locaux",
+        count: filtered.filter((a) => a.categorieId === prestataireId).length,
+      },
+    ];
+  }, [tabs, filtered]);
+
+  const choisirCategorieModal = (catId: string) => {
+    setSelectedCat(catId);
+    setModalCategoriesOuvert(false);
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  };
 
   const waClean = (design.whatsapp || "").toString().replace(/[^0-9]/g, "");
   const goBack = () => {
@@ -724,7 +793,71 @@ export default function WenzeBusiness() {
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-24">
-      <div className="p-4 space-y-3">
+      {/* ===== BLOC EN HAUT : RETOUR + LOGO WENZE. + SE CONNECTER + BIENVENUE ===== */}
+      <header className="px-4 pt-3 space-y-3">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={goBack}
+            aria-label="Retour"
+            className="w-9 h-9 bg-white border rounded-full font-black text-[16px] flex items-center justify-center"
+          >
+            ←
+          </button>
+
+          <div className="flex items-center gap-2">
+            {design.logo ? (
+              <img
+                src={design.logo}
+                alt={APP_NAME}
+                className="w-8 h-8 rounded-full object-cover"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center font-black">
+                W
+              </div>
+            )}
+            <span className="font-black text-[16px] tracking-tight text-black">
+              {APP_NAME}
+              <span style={{ color: design.couleur }}>.</span>
+            </span>
+          </div>
+
+          {moi ? (
+            <button
+              type="button"
+              onClick={() => router.push("/profil")}
+              className="bg-black text-white px-4 py-2 rounded-full font-black text-[11px]"
+            >
+              Mon profil →
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => router.push("/connexion")}
+              className="bg-black text-white px-4 py-2 rounded-full font-black text-[11px]"
+            >
+              Se connecter
+            </button>
+          )}
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-2xl p-4">
+          <h1 className="font-black text-[22px] leading-[1.15] text-gray-900">
+            {design.titre || "Bienvenue chez WENZE"}
+          </h1>
+          <p className="text-[13px] text-gray-600 mt-1">
+            {design.slogan || "Là où les opportunités deviennent une réalité."}
+          </p>
+          <p className="text-[11px] text-gray-500 mt-2 leading-relaxed">
+            {design.apropos ||
+              "WENZE - Ensemble on va plus loin. Boutiques vérifiées à Kinshasa et dans les 26 provinces de la RDC."}
+          </p>
+        </div>
+      </header>
+
+      {/* ===== CONTENU PRINCIPAL ===== */}
+      <div className="p-4 pt-3 space-y-3">
         {toast ? (
           <div className="bg-black text-white p-3 rounded-xl text-[12px] font-bold text-center">
             {toast}
@@ -762,7 +895,7 @@ export default function WenzeBusiness() {
           </button>
         </div>
 
-        {/* Bandeau rapide de couverture RDC (26 provinces / 24 communes Kinshasa / GPS) */}
+        {/* Couverture RDC : 26 provinces / 24 communes Kinshasa */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-[10px] font-bold">
           <select
             aria-label="Province de la RDC"
@@ -784,7 +917,8 @@ export default function WenzeBusiness() {
             ))}
           </select>
 
-          {(selectedProvince === "toutes" || selectedProvince === "Kinshasa") && (
+          {(selectedProvince === "toutes" ||
+            selectedProvince === "Kinshasa") && (
             <select
               aria-label="Commune de Kinshasa"
               value={selectedCommune}
@@ -954,7 +1088,8 @@ export default function WenzeBusiness() {
         {!voirTout ? (
           <div className="bg-yellow-50 border border-yellow-300 rounded-2xl p-3.5">
             <p className="font-black text-[13px]">
-              ⭐ Recommandé pour toi à {selectedCommune !== "toutes" ? selectedCommune : maCommune}
+              ⭐ Recommandé pour toi à{" "}
+              {selectedCommune !== "toutes" ? selectedCommune : maCommune}
             </p>
             <p className="text-[10px] text-gray-600 mt-0.5">
               Sélection vérifiée par Wenze • 0 % commission • {filtered.length}{" "}
@@ -970,7 +1105,7 @@ export default function WenzeBusiness() {
               Tu vois tout, y compris les prix gros • 0 % commission.
             </p>
           </div>
-        ) : jeSuisDG ? (
+      ) : jeSuisDG ? (
           <div className="bg-black text-white rounded-2xl p-3.5">
             <p className="font-black text-[13px]">
               👑 Mode DG — {filtered.length}/{MAX_ANNONCES_ACTIVES} annonces
@@ -1008,7 +1143,8 @@ export default function WenzeBusiness() {
                 Aucune annonce visible pour cette zone
               </p>
               <p className="text-[11px] text-gray-500 mt-1">
-                Modifiez vos filtres (province, commune, quartier, avenue) ou publiez votre première annonce.
+                Modifiez vos filtres (province, commune, quartier, avenue) ou
+                publiez votre première annonce.
               </p>
             </div>
           ) : (
@@ -1029,6 +1165,55 @@ export default function WenzeBusiness() {
         </div>
       </div>
 
+      {/* ===== MODALE CATÉGORIES : TOUT LE SERVICE, BOUTIQUE, GROSSISTE, PRESTATAIRES ===== */}
+      {modalCategoriesOuvert && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3"
+          onClick={() => setModalCategoriesOuvert(false)}
+        >
+          <div
+            className="w-full max-w-[430px] rounded-2xl bg-white p-4 space-y-2.5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <p className="font-black text-[14px] text-gray-900">
+                Catégories WENZE
+              </p>
+              <button
+                type="button"
+                onClick={() => setModalCategoriesOuvert(false)}
+                className="w-8 h-8 rounded-full bg-gray-100 font-black text-[13px] flex items-center justify-center"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="grid gap-2">
+              {optionsModalCategories.map((opt) => (
+                <button
+                  key={opt.titre}
+                  type="button"
+                  onClick={() => choisirCategorieModal(opt.id)}
+                  className="flex items-center justify-between rounded-xl border border-gray-200 p-3 text-left hover:border-black"
+                >
+                  <div>
+                    <p className="font-black text-[13px] text-gray-900">
+                      {opt.emoji} {opt.titre}
+                    </p>
+                    <p className="text-[11px] text-gray-500">
+                      {opt.description}
+                    </p>
+                  </div>
+                  <span className="font-black text-[12px] text-gray-900">
+                    ({opt.count}) →
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {selectedImage ? (
         <ImageViewer
           annonce={selectedImage}
@@ -1043,70 +1228,12 @@ export default function WenzeBusiness() {
         />
       ) : null}
 
-      {/* Bloc final : Retour + Logo WENZE. + Se connecter / Profil + Bienvenue chez WENZE */}
-      <section className="px-4 mt-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <button
-            type="button"
-            onClick={goBack}
-            aria-label="Retour"
-            className="w-9 h-9 bg-white border rounded-full font-black text-[16px] flex items-center justify-center"
-          >
-            ←
-          </button>
-
-          <div className="flex items-center gap-2">
-            {design.logo ? (
-              <img
-                src={design.logo}
-                alt={APP_NAME}
-                className="w-8 h-8 rounded-full object-cover"
-              />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center font-black">
-                W
-              </div>
-            )}
-            <span className="font-black text-[16px] tracking-tight text-black">
-              {APP_NAME}
-              <span style={{ color: design.couleur }}>.</span>
-            </span>
-          </div>
-
-          {moi ? (
-            <button
-              type="button"
-              onClick={() => router.push("/profil")}
-              className="bg-black text-white px-4 py-2 rounded-full font-black text-[11px]"
-            >
-              Mon profil →
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={() => router.push("/connexion")}
-              className="bg-black text-white px-4 py-2 rounded-full font-black text-[11px]"
-            >
-              Se connecter
-            </button>
-          )}
-        </div>
-
-        <div className="bg-white border border-gray-200 rounded-2xl p-4">
-          <h1 className="font-black text-[22px] leading-[1.15] text-gray-900">
-            {design.titre || "Bienvenue chez WENZE"}
-          </h1>
-          <p className="text-[13px] text-gray-600 mt-1">
-            {design.slogan || "Là où les opportunités deviennent une réalité."}
-          </p>
-          <p className="text-[11px] text-gray-500 mt-2 leading-relaxed">
-            {design.apropos ||
-              "WENZE - Ensemble on va plus loin. Boutiques vérifiées à Kinshasa et dans les 26 provinces de la RDC."}
-          </p>
-        </div>
-      </section>
-
-      <BottomNav active="accueil" cartCount={cartCount} />
+      <BottomNav
+        active="accueil"
+        cartCount={cartCount}
+        onOpenCategories={() => setModalCategoriesOuvert(true)}
+      />
     </div>
   );
 }
+    
