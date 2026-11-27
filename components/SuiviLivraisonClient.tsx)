@@ -1,0 +1,100 @@
+"use client";
+
+import React, { useEffect, useState } from "react";
+import { supabase } from "@/lib/supabase";
+import DashboardCarteSection from "@/components/DashboardCarteSection";
+import { StatutConsentementClient } from "@/lib/acces-carte-wenze";
+import { obtenirPositionActuelle } from "@/lib/geolocalisation-wenze";
+
+interface SuiviLivraisonClientProps {
+  partageId: string;
+  venteOccasionnelleActive?: boolean;
+  abonnementPubliciteActif?: boolean;
+}
+
+export default function SuiviLivraisonClient({
+  partageId,
+  venteOccasionnelleActive = false,
+  abonnementPubliciteActif = false,
+}: SuiviLivraisonClientProps) {
+  const [consentement, setConsentement] =
+    useState<StatutConsentementClient>("en_attente");
+  const [posVendeur, setPosVendeur] = useState<{
+    latitude: number;
+    longitude: number;
+    label?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!supabase || !partageId) return;
+
+    async function chargerPartage() {
+      const { data } = await supabase
+        .from("partages_position_temps_reel")
+        .select("consentement_statut, vendeur_lat, vendeur_lng")
+        .eq("id", partageId)
+        .maybeSingle();
+
+      if (data) {
+        setConsentement(
+          (data.consentement_statut as StatutConsentementClient) || "en_attente"
+        );
+        if (
+          typeof data.vendeur_lat === "number" &&
+          typeof data.vendeur_lng === "number"
+        ) {
+          setPosVendeur({
+            latitude: data.vendeur_lat,
+            longitude: data.vendeur_lng,
+            label: "Position en direct du vendeur / livreur",
+          });
+        }
+      }
+    }
+
+    chargerPartage();
+  }, [partageId]);
+
+  const repondreAuPartage = async (accepte: boolean) => {
+    const nouveauStatut: StatutConsentementClient = accepte
+      ? "accepte"
+      : "refuse";
+    setConsentement(nouveauStatut);
+
+    if (!supabase || !partageId) return;
+
+    let clientLat: number | null = null;
+    let clientLng: number | null = null;
+
+    if (accepte) {
+      try {
+        const pos = await obtenirPositionActuelle();
+        clientLat = pos.latitude;
+        clientLng = pos.longitude;
+      } catch {}
+    }
+
+    await supabase
+      .from("partages_position_temps_reel")
+      .update({
+        consentement_statut: nouveauStatut,
+        client_lat: clientLat,
+        client_lng: clientLng,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", partageId);
+  };
+
+  return (
+    <DashboardCarteSection
+      titre="Suivi livraison & position partagée"
+      profilActeur="client"
+      hauteurPx={380}
+      venteOccasionnelleActive={venteOccasionnelleActive}
+      abonnementPubliciteActif={abonnementPubliciteActif}
+      consentementClient={consentement}
+      onRepondreConsentementClient={repondreAuPartage}
+      positionClientLivraison={posVendeur}
+    />
+  );
+}
