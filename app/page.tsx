@@ -11,16 +11,13 @@ import {
 } from "@/lib/paiement";
 import { estConnecte, exigerCompte, lireSession } from "@/lib/connexion";
 import {
-  HomeHeader,
   AnnonceCard,
   ImageViewer,
   BottomNav,
-  BandeauVisiteur,
   fmtUSD,
   waLink,
   APP_NAME,
 } from "./HomeParts";
-import TombolaActivite from "./TombolaActivite";
 
 export const dynamic = "force-dynamic";
 
@@ -111,6 +108,7 @@ function FlashVideo({ annonces, onOpen }: any) {
       <div className="flex justify-between items-center">
         <p className="font-black text-[14px]">⚡ FLASH VIDEO</p>
         <button
+          type="button"
           onClick={() => {
             window.location.href = "/video";
           }}
@@ -125,6 +123,7 @@ function FlashVideo({ annonces, onOpen }: any) {
       <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
         {videos.map((v: any) => (
           <button
+            type="button"
             key={v.id}
             onClick={() => onOpen(v)}
             className="min-w-[120px] w-[120px] text-left bg-white/10 rounded-2xl overflow-hidden shrink-0"
@@ -174,12 +173,15 @@ export default function WenzeBusiness() {
   const [debounced, setDebounced] = useState("");
   const [annonces, setAnnonces] = useState<any[]>([]);
   const [selectedCat, setSelectedCat] = useState<string>("all");
+  const [tri, setTri] = useState<"recent" | "moins_cher" | "plus_cher">("recent");
+  const [videoSeulement, setVideoSeulement] = useState(false);
+  const [filtreOuvert, setFiltreOuvert] = useState(false);
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [toast, setToast] = useState("");
-  const [ab, setAb] = useState<any>(null);
+  const [, setAb] = useState<any>(null);
   const [notifCount, setNotifCount] = useState(0);
   const [cartCount, setCartCount] = useState(0);
-  const [visiteur, setVisiteur] = useState(false);
+  const [, setVisiteur] = useState(false);
   const [moi, setMoi] = useState<any>(null);
   const [design, setDesign] = useState<any>(DEFAULT_DESIGN);
 
@@ -263,7 +265,6 @@ export default function WenzeBusiness() {
             _wa: x.wa,
           };
         });
-
       setAnnonces(fixed);
     } catch {
       setAnnonces([]);
@@ -347,13 +348,17 @@ export default function WenzeBusiness() {
     if (selectedCat !== "all") {
       list = list.filter((a) => a.categorieId === selectedCat);
     }
+    if (videoSeulement) {
+      list = list.filter((a) => a.isVideo);
+    }
     if (debounced) {
       const s = debounced.toLowerCase();
       list = list.filter(
         (a) =>
           (a.titre || "").toLowerCase().includes(s) ||
           (a.description || "").toLowerCase().includes(s) ||
-          (a.commune || "").toLowerCase().includes(s)
+          (a.commune || "").toLowerCase().includes(s) ||
+          (a.avenue || "").toLowerCase().includes(s)
       );
     }
     const time = (a: any) =>
@@ -361,6 +366,12 @@ export default function WenzeBusiness() {
 
     return list
       .sort((a, b) => {
+        if (tri === "moins_cher") {
+          return Number(a.prix || 0) - Number(b.prix || 0);
+        }
+        if (tri === "plus_cher") {
+          return Number(b.prix || 0) - Number(a.prix || 0);
+        }
         const aIci = (a.commune || "") === maCommune ? 0 : 1;
         const bIci = (b.commune || "") === maCommune ? 0 : 1;
         if (aIci !== bIci) return aIci - bIci;
@@ -369,7 +380,7 @@ export default function WenzeBusiness() {
         return time(b) - time(a);
       })
       .slice(0, MAX_ANNONCES_ACTIVES);
-  }, [annonces, debounced, selectedCat, voirTout, maCommune]);
+  }, [annonces, debounced, selectedCat, voirTout, maCommune, tri, videoSeulement]);
 
   const tabs = useMemo(
     () =>
@@ -510,7 +521,6 @@ export default function WenzeBusiness() {
         filtered.reduce((s, a) => s + Number(a.prix || 0), 0) / filtered.length
       )
     : 0;
-  const boostedCount = filtered.filter((a) => a.isBoosted).length;
   const payantCount = filtered.filter((a) => a.isPayant).length;
 
   if (design.maintenance && !jeSuisDG) {
@@ -522,6 +532,7 @@ export default function WenzeBusiness() {
           {design.titre} est en maintenance.
         </p>
         <button
+          type="button"
           onClick={goWhatsAppDG}
           className="mt-6 bg-black text-white px-6 py-3 rounded-full font-black text-[13px]"
         >
@@ -529,6 +540,7 @@ export default function WenzeBusiness() {
         </button>
         <div className="mt-6">
           <button
+            type="button"
             onClick={goBack}
             className="text-[12px] underline text-gray-500"
           >
@@ -541,100 +553,6 @@ export default function WenzeBusiness() {
 
   return (
     <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] pb-24">
-      <div className="px-4 pt-3 flex items-center justify-between">
-        <button
-          onClick={goBack}
-          className="w-9 h-9 bg-white border rounded-full font-black text-[16px]"
-        >
-          ←
-        </button>
-        <div className="flex items-center gap-2">
-          {design.logo ? (
-            <img
-              src={design.logo}
-              alt="WENZE"
-              className="w-8 h-8 rounded-full object-cover"
-            />
-          ) : (
-            <div className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center font-black">
-              W
-            </div>
-          )}
-          <span className="font-black text-[16px]">
-            WENZE<span style={{ color: design.couleur }}>.</span>
-          </span>
-        </div>
-        {moi ? (
-          <button
-            onClick={() => router.push("/profil")}
-            className="bg-black text-white px-3 py-2 rounded-full font-black text-[11px]"
-          >
-            Mon profil →
-          </button>
-        ) : (
-          <button
-            onClick={() => router.push("/connexion")}
-            className="bg-black text-white px-3 py-2 rounded-full font-black text-[11px]"
-          >
-            Se connecter
-          </button>
-        )}
-      </div>
-
-      <div className="px-4 mt-3 bg-white border rounded-2xl p-4">
-        <h1 className="font-black text-[22px] leading-[1.1]">{design.titre}</h1>
-        <p className="text-[13px] text-gray-600 mt-1">{design.slogan}</p>
-        <p className="text-[11px] text-gray-500 mt-2 leading-relaxed">
-          {design.apropos}
-        </p>
-        <div className="flex gap-2 mt-4">
-          <button
-            onClick={() => router.push("/inscription")}
-            style={{ background: design.couleurBouton }}
-            className="flex-1 text-white py-3.5 rounded-full font-black text-[12px]"
-          >
-            Créer mon compte
-          </button>
-          <button
-            onClick={goWhatsAppDG}
-            className="flex-1 bg-white border-2 border-black py-3.5 rounded-full font-black text-[12px]"
-          >
-            WhatsApp DG
-          </button>
-        </div>
-        {design.showAmbassadeur && (
-          <button
-            onClick={() => router.push("/inscription?role=ambassadeur")}
-            className="w-full mt-2 bg-[#FFF2CC] border-2 border-dashed border-black py-3.5 rounded-2xl font-black text-[12px]"
-          >
-            ⭐ Devenir Ambassadeur WENZE
-          </button>
-        )}
-        {design.maintenance && jeSuisDG && (
-          <p className="text-center text-[10px] font-black text-orange-600 mt-2">
-            ⚠️ MODE MAINTENANCE ACTIF — Seul toi DG vois la page
-          </p>
-        )}
-      </div>
-
-      {design.showTombola !== false && <TombolaActivite />}
-
-<HomeHeader
-        ab={ab}
-        payantCount={payantCount}
-        boostedCount={boostedCount}
-        notifCount={notifCount}
-        cartCount={cartCount}
-        search={search}
-        onSearch={setSearch}
-        tabs={tabs}
-        selectedCat={selectedCat}
-        onSelectCat={setSelectedCat}
-        totalCount={filtered.length}
-      />
-
-      {visiteur ? <BandeauVisiteur /> : null}
-
       <div className="p-4 space-y-3">
         {toast ? (
           <div className="bg-black text-white p-3 rounded-xl text-[12px] font-bold text-center">
@@ -642,8 +560,94 @@ export default function WenzeBusiness() {
           </div>
         ) : null}
 
+        {/* Recherche + Filtre */}
+        <div className="flex items-center gap-2">
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Rechercher produit, commune, avenue..."
+            className="flex-1 rounded-full border border-gray-300 bg-white px-4 py-2 text-xs text-gray-900 placeholder:text-gray-400 focus:border-black focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={() => setFiltreOuvert((v) => !v)}
+            className="shrink-0 rounded-full bg-black px-3.5 py-2 text-xs font-black text-white"
+          >
+            Filtre
+          </button>
+        </div>
+
+        {filtreOuvert && (
+          <div className="rounded-2xl border border-gray-200 bg-white p-3 space-y-2">
+            <p className="text-[11px] font-black">Trier par</p>
+            <div className="flex flex-wrap gap-1.5">
+              {(
+                [
+                  ["recent", "Plus récents"],
+                  ["moins_cher", "Moins cher"],
+                  ["plus_cher", "Plus cher"],
+                ] as const
+              ).map(([val, label]) => (
+                <button
+                  key={val}
+                  type="button"
+                  onClick={() => setTri(val)}
+                  className={`rounded-full border px-3 py-1 text-[11px] font-bold ${
+                    tri === val
+                      ? "border-black bg-black text-white"
+                      : "border-gray-300 bg-white text-gray-800"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <label className="flex items-center gap-2 pt-1 text-[11px] font-bold">
+              <input
+                type="checkbox"
+                checked={videoSeulement}
+                onChange={(e) => setVideoSeulement(e.target.checked)}
+                className="h-4 w-4 accent-black"
+              />
+              Avec vidéo seulement
+            </label>
+          </div>
+        )}
+
+        {/* Onglets catégories sans doublon */}
+        <div className="flex gap-2 overflow-x-auto pb-1">
+             <button
+            type="button"
+            onClick={() => setSelectedCat("all")}
+            className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black ${
+              selectedCat === "all"
+                ? "bg-black text-white"
+                : "bg-white border text-gray-800"
+            }`}
+          >
+            Tout ({filtered.length})
+          </button>
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setSelectedCat(t.id)}
+              className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black ${
+                selectedCat === t.id
+                  ? "bg-black text-white"
+                  : "bg-white border text-gray-800"
+              }`}
+            >
+              {t.label} ({t.count})
+            </button>
+          ))}
+        </div>
+
+        {/* 4 boutons rapides (Panier, Notifs, Publier, Aide) */}
         <div className="grid grid-cols-4 gap-2">
           <button
+            type="button"
             onClick={() => router.push("/panier")}
             className="bg-white border rounded-2xl py-3 text-center"
           >
@@ -651,6 +655,7 @@ export default function WenzeBusiness() {
             <p className="text-[9px] font-black">Panier ({cartCount})</p>
           </button>
           <button
+            type="button"
             onClick={() => router.push("/notifications")}
             className="bg-white border rounded-2xl py-3 text-center relative"
           >
@@ -663,6 +668,7 @@ export default function WenzeBusiness() {
             )}
           </button>
           <button
+            type="button"
             onClick={() => {
               if (!exigerCompte(router, "/")) return;
               router.push("/publier");
@@ -673,6 +679,7 @@ export default function WenzeBusiness() {
             <p className="text-[9px] font-black">Publier</p>
           </button>
           <button
+            type="button"
             onClick={goWhatsAppDG}
             className="bg-white border rounded-2xl py-3 text-center"
           >
@@ -713,20 +720,6 @@ export default function WenzeBusiness() {
           </div>
         ) : null}
 
-        {notifCount > 0 ? (
-          <button
-            onClick={() => router.push("/notifications")}
-            className="w-full bg-black text-white rounded-2xl p-3.5 flex justify-between items-center"
-          >
-            <span className="font-black text-[11px]">
-              🔔 {notifCount} notification(s)
-            </span>
-            <span className="bg-white text-black px-3 py-1 rounded-full text-[10px] font-black">
-              Voir →
-            </span>
-          </button>
-        ) : null}
-
         <div className="flex justify-between items-center">
           <p className="font-black text-[11px]">
             {filtered.length}/{MAX_ANNONCES_ACTIVES} annonce(s)
@@ -734,6 +727,7 @@ export default function WenzeBusiness() {
             {prixMoyen}$ / {toCDFString(prixMoyen)} moy • 0 % comm
           </p>
           <button
+            type="button"
             onClick={() => router.push("/recherche")}
             className="text-[10px] text-black font-bold border px-3 py-1 rounded-full bg-white"
           >
@@ -789,4 +783,4 @@ export default function WenzeBusiness() {
       <BottomNav active="accueil" cartCount={cartCount} />
     </div>
   );
-}
+ }
