@@ -23,8 +23,77 @@ export const dynamic = "force-dynamic";
 
 const MAX_ANNONCES_ACTIVES = 50;
 
+export const PROVINCES_RDC = [
+  "Kinshasa",
+  "Kongo-Central",
+  "Kwango",
+  "Kwilu",
+  "Mai-Ndombe",
+  "Kasaï",
+  "Kasaï-Central",
+  "Kasaï-Oriental",
+  "Lomami",
+  "Sankuru",
+  "Maniema",
+  "Sud-Kivu",
+  "Nord-Kivu",
+  "Ituri",
+  "Haut-Uele",
+  "Bas-Uele",
+  "Tshopo",
+  "Mongala",
+  "Nord-Ubangi",
+  "Sud-Ubangi",
+  "Équateur",
+  "Tshuapa",
+  "Tanganyika",
+  "Haut-Lomami",
+  "Lualaba",
+  "Haut-Katanga",
+] as const;
+
+export const COMMUNES_KINSHASA = [
+  "Bandalungwa",
+  "Barumbu",
+  "Bumbu",
+  "Gombe",
+  "Kalamu",
+  "Kasa-Vubu",
+  "Kimbanseke",
+  "Kinshasa",
+  "Kintambo",
+  "Kisenso",
+  "Lemba",
+  "Limete",
+  "Lingwala",
+  "Makala",
+  "Maluku",
+  "Masina",
+  "Matete",
+  "Mont-Ngafula",
+  "Ndjili",
+  "Ngaba",
+  "Ngaliema",
+  "Ngiri-Ngiri",
+  "Nsele",
+  "Selembao",
+] as const;
+
 const cleanWa = (n: any): string =>
   (n || "").toString().replace(/[^0-9]/g, "").replace(/^0+/, "");
+
+function distanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 function readList(key: string): any[] {
   try {
@@ -69,8 +138,8 @@ function safeWriteStorage(key: string, value: string): boolean {
 
 const DEFAULT_DESIGN = {
   titre: "Bienvenue chez WENZE",
-  slogan: "Le réseau qui te fait gagner",
-  apropos: "WENZE - Ensemble on va plus loin. Boutiques vérifiées à Kinshasa.",
+  slogan: "Là où les opportunités deviennent une réalité.",
+  apropos: "WENZE - Ensemble on va plus loin. Boutiques vérifiées à Kinshasa et dans les 26 provinces de la RDC.",
   whatsapp: "+243810000000",
   logo: "",
   couleur: "#FF6B00",
@@ -158,7 +227,7 @@ function FlashVideo({ annonces, onOpen }: any) {
               {v.titre}
             </p>
             <p className="text-[10px] text-white/70 px-2 pb-2 -mt-1 truncate">
-              {v.commune} • {fmtUSD(v.prix)}$ / {v.prixCDF}
+              {v.commune || v.province} • {fmtUSD(v.prix)}$ / {v.prixCDF}
             </p>
           </button>
         ))}
@@ -173,9 +242,18 @@ export default function WenzeBusiness() {
   const [debounced, setDebounced] = useState("");
   const [annonces, setAnnonces] = useState<any[]>([]);
   const [selectedCat, setSelectedCat] = useState<string>("all");
-  const [tri, setTri] = useState<"recent" | "moins_cher" | "plus_cher">("recent");
+  const [tri, setTri] = useState<"recent" | "moins_cher" | "plus_cher" | "proximite">("recent");
   const [videoSeulement, setVideoSeulement] = useState(false);
   const [filtreOuvert, setFiltreOuvert] = useState(false);
+
+  // Couverture géographique RDC : 26 provinces, 24 communes Kinshasa, quartier, avenue + GPS
+  const [selectedProvince, setSelectedProvince] = useState<string>("toutes");
+  const [selectedCommune, setSelectedCommune] = useState<string>("toutes");
+  const [filtreQuartier, setFiltreQuartier] = useState<string>("");
+  const [filtreAvenue, setFiltreAvenue] = useState<string>("");
+  const [geoCoords, setGeoCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [geoLoading, setGeoLoading] = useState(false);
+
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [toast, setToast] = useState("");
   const [, setAb] = useState<any>(null);
@@ -204,6 +282,30 @@ export default function WenzeBusiness() {
   const showToast = (m: string) => {
     setToast(m);
     setTimeout(() => setToast(""), 2800);
+  };
+
+  const activerGeolocalisation = () => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      showToast("Géolocalisation non disponible sur cet appareil");
+      return;
+    }
+    setGeoLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setGeoCoords({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+        setTri("proximite");
+        setGeoLoading(false);
+        showToast("📍 Position GPS activée — tri par proximité");
+      },
+      () => {
+        setGeoLoading(false);
+        showToast("Autorisez la position GPS dans votre navigateur");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   };
 
   const loadAnnonces = useCallback(() => {
@@ -248,6 +350,10 @@ export default function WenzeBusiness() {
           const prix = Number(a.prixUSD || a.prix || 0);
           return {
             ...a,
+            province: a.province || "Kinshasa",
+            commune: a.commune || "",
+            quartier: a.quartier || "",
+            avenue: a.avenue || "",
             is_visible: true,
             categorieId: normalizeCategorie(
               a.categorieId || a.categorie || "commerces-services"
@@ -348,6 +454,24 @@ export default function WenzeBusiness() {
     if (selectedCat !== "all") {
       list = list.filter((a) => a.categorieId === selectedCat);
     }
+    if (selectedProvince !== "toutes") {
+      list = list.filter(
+        (a) => (a.province || "Kinshasa").toLowerCase() === selectedProvince.toLowerCase()
+      );
+    }
+    if (selectedCommune !== "toutes") {
+      list = list.filter(
+        (a) => (a.commune || "").toLowerCase() === selectedCommune.toLowerCase()
+      );
+    }
+    if (filtreQuartier.trim()) {
+      const q = filtreQuartier.trim().toLowerCase();
+      list = list.filter((a) => (a.quartier || "").toLowerCase().includes(q));
+    }
+    if (filtreAvenue.trim()) {
+      const av = filtreAvenue.trim().toLowerCase();
+      list = list.filter((a) => (a.avenue || "").toLowerCase().includes(av));
+    }
     if (videoSeulement) {
       list = list.filter((a) => a.isVideo);
     }
@@ -357,15 +481,37 @@ export default function WenzeBusiness() {
         (a) =>
           (a.titre || "").toLowerCase().includes(s) ||
           (a.description || "").toLowerCase().includes(s) ||
+          (a.province || "").toLowerCase().includes(s) ||
           (a.commune || "").toLowerCase().includes(s) ||
+          (a.quartier || "").toLowerCase().includes(s) ||
           (a.avenue || "").toLowerCase().includes(s)
       );
     }
+
+    const withDist = list.map((a) => {
+      if (
+        geoCoords &&
+        typeof a.lat === "number" &&
+        typeof a.lng === "number"
+      ) {
+        return {
+          ...a,
+          _distanceKm: distanceKm(geoCoords.lat, geoCoords.lng, a.lat, a.lng),
+        };
+      }
+      return { ...a, _distanceKm: null };
+    });
+
     const time = (a: any) =>
       new Date(a.created_at || a.createdAt || 0).getTime();
 
-    return list
+    return withDist
       .sort((a, b) => {
+        if (tri === "proximite") {
+          const da = typeof a._distanceKm === "number" ? a._distanceKm : Number.POSITIVE_INFINITY;
+          const db = typeof b._distanceKm === "number" ? b._distanceKm : Number.POSITIVE_INFINITY;
+          if (da !== db) return da - db;
+        }
         if (tri === "moins_cher") {
           return Number(a.prix || 0) - Number(b.prix || 0);
         }
@@ -380,7 +526,20 @@ export default function WenzeBusiness() {
         return time(b) - time(a);
       })
       .slice(0, MAX_ANNONCES_ACTIVES);
-  }, [annonces, debounced, selectedCat, voirTout, maCommune, tri, videoSeulement]);
+  }, [
+    annonces,
+    debounced,
+    selectedCat,
+    selectedProvince,
+    selectedCommune,
+    filtreQuartier,
+    filtreAvenue,
+    geoCoords,
+    voirTout,
+    maCommune,
+    tri,
+    videoSeulement,
+  ]);
 
   const tabs = useMemo(
     () =>
@@ -445,8 +604,11 @@ export default function WenzeBusiness() {
         prixUSD: a.prix,
         prixCDF: a.prixCDF,
         categorieId: a.categorieId,
+        province: a.province || "Kinshasa",
         commune: a.commune || "",
-        ville: a.ville || "Kinshasa",
+        quartier: a.quartier || "",
+        avenue: a.avenue || "",
+        ville: a.ville || a.province || "Kinshasa",
         ownerWhatsapp: a._wa,
         whatsapp: a._wa,
         ownerName: a.ownerName || "",
@@ -523,6 +685,15 @@ export default function WenzeBusiness() {
     : 0;
   const payantCount = filtered.filter((a) => a.isPayant).length;
 
+  const resetLocalisation = () => {
+    setSelectedProvince("toutes");
+    setSelectedCommune("toutes");
+    setFiltreQuartier("");
+    setFiltreAvenue("");
+    setGeoCoords(null);
+    if (tri === "proximite") setTri("recent");
+  };
+
   if (design.maintenance && !jeSuisDG) {
     return (
       <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6 pt-24 text-center">
@@ -560,15 +731,28 @@ export default function WenzeBusiness() {
           </div>
         ) : null}
 
-        {/* Recherche + Filtre */}
+        {/* Recherche + Géolocalisation + Filtre */}
         <div className="flex items-center gap-2">
           <input
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Rechercher produit, commune, avenue..."
+            placeholder="Produit, province, commune, quartier, avenue..."
             className="flex-1 rounded-full border border-gray-300 bg-white px-4 py-2 text-xs text-gray-900 placeholder:text-gray-400 focus:border-black focus:outline-none"
           />
+          <button
+            type="button"
+            onClick={activerGeolocalisation}
+            disabled={geoLoading}
+            title="Activer ma position GPS"
+            className={`shrink-0 rounded-full border px-3 py-2 text-xs font-black ${
+              geoCoords
+                ? "border-black bg-black text-white"
+                : "border-gray-300 bg-white text-gray-900"
+            }`}
+          >
+            {geoLoading ? "GPS..." : "📍"}
+          </button>
           <button
             type="button"
             onClick={() => setFiltreOuvert((v) => !v)}
@@ -578,8 +762,62 @@ export default function WenzeBusiness() {
           </button>
         </div>
 
+        {/* Bandeau rapide de couverture RDC (26 provinces / 24 communes Kinshasa / GPS) */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 text-[10px] font-bold">
+          <select
+            aria-label="Province de la RDC"
+            value={selectedProvince}
+            onChange={(e) => {
+              const prov = e.target.value;
+              setSelectedProvince(prov);
+              if (prov !== "Kinshasa" && prov !== "toutes") {
+                setSelectedCommune("toutes");
+              }
+            }}
+            className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[10px] font-black text-gray-900"
+          >
+            <option value="toutes">🇨🇩 26 Provinces (Toutes)</option>
+            {PROVINCES_RDC.map((prov) => (
+              <option key={prov} value={prov}>
+                {prov}
+              </option>
+            ))}
+          </select>
+
+          {(selectedProvince === "toutes" || selectedProvince === "Kinshasa") && (
+            <select
+              aria-label="Commune de Kinshasa"
+              value={selectedCommune}
+              onChange={(e) => setSelectedCommune(e.target.value)}
+              className="rounded-full border border-gray-300 bg-white px-2.5 py-1 text-[10px] font-black text-gray-900"
+            >
+              <option value="toutes">🏙️ 24 Communes Kinshasa</option>
+              {COMMUNES_KINSHASA.map((com) => (
+                <option key={com} value={com}>
+                  {com}
+                </option>
+              ))}
+            </select>
+          )}
+
+          {(selectedProvince !== "toutes" ||
+            selectedCommune !== "toutes" ||
+            filtreQuartier ||
+            filtreAvenue ||
+            geoCoords) && (
+            <button
+              type="button"
+              onClick={resetLocalisation}
+              className="shrink-0 rounded-full bg-gray-200 px-2.5 py-1 text-[10px] font-black text-gray-800"
+            >
+              ✕ Réinitialiser
+            </button>
+          )}
+        </div>
+
+        {/* Panneau Filtre avancé : Tri + Quartier + Avenue + Vidéo + GPS */}
         {filtreOuvert && (
-          <div className="rounded-2xl border border-gray-200 bg-white p-3 space-y-2">
+          <div className="rounded-2xl border border-gray-200 bg-white p-3 space-y-2.5">
             <p className="text-[11px] font-black">Trier par</p>
             <div className="flex flex-wrap gap-1.5">
               {(
@@ -587,12 +825,19 @@ export default function WenzeBusiness() {
                   ["recent", "Plus récents"],
                   ["moins_cher", "Moins cher"],
                   ["plus_cher", "Plus cher"],
+                  ["proximite", "📍 Plus proche"],
                 ] as const
               ).map(([val, label]) => (
                 <button
                   key={val}
                   type="button"
-                  onClick={() => setTri(val)}
+                  onClick={() => {
+                    if (val === "proximite" && !geoCoords) {
+                      activerGeolocalisation();
+                      return;
+                    }
+                    setTri(val);
+                  }}
                   className={`rounded-full border px-3 py-1 text-[11px] font-bold ${
                     tri === val
                       ? "border-black bg-black text-white"
@@ -603,6 +848,24 @@ export default function WenzeBusiness() {
                 </button>
               ))}
             </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <input
+                type="text"
+                value={filtreQuartier}
+                onChange={(e) => setFiltreQuartier(e.target.value)}
+                placeholder="Quartier (ex: Matonge)"
+                className="rounded-xl border border-gray-300 bg-white px-3 py-1.5 text-[11px] text-gray-900 placeholder:text-gray-400 focus:border-black focus:outline-none"
+              />
+              <input
+                type="text"
+                value={filtreAvenue}
+                onChange={(e) => setFiltreAvenue(e.target.value)}
+                placeholder="Avenue (ex: Victoire)"
+                className="rounded-xl border border-gray-300 bg-white px-3 py-1.5 text-[11px] text-gray-900 placeholder:text-gray-400 focus:border-black focus:outline-none"
+              />
+            </div>
+
             <label className="flex items-center gap-2 pt-1 text-[11px] font-bold">
               <input
                 type="checkbox"
@@ -617,7 +880,7 @@ export default function WenzeBusiness() {
 
         {/* Onglets catégories sans doublon */}
         <div className="flex gap-2 overflow-x-auto pb-1">
-             <button
+          <button
             type="button"
             onClick={() => setSelectedCat("all")}
             className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-black ${
@@ -691,7 +954,7 @@ export default function WenzeBusiness() {
         {!voirTout ? (
           <div className="bg-yellow-50 border border-yellow-300 rounded-2xl p-3.5">
             <p className="font-black text-[13px]">
-              ⭐ Recommandé pour toi à {maCommune}
+              ⭐ Recommandé pour toi à {selectedCommune !== "toutes" ? selectedCommune : maCommune}
             </p>
             <p className="text-[10px] text-gray-600 mt-0.5">
               Sélection vérifiée par Wenze • 0 % commission • {filtered.length}{" "}
@@ -701,7 +964,7 @@ export default function WenzeBusiness() {
         ) : monRole === "grossiste" ? (
           <div className="bg-orange-50 border border-orange-200 rounded-2xl p-3.5">
             <p className="font-black text-[13px]">
-              🏭 Marché gros — Tout Kinshasa
+              🏭 Marché gros — RDC & Kinshasa
             </p>
             <p className="text-[10px] text-gray-600 mt-0.5">
               Tu vois tout, y compris les prix gros • 0 % commission.
@@ -742,10 +1005,10 @@ export default function WenzeBusiness() {
             <div className="col-span-2 text-center py-12 bg-white border rounded-2xl p-4">
               <p className="text-[32px]">🛍️</p>
               <p className="font-black text-[13px] mt-2">
-                Aucune annonce visible pour le moment
+                Aucune annonce visible pour cette zone
               </p>
               <p className="text-[11px] text-gray-500 mt-1">
-                Modifiez vos filtres ou publiez votre première annonce.
+                Modifiez vos filtres (province, commune, quartier, avenue) ou publiez votre première annonce.
               </p>
             </div>
           ) : (
@@ -780,7 +1043,70 @@ export default function WenzeBusiness() {
         />
       ) : null}
 
+      {/* Bloc final : Retour + Logo WENZE. + Se connecter / Profil + Bienvenue chez WENZE */}
+      <section className="px-4 mt-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={goBack}
+            aria-label="Retour"
+            className="w-9 h-9 bg-white border rounded-full font-black text-[16px] flex items-center justify-center"
+          >
+            ←
+          </button>
+
+          <div className="flex items-center gap-2">
+            {design.logo ? (
+              <img
+                src={design.logo}
+                alt={APP_NAME}
+                className="w-8 h-8 rounded-full object-cover"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-black text-white flex items-center justify-center font-black">
+                W
+              </div>
+            )}
+            <span className="font-black text-[16px] tracking-tight text-black">
+              {APP_NAME}
+              <span style={{ color: design.couleur }}>.</span>
+            </span>
+          </div>
+
+          {moi ? (
+            <button
+              type="button"
+              onClick={() => router.push("/profil")}
+              className="bg-black text-white px-4 py-2 rounded-full font-black text-[11px]"
+            >
+              Mon profil →
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => router.push("/connexion")}
+              className="bg-black text-white px-4 py-2 rounded-full font-black text-[11px]"
+            >
+              Se connecter
+            </button>
+          )}
+        </div>
+
+        <div className="bg-white border border-gray-200 rounded-2xl p-4">
+          <h1 className="font-black text-[22px] leading-[1.15] text-gray-900">
+            {design.titre || "Bienvenue chez WENZE"}
+          </h1>
+          <p className="text-[13px] text-gray-600 mt-1">
+            {design.slogan || "Là où les opportunités deviennent une réalité."}
+          </p>
+          <p className="text-[11px] text-gray-500 mt-2 leading-relaxed">
+            {design.apropos ||
+              "WENZE - Ensemble on va plus loin. Boutiques vérifiées à Kinshasa et dans les 26 provinces de la RDC."}
+          </p>
+        </div>
+      </section>
+
       <BottomNav active="accueil" cartCount={cartCount} />
     </div>
   );
- }
+}
