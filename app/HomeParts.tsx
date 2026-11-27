@@ -40,8 +40,17 @@ export function HomeHeader({
   const [couleur, setCouleur] = useState("#FF6B00");
 
   useEffect(() => {
-    const d = readDesign();
-    if (d.couleur) setCouleur(d.couleur);
+    const syncColor = () => {
+      const d = readDesign();
+      if (d.couleur) setCouleur(d.couleur);
+    };
+    syncColor();
+    window.addEventListener("storage", syncColor);
+    window.addEventListener("wenze-update", syncColor);
+    return () => {
+      window.removeEventListener("storage", syncColor);
+      window.removeEventListener("wenze-update", syncColor);
+    };
   }, []);
 
   return (
@@ -414,16 +423,24 @@ export function BottomNav({ cartCount, onOpenCategories }: any) {
     );
   };
 
+  const handleCategoriesClick = () => {
+    if (onOpenCategories) {
+      onOpenCategories();
+    } else {
+      router.push("/");
+    }
+  };
+
   return (
     <div className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-white border-t shadow-[0_-4px_20px_rgba(0,0,0,0.08)] flex px-2 z-40">
       {btn("/", "🏠", "Accueil")}
       {btn(
-        "/categories",
+        "/",
         "🗂️",
         "Catégories",
         undefined,
         false,
-        onOpenCategories
+        handleCategoriesClick
       )}
       {btn("/videos", "🎬", "Vidéo", undefined, true)}
       {btn("/boutique", "🏪", "Boutique")}
@@ -431,5 +448,4 @@ export function BottomNav({ cartCount, onOpenCategories }: any) {
       {btn("/profil", "👤", "Profil")}
     </div>
   );
- }
-          
+}
