@@ -8,6 +8,13 @@ export const MAX_ACTIVES = 50;
 export const MAX_PHOTOS = 4;
 export const MAX_PHOTOS_FREEMIUM = Number(FREEMIUM?.maxImages || 3);
 
+export type TypeActiviteWenze =
+  | "navigation"
+  | "panier"
+  | "annonce"
+  | "contact"
+  | "compte";
+
 export function cleanWa(n: any): string {
   return (n || "").toString().replace(/[^0-9]/g, "").replace(/^0+/, "");
 }
@@ -32,6 +39,56 @@ export function readList(key: string): any[] {
   } catch {
     return [];
   }
+}
+
+export function writeList(key: string, value: any[]): boolean {
+  try {
+    if (typeof window === "undefined") return false;
+    localStorage.setItem(key, JSON.stringify(Array.isArray(value) ? value : []));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function appendJournalActivite(
+  type: TypeActiviteWenze,
+  message: string,
+  role?: string
+): void {
+  try {
+    if (typeof window === "undefined") return;
+    const prev = readList("wenze_journal_activite");
+    const last = prev[0];
+    if (
+      last &&
+      last.type === type &&
+      last.message === message &&
+      Date.now() - Number(last.ts || 0) < 4000
+    ) {
+      return;
+    }
+
+    const sessionUser = getUser();
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      ts: Date.now(),
+      date: new Date().toLocaleString("fr-FR", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      role: role || sessionUser?.role || "vendeur",
+      type,
+      message,
+    };
+
+    const next = [entry, ...prev].slice(0, 60);
+    if (writeList("wenze_journal_activite", next)) {
+      window.dispatchEvent(new Event("wenze-update"));
+    }
+  } catch {}
 }
 
 /** Réduit une photo à 800 px en JPEG 65 % pour économiser le stockage du téléphone. */
