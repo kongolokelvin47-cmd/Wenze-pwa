@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { PALIERS, toCDFString, usd } from "@/lib/paiement";
-import { DAY_MS, MAX_PHOTOS, MAX_PHOTOS_FREEMIUM, compressImage } from "./helpers";
+import {
+  DAY_MS,
+  MAX_PHOTOS,
+  MAX_PHOTOS_FREEMIUM,
+  compressImage,
+  appendJournalActivite,
+} from "./helpers";
 
 /* ---------- Bannières d'état ---------- */
 export function StatusBanners({
@@ -202,6 +208,7 @@ export function PhotoPicker({
       );
       return;
     }
+    let ajoutes = 0;
     for (const file of files.slice(0, place)) {
       if (file.size > 5 * 1024 * 1024) {
         notify("Photo trop lourde (5 Mo max)", "error");
@@ -210,9 +217,17 @@ export function PhotoPicker({
       try {
         const data = await compressImage(file);
         setPhotos((prev: string[]) => [...prev, data].slice(0, limitePhotos));
+        ajoutes += 1;
       } catch (err: any) {
         notify(err?.message || "Photo illisible", "error");
       }
+    }
+    if (ajoutes > 0) {
+      appendJournalActivite(
+        "annonce",
+        `${ajoutes} photo(s) ajoutée(s) au brouillon d'annonce`,
+        role
+      );
     }
   }
 
@@ -262,9 +277,16 @@ export function PhotoPicker({
               ) : null}
               <button
                 type="button"
-                onClick={() =>
-                  setPhotos((prev: string[]) => prev.filter((_: any, idx: number) => idx !== i))
-                }
+                onClick={() => {
+                  setPhotos((prev: string[]) =>
+                    prev.filter((_: any, idx: number) => idx !== i)
+                  );
+                  appendJournalActivite(
+                    "annonce",
+                    `Photo #${i + 1} retirée du brouillon d'annonce`,
+                    role
+                  );
+                }}
                 className="absolute top-1.5 right-1.5 w-7 h-7 bg-red-500 text-white rounded-full flex items-center justify-center text-[12px] font-bold"
               >
                 ✕
@@ -276,3 +298,4 @@ export function PhotoPicker({
     </div>
   );
 }
+  
