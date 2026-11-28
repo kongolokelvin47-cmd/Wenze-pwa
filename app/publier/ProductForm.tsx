@@ -2,6 +2,7 @@
 
 import { CATEGORIES_WENZE } from "@/lib/categories";
 import { TAUX_CDF, toCDFString } from "@/lib/paiement";
+import { appendJournalActivite } from "./helpers";
 
 const INPUT =
   "w-full border rounded-xl p-3.5 text-[13px] outline-none focus:ring-2 focus:ring-black";
@@ -133,27 +134,6 @@ export default function ProductForm({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-[10px] font-bold">Commune</label>
-          <input
-            value={form.commune}
-            onChange={(e: any) => setField("commune", e.target.value)}
-            placeholder="Ex : Gombe"
-            className={INPUT + " mt-1"}
-          />
-        </div>
-        <div>
-          <label className="text-[10px] font-bold">Ville</label>
-          <input
-            value={form.ville}
-            onChange={(e: any) => setField("ville", e.target.value)}
-            placeholder="Kinshasa"
-            className={INPUT + " mt-1"}
-          />
-        </div>
-      </div>
-
       <div>
         <label className="text-[10px] font-bold">Catégorie</label>
         <div className="mt-2 grid grid-cols-2 gap-2">
@@ -163,13 +143,18 @@ export default function ProductForm({
               <button
                 key={c.id}
                 type="button"
-                onClick={() =>
+                onClick={() => {
                   setForm((f: any) => ({
                     ...f,
                     categorieId: c.id,
                     activiteId: c.activites?.[0]?.id || "",
-                  }))
-                }
+                  }));
+                  appendJournalActivite(
+                    "annonce",
+                    `Catégorie sélectionnée : ${c.titreCourt || c.titre}`,
+                    role
+                  );
+                }}
                 className={
                   "text-left p-3 rounded-xl border-2 text-[11px] font-bold " +
                   (selected
@@ -248,5 +233,4 @@ export default function ProductForm({
       ) : null}
     </div>
   );
- }
-                   
+  }
