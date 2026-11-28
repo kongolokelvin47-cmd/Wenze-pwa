@@ -1,6 +1,6 @@
-"use client";
+use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { lireSession, cle9 } from "@/lib/connexion";
 import {
@@ -39,7 +39,10 @@ type Product = {
   uniteGros?: string;
   categorieId: string;
   categorieTitre?: string;
+  province?: string;
   commune?: string;
+  quartier?: string;
+  avenue?: string;
   photo?: string;
   images?: string[];
   user?: string;
@@ -86,16 +89,27 @@ function lireConfigPublique(): Record<string, any> {
   }
 }
 
+function safeParseArray(key: string): any[] {
+  try {
+    if (typeof window === "undefined") return [];
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function tracerMarketJournal(
   action: "MARKET_WHATSAPP_CLIC",
   produitId: string,
-  acteurWa: string
+  acteurWa: string,
+  roleActuel: string,
+  titreProduit?: string
 ) {
   try {
     if (typeof window === "undefined") return;
-    const raw = localStorage.getItem("wenze_journal");
-    const list = raw ? JSON.parse(raw) : [];
-    const arr = Array.isArray(list) ? list : [];
+    const arr = safeParseArray("wenze_journal");
     arr.push({
       id: "jrn_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
       action,
@@ -104,7 +118,44 @@ function tracerMarketJournal(
       createdAt: new Date().toISOString(),
     });
     localStorage.setItem("wenze_journal", JSON.stringify(arr.slice(-500)));
+
+    const prevAct = safeParseArray("wenze_journal_activite");
+    const msg = `Contact WhatsApp Marché : "${titreProduit || produitId}"`;
+    const last = prevAct[0];
+    if (
+      !last ||
+      last.message !== msg ||
+      Date.now() - Number(last.ts || 0) >= 4000
+    ) {
+      const entry = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        ts: Date.now(),
+        date: new Date().toLocaleString("fr-FR", {
+          day: "2-digit",
+          month: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        role: roleActuel || "client",
+        type: "contact",
+        message: msg,
+      };
+      localStorage.setItem(
+        "wenze_journal_activite",
+        JSON.stringify([entry, ...prevAct].slice(0, 60))
+      );
+      window.dispatchEvent(new Event("wenze-update"));
+    }
   } catch {}
+}
+
+function formatZoneProduit(p: Product): string {
+  const parts = [
+    p.commune || "Kinshasa",
+    p.quartier ? `Q/ ${p.quartier}` : "",
+    p.province && p.province !== "Kinshasa" ? p.province : "",
+  ].filter(Boolean);
+  return parts.join(" • ");
 }
 
 export default function MarketPage() {
@@ -116,8 +167,9 @@ export default function MarketPage() {
   >("all");
   const [user, setUser] = useState<any>(null);
   const [cfgPublique, setCfgPublique] = useState<Record<string, any>>({});
+  const [syncTick, setSyncTick] = useState(0);
 
-  useEffect(() => {
+  const chargerMarket = useCallback(() => {
     try {
       if (typeof window === "undefined") return;
       const session: any = lireSession();
@@ -163,14 +215,17 @@ export default function MarketPage() {
             a.categorieId || a.categorie || "commerces-services"
           ),
           categorieTitre: a.categorieTitre,
+          province: a.province || "Kinshasa",
           commune: a.commune || "Kinshasa",
+          quartier: a.quartier || "",
+          avenue: a.avenue || "",
           photo: rawImgs[0] || a.photo,
           images: rawImgs.slice(0, MAX_FREE_IMAGES),
-          user: a.user || a.nomBoutique || a.boutiqueName,
+          user: a.user || a.nomBoutique || a.boutiqueName || a.ownerName,
           ownerWhatsapp: a.ownerWhatsapp || a.whatsapp || a.userId,
           whatsapp: a.whatsapp || a.ownerWhatsapp,
           userId: a.userId,
-          createdAt: a.createdAt,
+          createdAt: a.createdAt || a.created_at,
         };
       });
 
@@ -241,6 +296,22 @@ export default function MarketPage() {
     }
   }, []);
 
+  useEffect(() => {
+    chargerMarket();
+    if (typeof window === "undefined") return;
+    const onSync = () => setSyncTick((t) => t + 1);
+    window.addEventListener("storage", onSync);
+    window.addEventListener("wenze-update", onSync);
+    return () => {
+      window.removeEventListener("storage", onSync);
+      window.removeEventListener("wenze-update", onSync);
+    };
+  }, [chargerMarket]);
+
+  useEffect(() => {
+    if (syncTick > 0) chargerMarket();
+  }, [syncTick, chargerMarket]);
+
   const monRole = String(user?.role || "client").toLowerCase();
   const jeSuisDG =
     user?.roleAdmin === "dg" ||
@@ -279,7 +350,10 @@ export default function MarketPage() {
       (p) =>
         (p.titre || p.title || p.name || "").toLowerCase().includes(q) ||
         (p.categorieTitre || "").toLowerCase().includes(q) ||
+        (p.province || "").toLowerCase().includes(q) ||
         (p.commune || "").toLowerCase().includes(q) ||
+        (p.quartier || "").toLowerCase().includes(q) ||
+        (p.avenue || "").toLowerCase().includes(q) ||
         (p.user || "").toLowerCase().includes(q) ||
         (qWa && cle9(p.ownerWhatsapp || "").includes(qWa))
     );
@@ -302,8 +376,7 @@ export default function MarketPage() {
       <div className="max-w-[430px] mx-auto min-h-screen bg-[#FFFBF0] p-6">
         <div className="h-24 bg-white border rounded-2xl animate-pulse" />
         <p className="text-[11px] text-gray-400 mt-3">
-          Chargement du Marché Kinshasa • 0 % commission • Taux {TAUX_CDF}{" "}
-          CDF/$
+          Chargement du Marché RDC • 0 % commission • Taux {TAUX_CDF} CDF/$
         </p>
       </div>
     );
@@ -321,7 +394,7 @@ export default function MarketPage() {
           </Link>
           <div className="flex-1 min-w-0">
             <h1 className="font-black text-[16px] truncate">
-              {cfgPublique?.titreMarket || "Marché Wenze Wenze • Kinshasa"}
+              {cfgPublique?.titreMarket || "Marché Wenze Wenze • RDC"}
             </h1>
             <p className="text-[10px] text-gray-500 truncate">
               🛍️ {totalCommerces} Détail/Services • 🏭 {totalGros} Gros •{" "}
@@ -335,12 +408,11 @@ export default function MarketPage() {
             +
           </Link>
         </div>
-
         <div className="mt-3 relative">
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Rechercher : produit, boutique, commune..."
+            placeholder="Rechercher : produit, boutique, province, commune..."
             className="w-full bg-gray-100 rounded-2xl py-3.5 px-5 pl-11 text-sm outline-none focus:ring-2 focus:ring-black"
           />
           <span className="absolute left-4 top-3.5">🔍</span>
@@ -498,7 +570,7 @@ export default function MarketPage() {
                         </p>
                       ) : null}
                       <p className="text-[9px] text-gray-400 truncate mt-0.5">
-                        {p.user || "Boutique"} • {p.commune || "Kinshasa"}
+                        {p.user || "Boutique"} • {formatZoneProduit(p)}
                       </p>
                     </div>
 
@@ -513,7 +585,9 @@ export default function MarketPage() {
                           tracerMarketJournal(
                             "MARKET_WHATSAPP_CLIC",
                             p.id,
-                            cle9(user?.ownerWhatsapp || user?.whatsapp || "")
+                            cle9(user?.ownerWhatsapp || user?.whatsapp || ""),
+                            monRole,
+                            p.titre
                           )
                         }
                         className="mt-2 w-full bg-[#25D366] text-white text-[11px] font-black py-2.5 rounded-full flex justify-center"
@@ -537,7 +611,7 @@ export default function MarketPage() {
 
         <div className="mt-8 bg-white border rounded-2xl p-4">
           <p className="font-black text-[12px]">
-            Catégories Wenze Wenze • Kinshasa
+            Catégories Wenze Wenze • RDC
           </p>
           <div className="mt-3 grid grid-cols-2 gap-2 text-[10px]">
             {CATEGORIES_WENZE.slice(0, 6).map((c: any) => (
