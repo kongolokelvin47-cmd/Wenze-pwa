@@ -72,6 +72,7 @@ function lireConfigPublique(): Record<string, any> {
 function tracerRechercheJournal(
   action: "RECHERCHE_EXECUTEE",
   acteurWa: string,
+  roleActuel: string,
   detail?: string
 ) {
   try {
@@ -87,7 +88,46 @@ function tracerRechercheJournal(
       createdAt: new Date().toISOString(),
     });
     localStorage.setItem("wenze_journal", JSON.stringify(arr.slice(-500)));
+
+    if (detail) {
+      const prevAct = safeParse("wenze_journal_activite");
+      const msg = `Recherche effectuée : "${detail}"`;
+      const last = prevAct[0];
+      if (
+        !last ||
+        last.message !== msg ||
+        Date.now() - Number(last.ts || 0) >= 4000
+      ) {
+        const entry = {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          ts: Date.now(),
+          date: new Date().toLocaleString("fr-FR", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+          role: roleActuel || "client",
+          type: "navigation",
+          message: msg,
+        };
+        localStorage.setItem(
+          "wenze_journal_activite",
+          JSON.stringify([entry, ...prevAct].slice(0, 60))
+        );
+        window.dispatchEvent(new Event("wenze-update"));
+      }
+    }
   } catch {}
+}
+
+function formatZoneCourte(item: any): string {
+  const parts = [
+    item?.commune || "Kinshasa",
+    item?.quartier ? `Q/ ${item.quartier}` : "",
+    item?.province && item.province !== "Kinshasa" ? item.province : "",
+  ].filter(Boolean);
+  return parts.join(" • ");
 }
 
 export default function RecherchePage() {
@@ -98,6 +138,7 @@ export default function RecherchePage() {
   const [filterCat, setFilterCat] = useState<string>("all");
   const [moi, setMoi] = useState<any>(null);
   const [cfgPublique, setCfgPublique] = useState<Record<string, any>>({});
+  const [syncTick, setSyncTick] = useState(0);
 
   const monRole = String(moi?.role || "client").toLowerCase();
   const jeSuisDG =
@@ -133,6 +174,14 @@ export default function RecherchePage() {
         }
       })();
     setMoi(currentUser);
+
+    const onSync = () => setSyncTick((t) => t + 1);
+    window.addEventListener("storage", onSync);
+    window.addEventListener("wenze-update", onSync);
+    return () => {
+      window.removeEventListener("storage", onSync);
+      window.removeEventListener("wenze-update", onSync);
+    };
   }, []);
 
   useEffect(() => {
@@ -177,14 +226,20 @@ export default function RecherchePage() {
     const filteredBoutiques = allBoutiques
       .filter((u: any) => {
         const nom = String(u?.nomEtablissement || u?.nom || "").toLowerCase();
+        const province = String(u?.province || "").toLowerCase();
         const commune = String(u?.commune || "").toLowerCase();
+        const quartier = String(u?.quartier || "").toLowerCase();
+        const avenue = String(u?.avenue || "").toLowerCase();
         const activite = String(
           u?.activite || u?.activiteId || ""
         ).toLowerCase();
         const cat = String(u?.categorieId || "").toLowerCase();
         const match =
           nom.includes(q) ||
+          province.includes(q) ||
           commune.includes(q) ||
+          quartier.includes(q) ||
+          avenue.includes(q) ||
           activite.includes(q) ||
           cat.includes(q);
         if (!match) return false;
@@ -243,12 +298,20 @@ export default function RecherchePage() {
         }
         const titre = String(a?.titre || a?.title || "").toLowerCase();
         const desc = String(a?.description || "").toLowerCase();
+        const province = String(a?.province || "").toLowerCase();
         const commune = String(a?.commune || "").toLowerCase();
+        const quartier = String(a?.quartier || "").toLowerCase();
+        const avenue = String(a?.avenue || "").toLowerCase();
+        const ville = String(a?.ville || "").toLowerCase();
         const activite = String(a?.activite || "").toLowerCase();
         return (
           titre.includes(q) ||
           desc.includes(q) ||
+          province.includes(q) ||
           commune.includes(q) ||
+          quartier.includes(q) ||
+          avenue.includes(q) ||
+          ville.includes(q) ||
           activite.includes(q)
         );
       })
@@ -283,9 +346,10 @@ export default function RecherchePage() {
     tracerRechercheJournal(
       "RECHERCHE_EXECUTEE",
       cle9(moi?.ownerWhatsapp || moi?.whatsapp || ""),
+      monRole,
       debounced
     );
-  }, [debounced, filterCat, moi]);
+  }, [debounced, filterCat, moi, monRole, syncTick]);
 
   const total = resultBoutiques.length + resultAnnonces.length;
 
@@ -303,7 +367,7 @@ export default function RecherchePage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher boutique, article, commune..."
+              placeholder="Rechercher boutique, article, province, commune..."
               className="w-full border-2 rounded-full pl-11 pr-8 py-3 text-[13px] focus:ring-2 focus:ring-black outline-none focus:border-black"
               autoFocus
             />
@@ -321,7 +385,6 @@ export default function RecherchePage() {
             ) : null}
           </div>
         </div>
-
         <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
           <button
             type="button"
@@ -370,25 +433,30 @@ export default function RecherchePage() {
           <div className="text-center py-14">
             <p className="text-5xl">🔍</p>
             <p className="font-black text-[14px] mt-3">
-              {cfgPublique?.titreRecherche || "Recherche • Kinshasa"}
+              {cfgPublique?.titreRecherche || "Recherche • RDC"}
             </p>
             <p className="text-[11px] text-gray-500 mt-2 max-w-[280px] mx-auto">
               Saisissez au moins 2 caractères • 0 % commission • Taux{" "}
               {TAUX_CDF} CDF/$
             </p>
             <div className="mt-6 flex flex-wrap gap-2 justify-center">
-              {["riz", "ciment", "coiffure", "Gombe", "électricien"].map(
-                (k) => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => setSearch(k)}
-                    className="bg-white border px-3 py-1.5 rounded-full text-[11px] font-bold hover:border-black"
-                  >
-                    {k}
-                  </button>
-                )
-              )}
+              {[
+                "riz",
+                "ciment",
+                "coiffure",
+                "Gombe",
+                "Lubumbashi",
+                "électricien",
+              ].map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setSearch(k)}
+                  className="bg-white border px-3 py-1.5 rounded-full text-[11px] font-bold hover:border-black"
+                >
+                  {k}
+                </button>
+              ))}
             </div>
           </div>
         ) : null}
@@ -452,7 +520,7 @@ export default function RecherchePage() {
                         </span>
                       </p>
                       <p className="text-[11px] text-gray-600 truncate">
-                        {b?.commune || "Kinshasa"} •{" "}
+                        {formatZoneCourte(b)} •{" "}
                         {b?.activite || b?.activiteId || cat?.titre || ""}
                       </p>
                       <p className="text-[10px] text-gray-400 mt-1">
@@ -487,6 +555,10 @@ export default function RecherchePage() {
                 );
                 const prixUSD = getPrixAnnonceUSD(a);
                 const imgSrc = a?._safeImages?.[0] || a?.photo;
+                const estGrosVisible =
+                  a?.typeAnnonce === "gros" &&
+                  jePeuxVoirGros &&
+                  Number(a?.prixGrosUSD ?? a?.prixGros ?? 0) > 0;
                 return (
                   <Link
                     key={a.id || a.annonceId}
@@ -506,6 +578,11 @@ export default function RecherchePage() {
                       <span className="absolute top-2 left-2 bg-black text-white text-[8px] px-2 py-1 rounded-full font-bold">
                         {cat?.icon} {cat?.titreCourt || ""}
                       </span>
+                      {estGrosVisible ? (
+                        <span className="absolute bottom-2 left-2 bg-orange-500 text-white text-[8px] px-2 py-0.5 rounded-full font-black">
+                          🏭 GROS
+                        </span>
+                      ) : null}
                     </div>
                     <div className="p-2.5">
                       <p className="font-bold text-[11px] truncate">
@@ -517,8 +594,8 @@ export default function RecherchePage() {
                           : "Prix sur demande"}
                       </p>
                       <p className="text-[9px] text-gray-400 mt-1 truncate">
-                        {a?.commune || "Kinshasa"} •{" "}
-                        {a?.nomBoutique || a?.vendeur || "Boutique"}
+                        {formatZoneCourte(a)} •{" "}
+                        {a?.ownerName || a?.nomBoutique || a?.vendeur || "Boutique"}
                       </p>
                     </div>
                   </Link>
@@ -563,4 +640,4 @@ export default function RecherchePage() {
       </nav>
     </div>
   );
- }
+}
