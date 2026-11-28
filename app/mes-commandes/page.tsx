@@ -53,6 +53,10 @@ type Order = {
   prixGrosUSD?: number;
   uniteGros?: string;
   minimumCommande?: number;
+  province?: string;
+  commune?: string;
+  quartier?: string;
+  avenue?: string;
   _isPaye?: boolean;
   _palierId?: string;
   _vendeurCache?: boolean;
@@ -117,16 +121,27 @@ function lireConfigPublique(): Record<string, any> {
   }
 }
 
+function safeParseList(key: string): any[] {
+  try {
+    if (typeof window === "undefined") return [];
+    const raw = localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function tracerCommandeJournal(
   action: "COMMANDE_CONTACT_WA",
   acteurWa: string,
-  detail?: string
+  roleActuel: string,
+  detail?: string,
+  messageHumain?: string
 ) {
   try {
     if (typeof window === "undefined") return;
-    const raw = localStorage.getItem("wenze_journal");
-    const list = raw ? JSON.parse(raw) : [];
-    const arr = Array.isArray(list) ? list : [];
+    const arr = safeParseList("wenze_journal");
     arr.push({
       id: "jrn_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
       action,
@@ -135,7 +150,45 @@ function tracerCommandeJournal(
       createdAt: new Date().toISOString(),
     });
     localStorage.setItem("wenze_journal", JSON.stringify(arr.slice(-500)));
+
+    const prevAct = safeParseList("wenze_journal_activite");
+    const msg =
+      messageHumain || `Contact WhatsApp commande ${detail || ""}`.trim();
+    const last = prevAct[0];
+    if (
+      !last ||
+      last.message !== msg ||
+      Date.now() - Number(last.ts || 0) >= 4000
+    ) {
+      const entry = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        ts: Date.now(),
+        date: new Date().toLocaleString("fr-FR", {
+          day: "2-digit",
+          month: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        role: roleActuel || "client",
+        type: "contact",
+        message: msg,
+      };
+      localStorage.setItem(
+        "wenze_journal_activite",
+        JSON.stringify([entry, ...prevAct].slice(0, 60))
+      );
+      window.dispatchEvent(new Event("wenze-update"));
+    }
   } catch {}
+}
+
+function formatZoneCommande(o: Order): string {
+  const parts = [
+    o.commune || "",
+    o.quartier ? `Q/ ${o.quartier}` : "",
+    o.province && o.province !== "Kinshasa" ? o.province : "",
+  ].filter(Boolean);
+  return parts.join(" • ");
 }
 
 export default function MesCommandesPage() {
@@ -148,6 +201,7 @@ export default function MesCommandesPage() {
   const [sens, setSens] = useState<"achat" | "vente" | "tout">("achat");
   const [moi, setMoi] = useState<any>(null);
   const [cfgPublique, setCfgPublique] = useState<Record<string, any>>({});
+  const [syncTick, setSyncTick] = useState(0);
 
   const monRole = String(moi?.role || "client").toLowerCase();
   const jeSuisDG =
@@ -212,9 +266,7 @@ export default function MesCommandesPage() {
       const parsedList = JSON.parse(raw);
       const list = Array.isArray(parsedList) ? parsedList : [];
 
-      const allUsersRaw = localStorage.getItem("wenze_all_users") || "[]";
-      const allUsersParsed = JSON.parse(allUsersRaw);
-      const allUsers = Array.isArray(allUsersParsed) ? allUsersParsed : [];
+      const allUsers = safeParseList("wenze_all_users");
       const userMap = new Map<string, any>();
       for (const u of allUsers) {
         const wa = cle9(u?.ownerWhatsapp || u?.whatsapp || u?.telephone || "");
@@ -239,6 +291,7 @@ export default function MesCommandesPage() {
             : o?.photo
             ? [o.photo]
             : [];
+          const uVendeurRef = userMap.get(vendeurWa);
 
           return {
             id: String(o?.id || o?.orderId || ""),
@@ -269,6 +322,10 @@ export default function MesCommandesPage() {
             prixGrosUSD: Number(o?.prixGrosUSD ?? o?.prixGros ?? 0),
             uniteGros: o?.uniteGros || "carton",
             minimumCommande: Number(o?.minimumCommande || 10),
+            province: o?.province || uVendeurRef?.province || "",
+            commune: o?.commune || uVendeurRef?.commune || "",
+            quartier: o?.quartier || uVendeurRef?.quartier || "",
+            avenue: o?.avenue || uVendeurRef?.avenue || "",
             _sens: vendeurWa && monWa && vendeurWa === monWa ? "vente" : "achat",
           };
         })
@@ -325,6 +382,16 @@ export default function MesCommandesPage() {
     } finally {
       setLoading(false);
     }
+  }, [syncTick]);
+            useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onSync = () => setSyncTick((t) => t + 1);
+    window.addEventListener("storage", onSync);
+    window.addEventListener("wenze-update", onSync);
+    return () => {
+      window.removeEventListener("storage", onSync);
+      window.removeEventListener("wenze-update", onSync);
+    };
   }, []);
 
   const filtered = useMemo(() => {
@@ -354,6 +421,8 @@ export default function MesCommandesPage() {
       (o) =>
         (o.titre || o.title || o.name || "").toLowerCase().includes(q) ||
         (o.user || o.nomBoutique || "").toLowerCase().includes(q) ||
+        (o.commune || "").toLowerCase().includes(q) ||
+        (o.province || "").toLowerCase().includes(q) ||
         (qWa &&
           cle9(o.ownerWhatsapp || o.vendeur_whatsapp || "").includes(qWa))
     );
@@ -401,7 +470,7 @@ export default function MesCommandesPage() {
           </Link>
           <div className="flex-1 min-w-0">
             <h1 className="font-black text-[16px] truncate">
-              {cfgPublique?.titreCommandes || "Mes Commandes • Kinshasa"}
+              {cfgPublique?.titreCommandes || "Mes Commandes • RDC"}
             </h1>
             <p className="text-[10px] text-gray-500 truncate">
               {orders.length}/{PLAFOND_ACTIVES} max • 0 % commission • Taux{" "}
@@ -455,7 +524,7 @@ export default function MesCommandesPage() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Rechercher : article, boutique..."
+            placeholder="Rechercher : article, boutique, zone..."
             className="w-full bg-gray-100 rounded-2xl py-3 px-5 pl-11 text-sm outline-none focus:ring-2 focus:ring-black"
           />
           <span className="absolute left-4 top-3">🔍</span>
@@ -531,6 +600,7 @@ export default function MesCommandesPage() {
             );
             const estGros = o.typeAnnonce === "gros";
             const totalLabel = formatTotalDouble(o);
+            const zoneLabel = formatZoneCommande(o);
 
             return (
               <div
@@ -579,9 +649,14 @@ export default function MesCommandesPage() {
                       {o.quantite || 1}
                     </p>
 
+                    {zoneLabel ? (
+                      <p className="text-[10px] text-gray-400 truncate mt-0.5">
+                        📍 {zoneLabel}
+                      </p>
+                    ) : null}
                     <p className="font-black text-[12px] mt-1">{totalLabel}</p>
 
-                     <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                       {estGros ? (
                         <span className="text-[9px] bg-orange-500 text-white px-2 py-0.5 rounded-full font-black">
                           GROS {jePeuxVoirGros ? "" : "(DÉTAIL)"}
@@ -620,7 +695,9 @@ export default function MesCommandesPage() {
                         tracerCommandeJournal(
                           "COMMANDE_CONTACT_WA",
                           cle9(moi?.ownerWhatsapp || moi?.whatsapp || ""),
-                          `#${o.id}`
+                          monRole,
+                          `#${o.id}`,
+                          `Contact WhatsApp commande #${o.id} (${o.titre || "Article"})`
                         )
                       }
                       className="flex-1 bg-[#25D366] text-white text-[11px] font-black py-2.5 rounded-full flex justify-center"
