@@ -22,11 +22,94 @@ export const dynamic = "force-dynamic";
 
 const PLAFOND_ANNONCES = Math.min(50, Number(MAX_ACTIVES || 50));
 
+const PROVINCES_RDC = [
+  "Kinshasa",
+  "Kongo-Central",
+  "Kwango",
+  "Kwilu",
+  "Mai-Ndombe",
+  "Kasaï",
+  "Kasaï-Central",
+  "Kasaï-Oriental",
+  "Lomami",
+  "Sankuru",
+  "Maniema",
+  "Sud-Kivu",
+  "Nord-Kivu",
+  "Ituri",
+  "Haut-Uele",
+  "Bas-Uele",
+  "Tshopo",
+  "Mongala",
+  "Nord-Ubangi",
+  "Sud-Ubangi",
+  "Équateur",
+  "Tshuapa",
+  "Tanganyika",
+  "Haut-Lomami",
+  "Lualaba",
+  "Haut-Katanga",
+] as const;
+
+const COMMUNES_KINSHASA = [
+  "Bandalungwa",
+  "Barumbu",
+  "Bumbu",
+  "Gombe",
+  "Kalamu",
+  "Kasa-Vubu",
+  "Kimbanseke",
+  "Kinshasa",
+  "Kintambo",
+  "Kisenso",
+  "Lemba",
+  "Limete",
+  "Lingwala",
+  "Makala",
+  "Maluku",
+  "Masina",
+  "Matete",
+  "Mont-Ngafula",
+  "Ndjili",
+  "Ngaba",
+  "Ngaliema",
+  "Ngiri-Ngiri",
+  "Nsele",
+  "Selembao",
+] as const;
+
 function resolveCurrentUser() {
   const session: any = lireSession();
   const local: any = getUser();
   if (!session && !local) return null;
   return { ...(local || {}), ...(session || {}) };
+}
+
+function logActivitePublication(
+  type: "navigation" | "panier" | "annonce" | "contact" | "compte",
+  message: string,
+  role?: string
+) {
+  try {
+    if (typeof window === "undefined") return;
+    const prev = readList("wenze_journal_activite");
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      ts: Date.now(),
+      date: new Date().toLocaleString("fr-FR", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+      role: role || "vendeur",
+      type,
+      message,
+    };
+    const next = [entry, ...prev].slice(0, 60);
+    localStorage.setItem("wenze_journal_activite", JSON.stringify(next));
+    window.dispatchEvent(new Event("wenze-update"));
+  } catch {}
 }
 
 function PublierContent() {
@@ -51,13 +134,19 @@ function PublierContent() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [original, setOriginal] = useState<any>(null);
   const [bloqueRole, setBloqueRole] = useState<string | null>(null);
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [geoLoading, setGeoLoading] = useState(false);
+
   const [form, setForm] = useState<any>({
     titre: "",
     description: "",
     prix: "",
     categorieId: "commerces-services",
     activiteId: "",
+    province: "Kinshasa",
     commune: "",
+    quartier: "",
+    avenue: "",
     ville: "Kinshasa",
     stock: "1",
     livraison: "Retrait / Livraison Kinshasa",
@@ -144,8 +233,11 @@ function PublierContent() {
             old.categorieId || "commerces-services"
           ),
           activiteId: old.activiteId || "",
+          province: old.province || "Kinshasa",
           commune: old.commune || "",
-          ville: old.ville || "Kinshasa",
+          quartier: old.quartier || "",
+          avenue: old.avenue || "",
+          ville: old.ville || old.province || "Kinshasa",
           stock: String(old.stock || 1),
           livraison: old.livraison || "Retrait / Livraison Kinshasa",
           typeAnnonce: old.typeAnnonce || "detail",
@@ -153,6 +245,9 @@ function PublierContent() {
           minimumCommande: String(old.minimumCommande || 10),
           uniteGros: old.uniteGros || "Carton",
         });
+        if (typeof old.lat === "number" && typeof old.lng === "number") {
+          setCoords({ lat: old.lat, lng: old.lng });
+        }
         setPhotos(
           old.images?.length
             ? old.images.slice(0, MAX_PHOTOS)
@@ -171,6 +266,7 @@ function PublierContent() {
     );
     const catObj: any = getCategorieById(fixedCat);
     const firstAct = catObj?.activites?.[0]?.id || "";
+    const provInit = u.province || "Kinshasa";
 
     setUser({
       ownerWhatsapp: u.ownerWhatsapp || u.whatsapp || "",
@@ -178,7 +274,10 @@ function PublierContent() {
       id: u.id || "",
       nom: u.nom || "",
       nomEtablissement: u.nomEtablissement || u.nom || "",
+      province: provInit,
       commune: u.commune || "",
+      quartier: u.quartier || "",
+      avenue: u.avenue || "",
       categorieId: fixedCat,
       role: vraiRole,
       roleAdmin: u.roleAdmin || "",
@@ -189,7 +288,11 @@ function PublierContent() {
         ...f,
         categorieId: fixedCat,
         activiteId: u.activiteId || firstAct,
+        province: provInit,
         commune: u.commune || f.commune,
+        quartier: u.quartier || f.quartier,
+        avenue: u.avenue || f.avenue,
+        ville: provInit,
       }));
     }
     setLoading(false);
@@ -221,6 +324,34 @@ function PublierContent() {
 
   function setField(key: string, value: string) {
     setForm((f: any) => ({ ...f, [key]: value }));
+  }
+
+  function capturerPositionGPS() {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      notify("GPS indisponible sur cet appareil", "error");
+      return;
+    }
+    setGeoLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCoords({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+        setGeoLoading(false);
+        logActivitePublication(
+          "navigation",
+          "Position GPS associée à la publication d'annonce",
+          user?.role
+        );
+        notify("📍 Position GPS enregistrée pour l'annonce");
+      },
+      () => {
+        setGeoLoading(false);
+        notify("Autorisez la position GPS dans votre navigateur", "error");
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   }
 
   function handlePublish() {
@@ -335,6 +466,11 @@ function PublierContent() {
       const createdAtFinal =
         original?.createdAt || original?.created_at || new Date().toISOString();
       const catId = normalizeCategorie(form.categorieId);
+      const provinceFinal = form.province || user.province || "Kinshasa";
+      const communeFinal = form.commune || user.commune || "Kinshasa";
+      const quartierFinal = (form.quartier || "").trim();
+      const avenueFinal = (form.avenue || "").trim();
+
       const ticketFields = isEditMode
         ? {}
         : {
@@ -364,8 +500,12 @@ function PublierContent() {
         whatsapp: wa,
         ownerName: user.nomEtablissement || user.nom || "WENZE",
         userId: user.id || wa,
-        commune: form.commune || user.commune || "Kinshasa",
-        ville: form.ville || "Kinshasa",
+        province: provinceFinal,
+        commune: communeFinal,
+        quartier: quartierFinal,
+        avenue: avenueFinal,
+        ville: form.ville || provinceFinal,
+        ...(coords ? { lat: coords.lat, lng: coords.lng } : {}),
         stock: Number(form.stock || 1),
         livraison: form.livraison,
         taux: TAUX_CDF,
@@ -398,6 +538,14 @@ function PublierContent() {
       localStorage.setItem(
         "wenze_annonces_list",
         JSON.stringify(list.slice(0, 200))
+      );
+
+      logActivitePublication(
+        "annonce",
+        isEditMode
+          ? `Annonce modifiée : "${annonce.titre}" (${provinceFinal} • ${communeFinal})`
+          : `Annonce publiée : "${annonce.titre}" (${prixNum}$ • ${provinceFinal} • ${communeFinal})`,
+        user?.role
       );
 
       let ticketLabel = "";
@@ -645,6 +793,112 @@ function PublierContent() {
           activites={activites}
         />
 
+        {/* Localisation RDC : 26 provinces, 24 communes Kinshasa, quartier, avenue + GPS */}
+        <div className="bg-white border rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="font-black text-[13px]">📍 Localisation (RDC)</p>
+            <button
+              type="button"
+              onClick={capturerPositionGPS}
+              disabled={geoLoading}
+              className="rounded-full bg-black text-white px-3 py-1 text-[10px] font-black"
+            >
+              {geoLoading
+                ? "GPS..."
+                : coords
+                ? "✓ GPS actif"
+                : "📍 Ma position GPS"}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] font-bold text-gray-600">
+                Province (26)
+              </label>
+              <select
+                value={form.province}
+                onChange={(e) => {
+                  const prov = e.target.value;
+                  setForm((f: any) => ({
+                    ...f,
+                    province: prov,
+                    ville: prov,
+                    commune:
+                      prov === "Kinshasa"
+                        ? COMMUNES_KINSHASA.includes(f.commune as any)
+                          ? f.commune
+                          : "Gombe"
+                        : f.commune || prov,
+                  }));
+                }}
+                className="w-full border-2 rounded-xl px-2.5 py-2 text-[12px] mt-1 bg-white"
+              >
+                {PROVINCES_RDC.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-[10px] font-bold text-gray-600">
+                Commune
+              </label>
+              {form.province === "Kinshasa" ? (
+                <select
+                  value={form.commune}
+                  onChange={(e) => setField("commune", e.target.value)}
+                  className="w-full border-2 rounded-xl px-2.5 py-2 text-[12px] mt-1 bg-white"
+                >
+                  <option value="">Choisir commune...</option>
+                  {COMMUNES_KINSHASA.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={form.commune}
+                  onChange={(e) => setField("commune", e.target.value)}
+                  placeholder="Ville / Commune / Territoire"
+                  className="w-full border-2 rounded-xl px-2.5 py-2 text-[12px] mt-1"
+                />
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-[10px] font-bold text-gray-600">
+                Quartier
+              </label>
+              <input
+                type="text"
+                value={form.quartier}
+                onChange={(e) => setField("quartier", e.target.value)}
+                placeholder="Ex : Matonge"
+                className="w-full border-2 rounded-xl px-2.5 py-2 text-[12px] mt-1"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-gray-600">
+                Avenue
+              </label>
+              <input
+                type="text"
+                value={form.avenue}
+                onChange={(e) => setField("avenue", e.target.value)}
+                placeholder="Ex : Victoire"
+                className="w-full border-2 rounded-xl px-2.5 py-2 text-[12px] mt-1"
+              />
+            </div>
+          </div>
+        </div>
+
         {estGros ? (
           <div className="bg-white border-2 border-orange-300 rounded-2xl p-4 space-y-3">
             <p className="font-black text-[13px]">🏭 Prix Gros</p>
@@ -736,4 +990,5 @@ export default function PublierPage() {
       <PublierContent />
     </Suspense>
   );
-            }
+}
+            
